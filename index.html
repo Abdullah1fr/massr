@@ -33339,7 +33339,7 @@ updateAIThinkingButton();
    - بيتفعّل بس على https (مش file://) وبعد ما تسمح بالإشعارات. على أندرويد APK بيشتغل المنبه الأصلي زي ما هو. */
 (function () {
     'use strict';
-    var PUSH_URL_DEFAULT = '';
+    var PUSH_URL_DEFAULT = 'https://alarms-push.abdo-k888888.workers.dev';
     var VAPID_PUBLIC = 'BOGBUSE9xJWtNh-1So9PaktGro9cY8sgJc5shxMHGyh5m2R6EVERz3NT5zByHn_IjkLDrqrWvYjvc6pDTxgzWQk';
     var HORIZON_DAYS = 45, MAX_ITEMS = 300;
     var isNative = !!(window.AndroidNative && typeof AndroidNative.isBiometricAvailable === 'function'); // أندرويد حقيقي (المحاكي بتاع الويب مفيهوش الدالة دي)
