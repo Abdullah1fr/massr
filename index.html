@@ -6158,13 +6158,22 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
                 </div>
 
                 <div class="settings-list-item" onclick="toggleSettingsItem(this)">
+                    <span class="settings-list-icon" style="background:#8b5cf6;">📲</span>
+                    <span class="settings-list-label">ربط الأجهزة (مزامنة تلقائية)</span>
+                    <span class="settings-list-chevron">‹</span>
+                </div>
+                <div class="settings-section settings-collapsible">
+                    <div id="dlSettingsBody"></div>
+                </div>
+
+                <div class="settings-list-item" onclick="toggleSettingsItem(this)">
                     <span class="settings-list-icon" style="background:#22c55e;">🔗</span>
-                    <span class="settings-list-label">مزامنة مباشرة بين جهازين</span>
+                    <span class="settings-list-label">نقل البيانات بين جهازين</span>
                     <span class="settings-list-chevron">‹</span>
                 </div>
                 <div class="settings-section settings-collapsible">
                     <div class="settings-section-desc">نقل مباشر لبياناتك بين جهازين (مهام، ملاحظات، تصنيفات) من غير رفعها لأي سيرفر. الكود مؤمّن برمز سري مؤقت ومشفّر، وصلاحيته دقيقتين بس.</div>
-                    <button class="btn" style="width:100%;" onclick="openSyncModal()">🔗 مزامنة الآن</button>
+                    <button class="btn" style="width:100%;" onclick="openSyncModal()">🔗 نقل البيانات الآن</button>
                 </div>
 
                 <div class="settings-list-item" onclick="toggleSettingsItem(this)">
@@ -6992,7 +7001,7 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
     <!-- نافذة مزامنة الأجهزة عبر QR (اتصال مباشر Peer-to-Peer) -->
     <div class="modal" id="syncModal" onclick="if(event.target===this) closeSyncModal()">
         <div class="modal-content">
-            <h3 style="color:var(--accent); margin-bottom:10px;">🔗 مزامنة الأجهزة</h3>
+            <h3 style="color:var(--accent); margin-bottom:10px;">🔗 نقل البيانات بين الأجهزة</h3>
             <div class="sync-tabs">
                 <button class="sync-tab-btn active" id="syncTabBtn-show" onclick="switchSyncTab('show')">📤 عرض QR (إرسال)</button>
                 <button class="sync-tab-btn" id="syncTabBtn-scan" onclick="switchSyncTab('scan')">📥 استقبال</button>
@@ -7025,6 +7034,45 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
 
             <div class="btn-group" style="margin-top:14px;">
                 <button class="btn btn-secondary" onclick="closeSyncModal()">إغلاق</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- نافذة ربط الأجهزة (مزامنة تلقائية عبر Firebase) -->
+    <div class="modal" id="dlModal" onclick="if(event.target===this) dlCloseModal()">
+        <div class="modal-content">
+            <h3 style="color:var(--accent); margin-bottom:10px;">📲 ربط جهاز جديد</h3>
+            <div class="sync-tabs">
+                <button class="sync-tab-btn active" id="dlTabBtn-show" onclick="dlSwitchTab('show')">🔢 عرض كود</button>
+                <button class="sync-tab-btn" id="dlTabBtn-enter" onclick="dlSwitchTab('enter')">📷 مسح كود</button>
+            </div>
+
+            <div class="sync-panel" id="dlPanel-enter">
+                <div class="settings-section-desc">وجّه الكاميرا على الـ QR اللي ظاهر على الجهاز التاني. لو مفيش كاميرا اكتب الكود اللي ظاهر هناك في الخانة اللي تحت.</div>
+                <button class="btn" style="width:100%;" id="dlCamBtn" onclick="dlToggleCam()">📷 فتح الكاميرا</button>
+                <div class="sync-scan-camera-wrap" id="dlCamWrap">
+                    <video id="dlCamVideo" playsinline muted autoplay></video>
+                    <div class="sync-scan-frame"></div>
+                </div>
+                <canvas id="dlCamCanvas" style="display:none;"></canvas>
+                <div class="sync-divider">أو اكتب الكود</div>
+                <div class="task-options-row">
+                    <input type="text" id="dlManualCode" placeholder="XXXX-XXXX" autocomplete="off" maxlength="9" style="text-align:center; font-family:monospace; text-transform:uppercase;">
+                </div>
+                <button class="btn" style="width:100%; margin-top:6px;" onclick="dlSubmitCode()">🔗 ربط</button>
+                <div class="sync-status" id="dlEnterStatus"></div>
+            </div>
+
+            <div class="sync-panel active" id="dlPanel-show">
+                <div class="settings-section-desc">هيظهر هنا كود وQR. على الجهاز التاني افتح "ربط جهاز" ← تاب "مسح كود" وامسح الـ QR (أو اكتب الكود). الكود صالح 5 دقايق.</div>
+                <div class="sync-qr-box" id="dlQrBox"><span style="color:#666; font-size:0.8rem;">جاري التجهيز...</span></div>
+                <div class="sync-code-box" id="dlCodeText">—</div>
+                <div class="sync-status" id="dlShowStatus"></div>
+                <button class="btn btn-secondary" style="width:100%; margin-top:6px;" onclick="dlRegenPair()">🔄 كود جديد</button>
+            </div>
+
+            <div class="btn-group" style="margin-top:14px;">
+                <button class="btn btn-secondary" onclick="dlCloseModal()">إغلاق</button>
             </div>
         </div>
     </div>
@@ -15202,13 +15250,13 @@ function restoreTimerState() {
         syncApplied = true;
         const proceed = confirm('استلمنا بيانات من الجهاز التاني. سيتم استبدال بياناتك الحالية (المهام، الملاحظات، الإحصائيات) بها. هل تريد المتابعة؟');
         if (!proceed) {
-            showToast('تم إلغاء المزامنة');
+            showToast('تم إلغاء النقل');
             closeSyncModal();
             syncApplied = false;
             return;
         }
         applyImportedDataBundle(data);
-        showToast('تمت المزامنة بنجاح ✅');
+        showToast('تم نقل البيانات بنجاح ✅');
         closeSyncModal();
         syncApplied = false;
     }
@@ -15910,7 +15958,7 @@ function restoreTimerState() {
             // مهم جدًا مع تشغيل ملف HTML محليًا (content://): لا نعتمد على عنوان الصفحة الحالية.
             // نحدد عنوان Firebase الموثوق الذي سيُستخدم داخل رسالة الاسترجاع.
             const actionCodeSettings = {
-                url: 'https://productivity-platform-44a5a.firebaseapp.com',
+                url: 'https://my-productivity-app-da499.firebaseapp.com',
                 handleCodeInApp: false
             };
             await fbAuth.sendPasswordResetEmail(email, actionCodeSettings);
@@ -15930,7 +15978,7 @@ function restoreTimerState() {
         if (!email || fbInitError || !fbAuth) return;
         try {
             const actionCodeSettings = {
-                url: 'https://productivity-platform-44a5a.firebaseapp.com',
+                url: 'https://my-productivity-app-da499.firebaseapp.com',
                 handleCodeInApp: false
             };
             await fbAuth.sendPasswordResetEmail(email, actionCodeSettings);
@@ -17095,12 +17143,12 @@ function renderColorSwatches() {
 // Project Settings > عمومي > انزل لـ "تطبيقاتك" > أضف تطبيق > أيقونة </> (ويب)
 // ده مختلف عن إعدادات تطبيق الأندرويد الموجودة في google-services.json.
 const firebaseConfig = {
-    apiKey: "AIzaSyDZazVeKBMBqNnvdChf2QsvasvR02jOaNQ",
-    authDomain: "productivity-platform-44a5a.firebaseapp.com",
-    projectId: "productivity-platform-44a5a",
-    storageBucket: "productivity-platform-44a5a.firebasestorage.app",
-    messagingSenderId: "1035599956819",
-    appId: "1:1035599956819:web:4fb29c6d8375c9386d6fa6"
+    apiKey: "AIzaSyD3SFYP3phlUW7B9s0hYq260dl3UxR0P_A",
+    authDomain: "my-productivity-app-da499.firebaseapp.com",
+    projectId: "my-productivity-app-da499",
+    storageBucket: "my-productivity-app-da499.firebasestorage.app",
+    messagingSenderId: "171431281466",
+    appId: "1:171431281466:web:67abf60dec2c51c08dc603"
 };
 
 let fbAuth = null;
@@ -17230,7 +17278,7 @@ function handleForgotPassword() {
     }
     setEmailAuthMsg('جاري إرسال رابط الاسترجاع...', false);
     const actionCodeSettings = {
-        url: 'https://productivity-platform-44a5a.firebaseapp.com',
+        url: 'https://my-productivity-app-da499.firebaseapp.com',
         handleCodeInApp: false
     };
     fbAuth.sendPasswordResetEmail(email, actionCodeSettings).then(function () {
@@ -18431,7 +18479,7 @@ const NAV_TARGETS = {
     'postponed-tasks-modal': { label: 'مودال المهام المؤجلة', run: () => openPostponedTasksModal() },
     'daily-goal-modal': { label: 'مودال الهدف اليومي', run: () => openDailyGoalModal() },
     'settings-modal': { label: 'مودال الإعدادات', run: () => openSettingsModal() },
-    'sync-modal': { label: 'مودال المزامنة بين جهازين', run: () => openSyncModal() },
+    'sync-modal': { label: 'مودال نقل البيانات بين جهازين', run: () => openSyncModal() },
 
     // ---- إعدادات شديدة الحساسية: هايلايت + تعليمات بس، ممنوع أي تنفيذ فعلي ----
     'app-lock-settings': {
@@ -35535,6 +35583,735 @@ window.aiAgent={ok:true,begin,names,used,runBatch,guide,claimsUnbacked,nudgeText
 }catch(e){try{console.warn('aiAgentCore failed',e)}catch(_){}}
 })();
 
+</script>
+<script id="deviceLinkScript">
+/* ربط الأجهزة — مزامنة تلقائية في الاتجاهين بين أكتر من جهاز (زي واتساب ويب)
+   - الربط بكود/QR قصير الصلاحية (5 دقايق، مرة واحدة) بيدّي الجهاز الجديد مفتاح مجموعة عشوائي طويل.
+   - كل عنصر (مهمة/ملاحظة/تصنيف/يوم مخطط) بيتخزن لوحده ويتدمج بـ "آخر تعديل يكسب"، والمحذوف بيتحذف من الباقي.
+   - عدّادات التركيز والجلسات بتتجمع من كل الأجهزة (مش بتستبدل)، وسجل الإنجازات/الجلسات بيتدمج كاتحاد.
+   - أول مرة جهاز يتربط: بيعمل نسخة احتياطية من بياناته قبل الدمج. */
+(function () {
+    'use strict';
+    var LS = window.localStorage;
+    var STATE_KEY = 'app_link_state', META_KEY = 'app_link_meta', CTR_KEY = 'app_link_ctr';
+    var MAX_ITEM = 900000;
+    var RULES_TEXT = "rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n\n    match /users/{uid} {\n      allow read, write: if request.auth != null && request.auth.uid == uid;\n    }\n\n    match /pairs/{code} {\n      allow get, create, update, delete: if true;\n    }\n    match /links/{linkId} {\n      allow get, create, update: if true;\n      match /items/{doc} { allow read, write: if true; }\n      match /devices/{doc} { allow read, write: if true; }\n    }\n  }\n}\n";
+
+    function jget(k, d) { try { var v = LS.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } }
+    function jset(k, v) { try { LS.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } }
+    function $(id) { return document.getElementById(id); }
+    function toast(m) { try { showToast(m); } catch (e) { } }
+    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+    function todayKey() { try { return getDateKey(); } catch (e) { return new Date().toISOString().slice(0, 10); } }
+    function hash(s) {
+        var h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+        for (var i = 0; i < s.length; i++) { var c = s.charCodeAt(i); h1 = Math.imul(h1 ^ c, 2654435761); h2 = Math.imul(h2 ^ c, 1597334677); }
+        h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+        h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+        return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36) + '.' + s.length;
+    }
+    function randHex(bytes) { var a = new Uint8Array(bytes); crypto.getRandomValues(a); return Array.from(a).map(function (b) { return b.toString(16).padStart(2, '0'); }).join(''); }
+    function genCode() { var al = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789', a = new Uint8Array(8), s = ''; crypto.getRandomValues(a); for (var i = 0; i < 8; i++) s += al[a[i] % al.length]; return s; }
+    function normCode(raw) { return String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+    function platform() {
+        var u = navigator.userAgent || '';
+        if (window.AndroidNative) return 'تطبيق أندرويد';
+        if (/iPhone/i.test(u)) return 'آيفون';
+        if (/iPad/i.test(u)) return 'آيباد';
+        if (/Android/i.test(u)) return 'تليفون أندرويد';
+        if (/Windows/i.test(u)) return 'كمبيوتر ويندوز';
+        if (/Mac/i.test(u)) return 'ماك';
+        if (/Linux/i.test(u)) return 'كمبيوتر لينكس';
+        return 'جهاز';
+    }
+
+    /* ---------- الحالة ---------- */
+    var st = jget(STATE_KEY, null);      // { linkId, deviceId, name, initialized, joinedAt }
+    var meta = jget(META_KEY, {});       // { coll: { id: {h,t,d,p} } }
+    var ctr = jget(CTR_KEY, {});         // { name: {o: مجموع مساهمات الأجهزة التانية} }
+    var rt = freshRt();
+    function freshRt() {
+        return { on: false, ready: false, synced: false, pushing: false, unsubs: [], devices: [], devKnown: null,
+            status: 'off', lastSync: 0, ctrRemote: {}, ctrHash: undefined, uh: {}, foreign: { logs: new Set(), completed: new Set() },
+            touched: {}, idc: {}, scanTimer: null, hbTimer: null, pair: null, bigWarned: {}, massAsked: false };
+    }
+    function saveState() { if (st) jset(STATE_KEY, st); else LS.removeItem(STATE_KEY); }
+    var saveT = null;
+    function saveSoon() { if (saveT) return; saveT = setTimeout(function () { saveT = null; jset(META_KEY, meta); jset(CTR_KEY, ctr); }, 800); }
+
+    /* ---------- مهايئات البيانات ---------- */
+    function arrById(get, key, kind, guard) {
+        function idx(id) { var a = get(); for (var i = 0; i < a.length; i++) { if (a[i] && String(a[i].id) === id) return i; } return -1; }
+        return {
+            kind: kind, guard: guard,
+            read: function () { var m = new Map(); get().forEach(function (x) { if (x && x.id !== undefined && x.id !== null) m.set(String(x.id), x); }); return m; },
+            upsert: function (id, v) { var i = idx(id); if (i >= 0) get()[i] = v; else get().push(v); },
+            remove: function (id) { var i = idx(id); if (i >= 0) get().splice(i, 1); },
+            save: function () { LS.setItem(key, JSON.stringify(get())); }
+        };
+    }
+    var ADAPT = {
+        tasks: arrById(function () { return tasks; }, 'app_tasks', 'meta'),
+        notes: arrById(function () { return notePages; }, 'app_note_pages', 'meta', function () { return notePages.length > 0; }),
+        cats: {
+            kind: 'meta',
+            read: function () { var m = new Map(); categories.forEach(function (c) { if (typeof c === 'string') m.set(c, c); }); return m; },
+            upsert: function (id) { if (categories.indexOf(id) < 0) categories.push(id); },
+            remove: function (id) { var i = categories.indexOf(id); if (i >= 0) categories.splice(i, 1); },
+            save: function () { LS.setItem('app_categories', JSON.stringify(categories)); }
+        },
+        planned: {
+            kind: 'meta',
+            read: function () { var m = new Map(); Object.keys(plannedDays || {}).forEach(function (k) { m.set(k, plannedDays[k]); }); return m; },
+            upsert: function (id, v) { plannedDays[id] = v; },
+            remove: function (id) { delete plannedDays[id]; },
+            save: function () { LS.setItem('app_planned_days', JSON.stringify(plannedDays)); }
+        },
+        prefs: {
+            kind: 'meta',
+            read: function () {
+                var m = new Map();
+                m.set('goal', Number(dailyGoalMinutes) || 60);
+                m.set('streak', { s: Number(currentStreak) || 0, d: LS.getItem('app_last_active_date') || '' });
+                return m;
+            },
+            upsert: function (id, v) {
+                if (id === 'goal') { dailyGoalMinutes = parseInt(v) || 60; }
+                else if (id === 'streak' && v) {
+                    var ld = LS.getItem('app_last_active_date') || '';
+                    if ((v.d || '') >= ld) { currentStreak = parseInt(v.s) || 0; if (v.d) LS.setItem('app_last_active_date', v.d); }
+                }
+            },
+            remove: function () { },
+            save: function () { LS.setItem('app_daily_goal_minutes', dailyGoalMinutes); LS.setItem('app_streak', currentStreak); }
+        },
+        logs: arrById(function () { return historyLogs; }, 'app_history_logs', 'union'),
+        completed: arrById(function () { return completedHistory; }, 'app_completed_history', 'union')
+    };
+    var UNION = ['logs', 'completed'];
+
+    /* ---------- العدّادات (بتتجمع من الأجهزة) ---------- */
+    function getCtr(n) {
+        var p = n.split(':'), k = p[0], d = p.slice(1).join(':');
+        if (k === 'focus') return Number((dailyFocusHistory || {})[d]) || 0;
+        if (k === 'sess') return d === todayKey() ? (Number(sessionCount) || 0) : 0;
+        return 0;
+    }
+    function setCtr(n, val) {
+        var p = n.split(':'), k = p[0], d = p.slice(1).join(':');
+        val = Math.max(0, Math.round(val));
+        if (k === 'focus') {
+            var old = Number(dailyFocusHistory[d]) || 0;
+            dailyFocusHistory[d] = val;
+            LS.setItem('app_daily_history', JSON.stringify(dailyFocusHistory));
+            if (d === todayKey()) {
+                todayFocusSeconds = Math.max(0, (Number(todayFocusSeconds) || 0) + (val - old));
+                todayFocusMinutes = Math.floor(todayFocusSeconds / 60);
+                LS.setItem('app_today_focus_seconds', todayFocusSeconds);
+                LS.setItem('app_today_focus', todayFocusMinutes);
+            }
+            rt.touched.ctr = 1;
+        } else if (k === 'sess' && d === todayKey()) {
+            sessionCount = val; LS.setItem('app_today_sessions', sessionCount); rt.touched.ctr = 1;
+        }
+    }
+    function applyAllCtr() {
+        var names = {};
+        Object.keys(rt.ctrRemote).forEach(function (dev) { Object.keys(rt.ctrRemote[dev]).forEach(function (n) { names[n] = 1; }); });
+        Object.keys(names).forEach(function (n) {
+            var R = 0;
+            Object.keys(rt.ctrRemote).forEach(function (dev) { R += Number(rt.ctrRemote[dev][n]) || 0; });
+            var local = getCtr(n), s = ctr[n];
+            if (!s) {
+                // أول لقاء بالعدّاد ده: ناخد الأكبر (عشان لو الجهاز كان واخد نسخة قديمة منقولة ما يتحسبش مرتين)
+                if (R > local) setCtr(n, R);
+                ctr[n] = { o: R };
+            } else if (R !== s.o) {
+                setCtr(n, local + (R - s.o)); s.o = R;
+            }
+        });
+    }
+
+    /* ---------- مراجع Firestore ---------- */
+    function linkRef() { return fbDb.collection('links').doc(st.linkId); }
+    function itemsCol() { return linkRef().collection('items'); }
+    function devicesCol() { return linkRef().collection('devices'); }
+
+    /* ---------- فحص التغييرات المحلية ---------- */
+    function scan(noPush) {
+        if (!st || !st.initialized || !rt.ready) return;
+        var now = Date.now(), out = [];
+        Object.keys(ADAPT).forEach(function (c) {
+            var ad = ADAPT[c];
+            if (ad.kind !== 'meta') return;
+            try {
+                if (ad.guard && !ad.guard()) return;
+                var snap = ad.read(), m = meta[c] || (meta[c] = {});
+                snap.forEach(function (v, id) {
+                    var js = JSON.stringify(v), h = hash(js), cur = m[id];
+                    if (!cur || cur.h !== h || cur.d) { cur = m[id] = { h: h, t: now, d: false, p: false }; saveSoon(); }
+                    if (!cur.p) out.push({ kind: 'meta', c: c, id: id, js: js, t: cur.t, d: false });
+                });
+                var tomb = Object.keys(m).filter(function (id) { return !snap.has(id) && !m[id].d; });
+                var live = Object.keys(m).filter(function (id) { return !m[id].d; }).length;
+                var silent = false;
+                if (tomb.length >= 5 && tomb.length >= live * 0.6) {
+                    if (rt.massAsked) return;
+                    rt.massAsked = true;
+                    var ok = true;
+                    try { ok = confirm('اتحذف ' + tomb.length + ' عنصر من (' + c + ') مرة واحدة على الجهاز ده. تحب الحذف يتطبق على باقي الأجهزة كمان؟\n(لو لغيت، هيفضلوا موجودين على الأجهزة التانية)'); } catch (e) { }
+                    rt.massAsked = false; silent = !ok;
+                }
+                tomb.forEach(function (id) { m[id] = { h: null, t: now, d: true, p: silent }; saveSoon(); if (!silent) out.push({ kind: 'meta', c: c, id: id, js: null, t: now, d: true }); });
+                Object.keys(m).forEach(function (id) {
+                    var cur = m[id];
+                    if (cur.d && !cur.p && !snap.has(id) && tomb.indexOf(id) < 0) out.push({ kind: 'meta', c: c, id: id, js: null, t: cur.t, d: true });
+                });
+            } catch (e) { }
+        });
+        // العدّادات: مساهمة الجهاز ده فقط
+        try {
+            var names = Object.keys(dailyFocusHistory || {}).map(function (k) { return 'focus:' + k; });
+            names.push('sess:' + todayKey());
+            var own = {};
+            names.forEach(function (n) { var s = ctr[n] || (ctr[n] = { o: 0 }); var v = Math.max(0, getCtr(n) - s.o); if (v > 0) own[n] = v; });
+            var cj = JSON.stringify(own), ch = hash(cj);
+            if (ch !== rt.ctrHash && !(cj === '{}' && rt.ctrHash === undefined)) out.push({ kind: 'ctr', js: cj, h: ch, t: now });
+            saveSoon();
+        } catch (e) { }
+        // سجلات الإنجازات والجلسات: كل جهاز بيرفع اللي سجّله هو (مقسّم بالشهر)
+        UNION.forEach(function (c) {
+            try {
+                var groups = {};
+                ADAPT[c].read().forEach(function (v, id) {
+                    if (rt.foreign[c].has(id)) return;
+                    var mo = String((v && v.date) || '').slice(0, 7) || 'x';
+                    (groups[mo] || (groups[mo] = [])).push(v);
+                });
+                Object.keys(rt.uh).forEach(function (k) { if (k.indexOf(c + '~') === 0 && !groups[k.slice(c.length + 1)]) groups[k.slice(c.length + 1)] = []; });
+                Object.keys(groups).forEach(function (mo) {
+                    var js = JSON.stringify(groups[mo]), h = hash(js), key = c + '~' + mo;
+                    if (rt.uh[key] === undefined && js === '[]') return;
+                    if (rt.uh[key] !== h) out.push({ kind: 'u', c: c, mo: mo, js: js, h: h, key: key, t: now });
+                });
+            } catch (e) { }
+        });
+        if (!noPush && rt.synced && !rt.pushing && out.length) push(out);
+    }
+
+    /* ---------- الرفع ---------- */
+    function docFor(o) {
+        var by = st.deviceId;
+        if (o.kind === 'meta') return { id: 'i~' + o.c + '~' + encodeURIComponent(o.id), data: { c: o.c, id: o.id, v: o.js, t: o.t, d: !!o.d, by: by } };
+        if (o.kind === 'ctr') return { id: 'ctr~' + by, data: { c: 'ctr', by: by, v: o.js, t: o.t } };
+        return { id: 'u~' + o.c + '~' + o.mo + '~' + by, data: { c: 'u', k: o.c, mo: o.mo, by: by, v: o.js, t: o.t } };
+    }
+    function markPushed(o) {
+        if (o.kind === 'meta') { var cur = meta[o.c] && meta[o.c][o.id]; if (cur && cur.t === o.t) cur.p = true; }
+        else if (o.kind === 'ctr') rt.ctrHash = o.h;
+        else rt.uh[o.key] = o.h;
+    }
+    function push(out) {
+        if (!fbDb || !st) return;
+        var chunks = [], cur = [], size = 0;
+        out.forEach(function (o) {
+            var sz = (o.js || '').length + 300;
+            if (sz > MAX_ITEM) {
+                markPushed(o);
+                if (!rt.bigWarned[o.kind + (o.id || o.key || '')]) { rt.bigWarned[o.kind + (o.id || o.key || '')] = 1; toast('في عنصر كبير جدًا (أكتر من 900 ك.ب) مش هيتزامن مع الأجهزة التانية ⚠️'); }
+                return;
+            }
+            if (cur.length >= 400 || size + sz > 3000000) { chunks.push(cur); cur = []; size = 0; }
+            cur.push(o); size += sz;
+        });
+        if (cur.length) chunks.push(cur);
+        if (!chunks.length) return;
+        rt.pushing = true;
+        var col = itemsCol(), p = Promise.resolve();
+        chunks.forEach(function (ch) {
+            p = p.then(function () {
+                var b = fbDb.batch();
+                ch.forEach(function (o) { var d = docFor(o); b.set(col.doc(d.id), d.data); });
+                return b.commit().then(function () { ch.forEach(markPushed); });
+            });
+        });
+        p.then(function () { rt.pushing = false; rt.lastSync = Date.now(); setStatus('ok'); saveSoon(); })
+            .catch(function (e) { rt.pushing = false; handleErr(e); });
+    }
+
+    /* ---------- الاستقبال ---------- */
+    function hasLocal(c, id) {
+        var s = rt.idc[c];
+        if (!s) { s = rt.idc[c] = new Set(Array.from(ADAPT[c].read().keys())); }
+        return s.has(id);
+    }
+    function applyDoc(d, force) {
+        if (!d) return;
+        if (d.c === 'ctr') {
+            var vals; try { vals = JSON.parse(d.v || '{}'); } catch (e) { return; }
+            if (d.by === st.deviceId) { rt.ctrHash = hash(d.v || '{}'); return; }
+            rt.ctrRemote[d.by] = vals; return;
+        }
+        if (d.c === 'u') {
+            var arr; try { arr = JSON.parse(d.v || '[]'); } catch (e) { return; }
+            if (!ADAPT[d.k]) return;
+            if (d.by === st.deviceId) { rt.uh[d.k + '~' + d.mo] = hash(d.v || '[]'); return; }
+            var ad0 = ADAPT[d.k];
+            arr.forEach(function (e) {
+                if (!e || e.id === undefined) return;
+                var id = String(e.id);
+                rt.foreign[d.k].add(id);
+                if (!hasLocal(d.k, id)) { ad0.upsert(id, e); rt.idc[d.k].add(id); rt.touched[d.k] = 1; }
+            });
+            return;
+        }
+        var ad = ADAPT[d.c];
+        if (!ad || ad.kind !== 'meta') return;
+        var m = meta[d.c] || (meta[d.c] = {}), cur = m[d.id];
+        if (!force && cur && d.t <= cur.t) return;
+        if (d.d) {
+            if (!cur || !cur.d) ad.remove(d.id);
+            m[d.id] = { h: null, t: d.t, d: true, p: true };
+        } else {
+            var val; try { val = JSON.parse(d.v); } catch (e) { return; }
+            ad.upsert(d.id, val);
+            m[d.id] = { h: hash(JSON.stringify(val)), t: d.t, d: false, p: true };
+        }
+        rt.touched[d.c] = 1;
+    }
+    function finishApply() {
+        applyAllCtr();
+        rt.idc = {};
+        var T = rt.touched; rt.touched = {};
+        Object.keys(T).forEach(function (c) { if (ADAPT[c]) { try { ADAPT[c].save(); } catch (e) { } } });
+        saveSoon();
+        refreshUI(T);
+    }
+    function refreshNotes() {
+        try {
+            var ed = $('currentNoteContent');
+            var page = notePages.find(function (p) { return p.id === currentNoteId; });
+            if (!page) { if (notePages.length) switchNotePage(notePages[0].id); }
+            else if (ed && document.activeElement !== ed) {
+                if (ed.innerHTML !== page.content) ed.innerHTML = page.content;
+                var ti = $('currentNoteTitle'); if (ti && document.activeElement !== ti) ti.value = page.title;
+            }
+            renderNotesTabs();
+        } catch (e) { }
+    }
+    function refreshUI(T) {
+        try {
+            if (T.tasks) { if (typeof renderTasks === 'function') renderTasks(); if (typeof scheduleAllReminders === 'function') scheduleAllReminders(); }
+            if (T.cats && typeof renderCategoriesUI === 'function') renderCategoriesUI();
+            if (T.notes) refreshNotes();
+            if (T.planned && typeof renderWeeklyCalendar === 'function') renderWeeklyCalendar();
+            if ((T.tasks || T.ctr || T.completed || T.logs || T.prefs || T.cats) && typeof updateStatsUI === 'function') updateStatsUI();
+            if (T.prefs) { var gi = $('dailyGoalInput'); if (gi) gi.value = dailyGoalMinutes; }
+        } catch (e) { }
+    }
+    function backup() {
+        var data; try { data = buildDataBundle(); } catch (e) { return; }
+        var s = JSON.stringify({ savedAt: new Date().toISOString(), data: data });
+        try { LS.setItem('app_link_backup_before_merge', s); return; } catch (e) { }
+        try {
+            var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([s], { type: 'application/json' }));
+            a.download = 'backup-before-link-' + Date.now() + '.json'; document.body.appendChild(a); a.click(); a.remove();
+            toast('نزّلت نسخة احتياطية من بياناتك قبل الدمج 💾');
+        } catch (e2) { }
+    }
+    function onItems(snap) {
+        if (!st) return;
+        var fromCache = snap.metadata && snap.metadata.fromCache;
+        if (!st.initialized) {
+            if (fromCache) return;
+            backup();
+            snap.docs.forEach(function (d) { applyDoc(d.data(), true); });
+            st.initialized = true; saveState();
+            rt.synced = true;
+            finishApply();
+            setStatus('ok'); scan();
+            toast('تم ربط الجهاز ودمج البيانات ✅');
+            return;
+        }
+        scan(true);   // نسجّل التعديلات المحلية الأول (من غير رفع) عشان المقارنة بالتوقيت تبقى عادلة
+        snap.docChanges().forEach(function (ch) { if (ch.type !== 'removed') applyDoc(ch.doc.data(), false); });
+        finishApply();
+        if (!fromCache && !rt.synced) { rt.synced = true; rt.lastSync = Date.now(); setStatus('ok'); }
+        scan();
+    }
+
+    /* ---------- الأجهزة ---------- */
+    function onDevices(snap) {
+        if (!st) return;
+        var list = snap.docs.map(function (d) { return Object.assign({ id: d.id }, d.data()); });
+        var me = list.filter(function (x) { return x.id === st.deviceId; })[0];
+        if (me && me.revoked) { try { devicesCol().doc(st.deviceId).delete(); } catch (e) { } disconnect('تم فك ربط الجهاز ده من جهاز آخر'); return; }
+        rt.devices = list.filter(function (x) { return !x.revoked; });
+        var ids = rt.devices.map(function (x) { return x.id; });
+        if (rt.devKnown) {
+            rt.devices.forEach(function (x) { if (rt.devKnown.indexOf(x.id) < 0 && x.id !== st.deviceId) { toast('تم ربط "' + (x.name || 'جهاز جديد') + '" ✅'); if (rt.pair) closeModal(); } });
+        }
+        rt.devKnown = ids;
+        render();
+    }
+    function heartbeat() {
+        if (!st || !rt.on || document.visibilityState === 'hidden') return;
+        try { devicesCol().doc(st.deviceId).set({ lastSeen: Date.now() }, { merge: true }).catch(function () { }); } catch (e) { }
+    }
+
+    /* ---------- الحالة والأخطاء ---------- */
+    function setStatus(s) { rt.status = s; render(); }
+    function handleErr(e) {
+        var code = e && e.code || '';
+        if (code === 'permission-denied') setStatus('rules');
+        else if (code === 'unavailable') setStatus('offline');
+        else { rt.errCode = code || (e && e.message) || 'unknown'; setStatus('error'); }
+    }
+
+    /* ---------- التشغيل والإيقاف ---------- */
+    function start() {
+        if (!st || rt.on) return;
+        var ok = false; try { ok = !!fbDb; } catch (e) { }
+        if (!ok) { setStatus('nofb'); setTimeout(start, 6000); return; }
+        rt.on = true; setStatus('connecting');
+        try { fbDb.enablePersistence({ synchronizeTabs: true }).catch(function () { }); } catch (e) { }
+        try { devicesCol().doc(st.deviceId).set({ name: st.name, platform: platform(), lastSeen: Date.now(), joinedAt: st.joinedAt || Date.now() }, { merge: true }).catch(handleErr); } catch (e) { handleErr(e); }
+        rt.unsubs.push(itemsCol().onSnapshot(onItems, handleErr));
+        rt.unsubs.push(devicesCol().onSnapshot(onDevices, handleErr));
+        rt.scanTimer = setInterval(function () { scan(); }, 4000);
+        rt.hbTimer = setInterval(heartbeat, 90000);
+    }
+    function stop() {
+        rt.unsubs.forEach(function (u) { try { u(); } catch (e) { } });
+        if (rt.scanTimer) clearInterval(rt.scanTimer);
+        if (rt.hbTimer) clearInterval(rt.hbTimer);
+    }
+    function disconnect(msg) {
+        stop(); cleanupPair();
+        st = null; meta = {}; ctr = {};
+        LS.removeItem(STATE_KEY); LS.removeItem(META_KEY); LS.removeItem(CTR_KEY);
+        rt = freshRt(); rt.ready = true; rt.status = 'off';
+        render();
+        if (msg) toast(msg);
+    }
+
+    /* ---------- الربط بكود ---------- */
+    function defaultName() { return platform(); }
+    function T(p) { return new Promise(function (res, rej) { var id = setTimeout(function () { rej({ code: 'timeout' }); }, 12000); p.then(function (v) { clearTimeout(id); res(v); }, function (e) { clearTimeout(id); rej(e); }); }); }
+    function helpBoxes(show) { var l = document.querySelectorAll('#dlModal .dl-rules-help'); for (var i = 0; i < l.length; i++) l[i].style.display = show ? 'block' : 'none'; }
+    function showFail(e) {
+        var code = (e && e.code) || '', status = $('dlShowStatus'), box = $('dlQrBox'), codeEl = $('dlCodeText');
+        var msg, boxMsg;
+        if (code === 'permission-denied') { msg = 'خدمة الربط مش جاهزة حاليًا، حاول بعد شوية ⚠️'; boxMsg = '⚠ الخدمة مش جاهزة حاليًا'; setStatus('rules'); }
+        else if (code === 'timeout' || code === 'unavailable') { msg = 'مفيش اتصال بـ Firebase (أو بيرد ببطء). تأكد من النت وحاول تاني ⚠️'; boxMsg = '⚠ تعذّر الاتصال'; }
+        else { msg = 'حصل خطأ (' + (code || (e && e.message) || 'unknown') + ') — دوس "كود جديد" ⚠️'; boxMsg = '⚠ حصل خطأ'; }
+        if (status) status.innerText = msg;
+        if (box) box.innerHTML = '<span style="color:#c0392b;font-size:.8rem;">' + boxMsg + '</span>';
+        if (codeEl) codeEl.innerText = '—';
+    }
+    window.dlOpenFirebase = function () { try { window.open('https://console.firebase.google.com/project/my-productivity-app-da499/firestore/rules', '_blank'); } catch (e) { } };
+    function createLink() {
+        if (st) return Promise.resolve();
+        if (typeof fbDb === 'undefined' || !fbDb) { toast('خدمة Firebase مش متاحة دلوقتي ⚠️'); return Promise.reject(new Error('nofb')); }
+        var s = { linkId: randHex(24), deviceId: randHex(6), name: defaultName(), initialized: true, joinedAt: Date.now() };
+        return T(fbDb.collection('links').doc(s.linkId).set({ createdAt: Date.now(), v: 1 })).then(function () {
+            st = s; saveState(); start();
+        });
+    }
+    function showPair() {
+        if (!st) return showRequest();
+        var status = $('dlShowStatus'), box = $('dlQrBox'), codeEl = $('dlCodeText');
+        cleanupPair(); if (status) status.innerText = 'جاري تجهيز الكود...'; helpBoxes(false);
+        if (st && !st.initialized) { if (status) status.innerText = 'استنى لحد ما الجهاز ده يخلص ربطه الأول ⏳'; return Promise.resolve(); }
+        var pre = Promise.resolve(true);
+        if (!st) pre = Promise.resolve().then(function () { return confirm('الربط هيرفع بياناتك (مهام، ملاحظات، إنجازات) لقاعدة بيانات Firebase الخاصة بتطبيقك عشان تتزامن بين أجهزتك. نكمّل؟'); });
+        return pre.then(function (ok) {
+            if (!ok) { closeModal(); return; }
+            return createLink().then(function () {
+                var code = genCode();
+                return T(fbDb.collection('pairs').doc(code).set({ linkId: st.linkId, exp: Date.now() + 300000, by: st.deviceId })).then(function () {
+                    cleanupPair(true);
+                    rt.pair = { code: code, exp: Date.now() + 300000 };
+                    if (codeEl) codeEl.innerText = code.slice(0, 4) + '-' + code.slice(4);
+                    if (box) {
+                        box.innerHTML = '';
+                        if (typeof QRCode !== 'undefined') { try { new QRCode(box, { text: code, width: 180, height: 180 }); } catch (e) { box.innerText = code; } }
+                        else box.innerHTML = '<span style="color:#333;font-size:.75rem;">مكتبة QR مش متاحة، استخدم الكود النصي</span>';
+                    }
+                    var tick = function () {
+                        if (!rt.pair || rt.pair.code !== code) return;
+                        var left = Math.max(0, Math.round((rt.pair.exp - Date.now()) / 1000));
+                        if (status) status.innerText = left > 0 ? ('في انتظار الجهاز التاني... الكود صالح ' + Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0')) : 'انتهت صلاحية الكود — دوس "كود جديد"';
+                        if (left <= 0) { cleanupPair(); return; }
+                        rt.pair.timer = setTimeout(tick, 1000);
+                    };
+                    tick();
+                });
+            });
+        }).catch(function (e) {
+            showFail(e);
+        });
+    }
+    function cleanupPair(keepUi) {
+        if (rt.pair) {
+            if (rt.pair.timer) clearTimeout(rt.pair.timer);
+            if (rt.pair.unsub) { try { rt.pair.unsub(); } catch (e) { } }
+            try { if (fbDb) fbDb.collection('pairs').doc(rt.pair.code).delete().catch(function () { }); } catch (e) { }
+            rt.pair = null;
+        }
+    }
+    /* الجهاز الجديد بيعرض كود طلب، والجهاز اللي معاك (بالكاميرا) بيمسحه ويوافق — زي واتساب ويب */
+    function approveRequest(code, say) {
+        if (st && !st.initialized) { say('استنى لحد ما الجهاز ده يخلص ربطه الأول ⏳'); return Promise.resolve(false); }
+        var pre = Promise.resolve(true);
+        if (!st) pre = Promise.resolve().then(function () { return confirm('الربط هيرفع بيانات الجهاز ده (مهام، ملاحظات، إنجازات) لقاعدة Firebase الخاصة بتطبيقك عشان تتزامن مع الجهاز التاني. نكمّل؟'); });
+        return pre.then(function (ok) {
+            if (!ok) { say(''); return false; }
+            stopCam();
+            return createLink().then(function () {
+                return fbDb.collection('pairs').doc(code).update({ linkId: st.linkId, by: st.deviceId });
+            }).then(function () {
+                closeModal(); toast('تم ✅ الجهاز التاني بيكمّل الربط دلوقتي...'); return true;
+            });
+        });
+    }
+    function showRequest() {
+        var status = $('dlShowStatus'), box = $('dlQrBox'), codeEl = $('dlCodeText');
+        cleanupPair(); if (status) status.innerText = 'جاري تجهيز الكود...'; helpBoxes(false);
+        if (typeof fbDb === 'undefined' || !fbDb) { if (status) status.innerText = 'خدمة Firebase مش متاحة ⚠️'; return Promise.resolve(); }
+        var code = genCode();
+        return T(fbDb.collection('pairs').doc(code).set({ req: true, exp: Date.now() + 300000 })).then(function () {
+            cleanupPair(true);
+            rt.pair = { code: code, exp: Date.now() + 300000 };
+            if (codeEl) codeEl.innerText = code.slice(0, 4) + '-' + code.slice(4);
+            if (box) {
+                box.innerHTML = '';
+                if (typeof QRCode !== 'undefined') { try { new QRCode(box, { text: code, width: 180, height: 180 }); } catch (e) { box.innerText = code; } }
+                else box.innerHTML = '<span style="color:#333;font-size:.75rem;">مكتبة QR مش متاحة، استخدم الكود النصي</span>';
+            }
+            rt.pair.unsub = fbDb.collection('pairs').doc(code).onSnapshot(function (d) {
+                var data = d.exists && d.data();
+                if (!data || !data.linkId || !rt.pair || rt.pair.code !== code || st) return;
+                var linkId = data.linkId;
+                if (!confirm('الجهاز التاني وافق على الربط. هيتم دمج بيانات الجهاز ده مع الأجهزة المربوطة (وهنعمل نسخة احتياطية من بياناتك الأول). نكمّل؟')) { cleanupPair(); if (status) status.innerText = 'تم إلغاء الربط'; return; }
+                st = { linkId: linkId, deviceId: randHex(6), name: defaultName(), initialized: false, joinedAt: Date.now() };
+                saveState(); start();
+                closeModal(); toast('جاري ربط الجهاز ودمج البيانات... ⏳');
+            }, function (e) {
+                showFail(e);
+            });
+            var tick = function () {
+                if (!rt.pair || rt.pair.code !== code) return;
+                var left = Math.max(0, Math.round((rt.pair.exp - Date.now()) / 1000));
+                if (status) status.innerText = left > 0 ? ('امسح الكود ده من الجهاز التاني (أو اكتبه هناك)... صالح ' + Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0')) : 'انتهت صلاحية الكود — دوس "كود جديد"';
+                if (left <= 0) { cleanupPair(); return; }
+                rt.pair.timer = setTimeout(tick, 1000);
+            };
+            tick();
+        }).catch(function (e) {
+            showFail(e);
+        });
+    }
+    function joinWithCode(raw) {
+        var msg = $('dlEnterStatus'); function say(t) { if (msg) msg.innerText = t; }
+        var code = normCode(raw);
+        if (code.length !== 8) { say('الكود لازم يكون 8 حروف/أرقام'); return Promise.resolve(false); }
+        if (typeof fbDb === 'undefined' || !fbDb) { say('خدمة Firebase مش متاحة، تأكد من النت ⚠️'); return Promise.resolve(false); }
+        say('جاري التحقق من الكود...');
+        return fbDb.collection('pairs').doc(code).get().then(function (doc) {
+            if (!doc.exists || !doc.data() || doc.data().exp < Date.now()) { say('الكود غلط أو انتهت صلاحيته ⚠️'); return false; }
+            var linkId = doc.data().linkId;
+            if (!linkId) return approveRequest(code, say);
+            if (st) { say('الجهاز ده مربوط بالفعل. فك الربط الأول لو عايز تربطه بمجموعة تانية.'); return false; }
+            return fbDb.collection('links').doc(linkId).get().then(function (l) {
+                if (!l.exists) { say('مجموعة الربط دي اتحذفت ⚠️'); return false; }
+                if (!confirm('هيتم دمج بيانات الجهاز ده مع الأجهزة المربوطة. لو عنصر موجود على الاتنين بشكل مختلف هتاخد نسخة الجهاز التاني، وهنعمل نسخة احتياطية من بياناتك الأول. نكمّل؟')) { say(''); return false; }
+                stopCam();
+                st = { linkId: linkId, deviceId: randHex(6), name: defaultName(), initialized: false, joinedAt: Date.now() };
+                saveState(); start();
+                fbDb.collection('pairs').doc(code).delete().catch(function () { });
+                closeModal(); toast('جاري ربط الجهاز ودمج البيانات... ⏳');
+                return true;
+            });
+        }).catch(function (e) {
+            if (e && e.code === 'permission-denied') { say('خدمة الربط مش جاهزة حاليًا، حاول بعد شوية ⚠️'); setStatus('rules'); }
+            else say('حصل خطأ، تأكد من النت وحاول تاني ⚠️');
+            return false;
+        });
+    }
+
+    /* ---------- الكاميرا ---------- */
+    var camStream = null, camRaf = null;
+    function stopCam() {
+        if (camRaf) cancelAnimationFrame(camRaf); camRaf = null;
+        if (camStream) { try { camStream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) { } camStream = null; }
+        var w = $('dlCamWrap'); if (w) w.classList.remove('active');
+        var v = $('dlCamVideo'); if (v) { try { v.pause(); } catch (e) { } v.srcObject = null; }
+        var b = $('dlCamBtn'); if (b) b.innerText = '📷 فتح الكاميرا ومسح الكود';
+    }
+    function toggleCam() {
+        var w = $('dlCamWrap'); if (!w) return;
+        if (w.classList.contains('active')) { stopCam(); return; }
+        var go = function () {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast('الكاميرا غير مدعومة على هذا المتصفح ⚠️'); return; }
+            if (window.AndroidNative && typeof AndroidNative.hasCameraPermission === 'function' && !AndroidNative.hasCameraPermission()) {
+                window.onAndroidCameraPermissionResult = function (g) { toast(g ? 'تم منح إذن الكاميرا، دوس تاني على "فتح الكاميرا" 📷' : 'محتاجين إذن الكاميرا عشان تمسح الكود 📷⚠️'); };
+                AndroidNative.requestCameraPermission(); return;
+            }
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(function (s) {
+                camStream = s; var v = $('dlCamVideo'); v.srcObject = s; w.classList.add('active');
+                var b = $('dlCamBtn'); if (b) b.innerText = '⏹️ إيقاف الكاميرا';
+                v.onloadedmetadata = function () { v.play(); scanFrame(); };
+            }).catch(function () { toast('تعذر الوصول للكاميرا، تحقق من الإذن 📷⚠️'); });
+        };
+        if (typeof jsQR === 'undefined') {
+            if (typeof ensureJsQRLoaded === 'function') { toast('بنحمّل مكتبة قراءة الكود... ⏳'); ensureJsQRLoaded().then(function (ok) { if (ok) go(); else toast('تعذر تحميل مكتبة القراءة ⚠️'); }); }
+            else toast('مكتبة قراءة الكود مش متاحة، اكتب الكود يدويًا');
+            return;
+        }
+        go();
+    }
+    function scanFrame() {
+        var v = $('dlCamVideo'), cv = $('dlCamCanvas');
+        if (!v || !camStream) return;
+        if (v.readyState !== v.HAVE_ENOUGH_DATA) { camRaf = requestAnimationFrame(scanFrame); return; }
+        cv.width = v.videoWidth; cv.height = v.videoHeight;
+        var cx = cv.getContext('2d'); cx.drawImage(v, 0, 0, cv.width, cv.height);
+        var img = cx.getImageData(0, 0, cv.width, cv.height), r = jsQR(img.data, img.width, img.height);
+        if (r && r.data) { $('dlManualCode').value = r.data; stopCam(); toast('تم مسح الكود ✅'); joinWithCode(r.data); return; }
+        camRaf = requestAnimationFrame(scanFrame);
+    }
+
+    /* ---------- الواجهة ---------- */
+    function openModal(tab) { var m = $('dlModal'); if (!m) return; m.style.display = 'flex'; switchTab(tab || 'show'); }
+    function closeModal() { stopCam(); cleanupPair(); var m = $('dlModal'); if (m) m.style.display = 'none'; }
+    function switchTab(tab) {
+        ['show', 'enter'].forEach(function (t) {
+            var b = $('dlTabBtn-' + t), p = $('dlPanel-' + t);
+            if (b) b.classList.toggle('active', t === tab); if (p) p.classList.toggle('active', t === tab);
+        });
+        if (tab === 'show') showPair(); else cleanupPair();
+        if (tab !== 'enter') stopCam();
+        else setTimeout(function () { var w = $('dlCamWrap'); if (w && !w.classList.contains('active') && $('dlModal') && $('dlModal').style.display === 'flex') toggleCam(); }, 200);
+    }
+    function ago(ts) {
+        if (!ts) return '—';
+        var s = Math.round((Date.now() - ts) / 1000);
+        if (s < 120) return 'متصل دلوقتي';
+        try { return 'آخر ظهور ' + new Date(ts).toLocaleString('ar-EG'); } catch (e) { return ''; }
+    }
+    function statusLine() {
+        switch (rt.status) {
+            case 'connecting': return '⏳ بيتصل...';
+            case 'ok': return '🟢 متصل ومتزامن' + (rt.lastSync ? ' — آخر مزامنة ' + new Date(rt.lastSync).toLocaleTimeString('ar-EG') : '');
+            case 'offline': return '📴 مفيش اتصال — التعديلات هتتبعت أول ما النت يرجع';
+            case 'rules': return '⚠️ خدمة الربط مش جاهزة حاليًا';
+            case 'nofb': return '⚠️ خدمة Firebase مش متاحة دلوقتي';
+            case 'error': return '⚠️ حصل خطأ (' + esc(rt.errCode) + ')';
+            default: return '';
+        }
+    }
+    function devIcon(d) { var s = (d.platform || '') + ''; return /آيفون|آيباد|أندرويد/.test(s) ? '📱' : '💻'; }
+    function lastAct(d, me) {
+        if (me) return 'متصل الآن';
+        if (!d.lastSeen) return '—';
+        if (Date.now() - d.lastSeen < 120000) return 'متصل الآن';
+        try {
+            var dt = new Date(d.lastSeen), now = new Date(), tm = dt.toLocaleTimeString('ar-EG', { hour: 'numeric', minute: '2-digit' });
+            if (dt.toDateString() === now.toDateString()) return 'آخر نشاط اليوم في الساعة ' + tm;
+            return 'آخر نشاط ' + dt.toLocaleDateString('ar-EG') + ' ' + tm;
+        } catch (e) { return ''; }
+    }
+    function render() {
+        var body = $('dlSettingsBody'); if (!body) return;
+        var h = '<div style="text-align:center;font-size:2.6rem;margin:4px 0;">📱↔️💻</div>'
+            + '<div class="settings-section-desc" style="text-align:center;">اربط أجهزتك ببعض (تليفون، كمبيوتر، أو أكتر)، وأي تغيير على جهاز يظهر على الباقي فورًا طول ما الأجهزة متصلة بالنت — كأنها جهاز واحد.</div>'
+            + '<button class="btn" style="width:100%;border-radius:999px;padding:12px;margin-top:6px;" onclick="dlOpenModal(\'show\')">ربط جهاز</button>';
+        if (!st) {
+            h += '<div class="settings-section-desc" style="color:#e67e22;margin-top:8px;">⚠️ الربط بيرفع بياناتك لقاعدة Firebase الخاصة بتطبيقك عشان تتزامن بين الأجهزة.</div>';
+        } else {
+            h += '<div class="sync-status" style="margin:10px 0 4px;">' + statusLine() + '</div>';
+            h += '<div style="margin:12px 0 2px;font-weight:700;opacity:.8;">حالة الجهاز</div>'
+               + '<div class="settings-section-desc">اضغط على أحد الأجهزة لإعادة تسميته أو فك ربطه.</div>';
+            rt.devices.slice().sort(function (x, c) { return (x.joinedAt || 0) - (c.joinedAt || 0); }).forEach(function (d) {
+                var me = d.id === st.deviceId;
+                h += '<div onclick="dlDeviceMenu(\'' + esc(d.id) + '\')" style="display:flex;align-items:center;gap:12px;padding:10px 6px;cursor:pointer;border-radius:10px;">'
+                    + '<div style="font-size:1.8rem;">' + devIcon(d) + '</div>'
+                    + '<div style="flex:1;min-width:0;"><div style="font-weight:700;">' + esc(d.name || 'جهاز') + (me ? ' <span style="font-size:.7rem;opacity:.7;">(هذا الجهاز)</span>' : '') + '</div>'
+                    + '<div style="font-size:.78rem;opacity:.7;">' + esc(d.platform || '') + ' · ' + esc(lastAct(d, me)) + '</div></div></div>';
+            });
+            h += '<div class="settings-section-desc" style="margin-top:8px;">🔒 بياناتك مخزّنة تحت مفتاح عشوائي طويل مخصوص لأجهزتك.</div>'
+               + '<button class="btn btn-secondary" style="width:100%;margin-top:6px;" onclick="dlSyncNow()">🔄 مزامنة الآن</button>';
+        }
+        body.innerHTML = h;
+    }
+    window.dlDeviceMenu = function (id) {
+        if (!st) return;
+        var d = rt.devices.filter(function (x) { return x.id === id; })[0]; if (!d) return;
+        var me = id === st.deviceId, old = $('dlDevMenu'); if (old) old.remove();
+        var m = document.createElement('div'); m.id = 'dlDevMenu'; m.className = 'modal'; m.style.display = 'flex';
+        m.onclick = function (e) { if (e.target === m) m.remove(); };
+        m.innerHTML = '<div class="modal-content"><h3 style="color:var(--accent);margin-bottom:10px;">' + devIcon(d) + ' ' + esc(d.name || 'جهاز') + '</h3>'
+            + '<button class="btn btn-secondary" style="width:100%;margin-top:6px;" id="dlmRen">✏️ إعادة تسمية</button>'
+            + '<button class="btn btn-secondary" style="width:100%;margin-top:6px;color:#c0392b;" id="dlmOut">' + (me ? '🚪 فك ربط هذا الجهاز' : '🚪 تسجيل الخروج من هذا الجهاز') + '</button>'
+            + (!me && rt.devices.length > 2 ? '<button class="btn btn-secondary" style="width:100%;margin-top:6px;color:#c0392b;" id="dlmAll">⛔ فك ربط كل الأجهزة التانية</button>' : '')
+            + '<button class="btn btn-secondary" style="width:100%;margin-top:6px;" id="dlmX">إغلاق</button></div>';
+        document.body.appendChild(m);
+        $('dlmX').onclick = function () { m.remove(); };
+        $('dlmRen').onclick = function () { m.remove(); window.dlRenameDevice(id); };
+        $('dlmOut').onclick = function () { m.remove(); if (me) window.dlDisconnectThis(); else window.dlUnlinkDevice(id); };
+        if ($('dlmAll')) $('dlmAll').onclick = function () { m.remove(); window.dlUnlinkAll(); };
+    };
+    function copyRules() {
+        var done = function () { toast('اتنسخ نص القواعد — الصقه في Firebase Console > Firestore > Rules 📋'); };
+        try { navigator.clipboard.writeText(RULES_TEXT).then(done, fallback); } catch (e) { fallback(); }
+        function fallback() { var t = document.createElement('textarea'); t.value = RULES_TEXT; document.body.appendChild(t); t.select(); try { document.execCommand('copy'); done(); } catch (e) { } t.remove(); }
+    }
+
+    window.dlOpenModal = openModal; window.dlCloseModal = closeModal; window.dlSwitchTab = switchTab;
+    window.dlToggleCam = toggleCam; window.dlCopyRules = copyRules;
+    window.dlSubmitCode = function () { var i = $('dlManualCode'); joinWithCode(i ? i.value : ''); };
+    window.dlRegenPair = function () { showPair(); };
+    window.dlSyncNow = function () { if (!st) return; rt.pushing = false; scan(); toast('بنزامن دلوقتي... 🔄'); };
+    window.dlRenameDevice = function (id) {
+        var d = rt.devices.filter(function (x) { return x.id === id; })[0]; if (!d) return;
+        var n = prompt('اسم الجهاز:', d.name || ''); if (n === null) return; n = n.trim().slice(0, 30); if (!n) return;
+        if (id === st.deviceId) { st.name = n; saveState(); }
+        devicesCol().doc(id).set({ name: n }, { merge: true }).catch(handleErr);
+    };
+    window.dlUnlinkDevice = function (id) {
+        var d = rt.devices.filter(function (x) { return x.id === id; })[0];
+        if (!d || !confirm('تفك ربط "' + (d.name || 'الجهاز') + '"؟ هيفضل عنده بياناته بس مش هيتزامن تاني.')) return;
+        devicesCol().doc(id).set({ revoked: true }, { merge: true }).then(function () { toast('تم فك الربط ✅'); }).catch(handleErr);
+    };
+    window.dlUnlinkAll = function () {
+        if (!confirm('تفك ربط كل الأجهزة التانية؟')) return;
+        rt.devices.forEach(function (d) { if (d.id !== st.deviceId) devicesCol().doc(d.id).set({ revoked: true }, { merge: true }).catch(handleErr); });
+        toast('تم فك ربط الأجهزة التانية ✅');
+    };
+    window.dlDisconnectThis = function () {
+        if (!confirm('تفك ربط الجهاز ده؟ بياناتك هتفضل عليه، بس مش هيتزامن مع الباقي.')) return;
+        var id = st.deviceId;
+        try { devicesCol().doc(id).delete().catch(function () { }); } catch (e) { }
+        disconnect('تم فك ربط هذا الجهاز ✅');
+    };
+
+    /* ---------- التشغيل ---------- */
+    var _open = window.openSettingsModal;
+    if (typeof _open === 'function') window.openSettingsModal = function () { var r = _open.apply(this, arguments); render(); return r; };
+    document.addEventListener('visibilitychange', function () { if (st && rt.on) scan(); });
+    window.addEventListener('online', function () { if (st && rt.status === 'offline') setStatus('connecting'); scan(); });
+    window.addEventListener('offline', function () { if (st) setStatus('offline'); });
+    function boot() { rt.ready = true; render(); if (st) start(); }
+    if (document.readyState === 'complete') setTimeout(boot, 2500);
+    else window.addEventListener('load', function () { setTimeout(boot, 2500); });
+
+    window.__dl = {
+        get st() { return st; }, get rt() { return rt; }, get meta() { return meta; }, get ctr() { return ctr; },
+        createLink: createLink, joinWithCode: joinWithCode, scan: scan, showPair: showPair, boot: boot,
+        getPairCode: function () { return rt.pair && rt.pair.code; }
+    };
+})();
 </script>
 </body>
 </html>
