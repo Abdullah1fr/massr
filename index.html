@@ -19,7 +19,7 @@ window.__isDesk=function(){return d.classList.contains('dev-desktop')};})();</sc
     <link rel="manifest" href="manifest.json">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="منصة الإنتاجية">
+    <meta name="apple-mobile-web-app-title" content="سأنجزها">
     <link rel="apple-touch-icon" href="apple-touch-icon.png">
     <link rel="icon" href="icon-192.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -28,7 +28,16 @@ window.__isDesk=function(){return d.classList.contains('dev-desktop')};})();</sc
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&family=Almarai:wght@400;700&family=Amiri&family=Lalezar&family=Aref+Ruqaa&family=Reem+Kufi&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <title>منصة الإنتاجية المتقدمة</title>
+    <title>سأنجزها | تطبيق مهام ومؤقت تركيز ومدرّب ذكي</title>
+    <meta name="description" content="سأنجزها تطبيق عربي مجاني لإدارة المهام والملاحظات وجلسات التركيز مع مدرّب ذكاء اصطناعي ومصحف، يعمل على الجوال والكمبيوتر.">
+    <meta name="application-name" content="سأنجزها">
+    <link rel="canonical" href="https://abdullah1fr.github.io/massr/">
+    <meta property="og:type" content="website">
+    <meta property="og:locale" content="ar_AR">
+    <meta property="og:site_name" content="سأنجزها">
+    <meta property="og:title" content="سأنجزها | تطبيق مهام ومؤقت تركيز ومدرّب ذكي">
+    <meta property="og:description" content="تطبيق عربي مجاني لإدارة المهام والملاحظات وجلسات التركيز مع مدرّب ذكاء اصطناعي.">
+    <meta property="og:url" content="https://abdullah1fr.github.io/massr/">
 
     <style>
         /* ============================= */
@@ -4284,7 +4293,7 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
     <div id="webSplashScreen" class="web-splash-screen">
         <canvas id="webSplashCanvas"></canvas>
         <div id="webSplashWelcome" class="web-splash-welcome">أهلاً بك في</div>
-        <div id="webSplashTitle" class="web-splash-title">منصة الإنتاجية المتقدمة</div>
+        <div id="webSplashTitle" class="web-splash-title">سأنجزها</div>
     </div>
     <script>
         // ============================================================================
@@ -4432,7 +4441,7 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
 
         <!-- الرأس العلوي -->
         <div class="top-header" id="topHeaderBar">
-            <div class="brand-title"><span>منصة الإنتاجية المتقدمة</span></div>
+            <div class="brand-title"><span>سأنجزها</span></div>
             <div style="display:flex; gap:6px; align-items:center;">
                 <button class="settings-btn" title="الإعدادات والنسخ الاحتياطي" onclick="openSettingsModal()">⚙️</button>
                 <button class="theme-btn" id="themeBtn" onclick="toggleTheme()" style="background:#ffffff; color:#141a2e; border:1px solid rgba(20, 30, 60, 0.10);">☀️ الوضع النهاري</button>
@@ -11547,7 +11556,7 @@ let categories = JSON.parse(localStorage.getItem('app_categories')) || ['📚 د
         const s = totalSecondsRemaining % 60;
         const display = document.getElementById('timerDisplay');
         if (display) display.innerText = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-        document.title = isTimerRunning ? `⏱️ ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : 'منصة الإنتاجية';
+        document.title = isTimerRunning ? `⏱️ ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : 'سأنجزها';
     }
 
     function updateTimerProgress() {
@@ -16423,7 +16432,7 @@ function fireDailyReminder() {
     } else {
         body = 'يوم ممتاز! خلصت مهامك وهدف التركيز 🎉 افتح التطبيق وشوف إحصائياتك.';
     }
-    try { new Notification('منصة الإنتاجية 🔔', { body: body, icon: 'icon-192.png' }); } catch (e) {}
+    try { new Notification('سأنجزها 🔔', { body: body, icon: 'icon-192.png' }); } catch (e) {}
 }
 
 // =============================
@@ -33394,7 +33403,7 @@ updateAIThinkingButton();
                 var tp = (localStorage.getItem('app_notif_time') || '20:00').split(':').map(Number);
                 for (i = 0; i < 14; i++) {
                     var d2 = new Date(); d2.setDate(d2.getDate() + i); d2.setHours(tp[0] || 0, tp[1] || 0, 0, 0);
-                    if (d2.getTime() > now) out.push({ key: 'daily:' + d2.getTime(), at: d2.getTime(), kind: 'daily', title: 'منصة الإنتاجية 🔔', body: 'افتح التطبيق وشوف مهامك وتقدمك في هدف التركيز اليومي' });
+                    if (d2.getTime() > now) out.push({ key: 'daily:' + d2.getTime(), at: d2.getTime(), kind: 'daily', title: 'سأنجزها 🔔', body: 'افتح التطبيق وشوف مهامك وتقدمك في هدف التركيز اليومي' });
                 }
             }
         } catch (e) {}
