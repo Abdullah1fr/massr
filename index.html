@@ -7082,22 +7082,6 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
         </div>
     </div>
 
-    <!-- نافذة المنافسة والأصدقاء -->
-    <div class="modal" id="spModal" onclick="if(event.target===this) spClose()">
-        <div class="modal-content" style="max-height:88vh; overflow-y:auto;">
-            <h3 style="color:var(--accent); margin-bottom:10px;">🏆 المنافسة والأصدقاء</h3>
-            <div class="sync-tabs">
-                <button class="sync-tab-btn active" id="spTab-rank" onclick="spTab('rank')">🏆 الترتيب</button>
-                <button class="sync-tab-btn" id="spTab-friends" onclick="spTab('friends')">👥 الأصدقاء</button>
-                <button class="sync-tab-btn" id="spTab-duels" onclick="spTab('duels')">⚔️ التحديات</button>
-            </div>
-            <div id="spBody"></div>
-            <div class="sync-status" id="spMsg"></div>
-            <div class="btn-group" style="margin-top:14px;">
-                <button class="btn btn-secondary" onclick="spClose()">إغلاق</button>
-            </div>
-        </div>
-    </div>
 
     <!-- نافذة النسخ الاحتياطي السحابي على جوجل درايف (تصميم مشابه لشاشة نسخ واتساب الاحتياطي) -->
     <!-- عارض الصورة بالحجم الحقيقي + التعليم عليها بالقلم -->
@@ -35606,7 +35590,7 @@ window.aiAgent={ok:true,begin,names,used,runBatch,guide,claimsUnbacked,nudgeText
 })();
 
 </script>
-<script src="social.js?v=6"></script>
+<script src="social.js?v=7"></script>
 <script id="deviceLinkScript">
 /* ربط الأجهزة — مزامنة تلقائية في الاتجاهين بين أكتر من جهاز (زي واتساب ويب)
    - الربط بكود/QR قصير الصلاحية (5 دقايق، مرة واحدة) بيدّي الجهاز الجديد مفتاح مجموعة عشوائي طويل.
