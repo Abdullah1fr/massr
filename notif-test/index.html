@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>تجربة الإشعارات والمنبه</title>
+<style>
+:root{--bg:#f2f5f3;--card:#fff;--ink:#14231f;--mute:#5d6d67;--line:#d5dedb;--acc:#0e6b5c;--acc-ink:#fff;--warn:#b86e00;--bad:#b3342a;--good:#1b7a3e;--chip:#e5ecea}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1715;--card:#17211e;--ink:#e6efec;--mute:#93a69f;--line:#2a3a35;--acc:#3fbfa6;--acc-ink:#07211b;--warn:#f0b04a;--bad:#ff8a7d;--good:#6fd596;--chip:#22312d}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 "Segoe UI",Tahoma,"Noto Naskh Arabic",system-ui,sans-serif;padding:16px 14px 80px}
+main{max-width:560px;margin:0 auto}
+h1{font-size:1.45rem;margin:4px 0 2px}
+h2{font-size:1.1rem;margin:0 0 10px}
+p.lead{margin:0 0 14px;color:var(--mute)}
+section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin:0 0 14px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}
+.chip{background:var(--chip);border-radius:999px;padding:2px 10px;font-size:.85rem}
+.chip.ok{color:var(--good)}.chip.no{color:var(--bad)}.chip.mid{color:var(--warn)}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 10px}
+.row.one{grid-template-columns:1fr}
+label{display:block;font-size:.9rem;color:var(--mute)}
+label.ck{display:flex;gap:8px;align-items:center;color:var(--ink);padding:4px 0}
+input[type=number],select{width:100%;margin-top:3px;padding:9px 10px;border:1px solid var(--line);border-radius:9px;background:var(--bg);color:var(--ink);font:inherit}
+button{font:inherit;border:0;border-radius:10px;padding:11px 14px;cursor:pointer;background:var(--acc);color:var(--acc-ink);font-weight:600}
+button.sec{background:var(--chip);color:var(--ink)}
+button.bad{background:var(--bad);color:#fff}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--warn);outline-offset:2px}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.btns button{flex:1 1 130px}
+.hint{font-size:.85rem;color:var(--mute);margin:6px 0 0}
+#log{font:.82rem/1.55 ui-monospace,Consolas,monospace;direction:ltr;text-align:left;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px;height:230px;overflow:auto;white-space:pre-wrap}
+#log .e{color:var(--bad)}#log .s{color:var(--good)}
+.stat{display:flex;justify-content:space-between;gap:10px;margin:6px 0;font-size:.95rem}
+#ov{position:fixed;inset:0;background:var(--warn);color:#1b1200;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:24px;z-index:10}
+#ov.on{display:flex}
+#ov .big{font-size:2.4rem;font-weight:800}
+#ov button{min-width:220px;font-size:1.15rem;padding:14px;background:#1b1200;color:#fff}
+@media (prefers-reduced-motion:no-preference){#ov.on .big{animation:p 1s infinite}@keyframes p{50%{transform:scale(1.06)}}}
+</style>
+</head>
+<body>
+<main>
+<h1>تجربة الإشعارات والمنبه</h1>
+<p class="lead">صفحة اختبار مستقلة عن التطبيق. بتجرب تكرار الإشعارات، وأنماط الاهتزاز، والأزرار، ونغمات المنبه جوه التطبيق.</p>
+
+<section id="st">
+  <h2>١) التجهيز</h2>
+  <div class="chips" id="chips"></div>
+  <div class="btns">
+    <button id="bPerm">فعّل الإشعارات والـ Worker</button>
+  </div>
+  <p class="hint" id="permHint"></p>
+</section>
+
+<section>
+  <h2>٢) منبه متكرر (إشعارات ورا بعض)</h2>
+  <div class="row">
+    <label>يبدأ بعد (ثواني)<input id="delay" type="number" inputmode="numeric" min="0" max="120" value="10"></label>
+    <label>عدد الإشعارات<input id="count" type="number" inputmode="numeric" min="1" max="120" value="15"></label>
+  </div>
+  <div class="row">
+    <label>الفاصل بينهم (ثواني)<input id="gap" type="number" inputmode="decimal" min="0.5" step="0.5" value="2"></label>
+    <label>غفوة تجريبية (ثواني)<input id="snooze" type="number" inputmode="numeric" min="5" max="600" value="20"></label>
+  </div>
+  <div class="row">
+    <label>الاهتزاز
+      <select id="vibMode">
+        <option value="cycle">يتنوع بالترتيب كل إشعار</option>
+        <option value="random">عشوائي</option>
+        <option value="fixed">نمط ثابت</option>
+        <option value="off">من غير اهتزاز</option>
+      </select>
+    </label>
+    <label>النمط الثابت<select id="vibIdx"></select></label>
+  </div>
+  <label class="ck"><input type="checkbox" id="sameTag" checked> كل إشعار يحل محل اللي قبله (نفس الـ tag)</label>
+  <label class="ck"><input type="checkbox" id="sticky" checked> يفضل على الشاشة لحد ما تتفاعل معاه</label>
+  <label class="ck"><input type="checkbox" id="actions" checked> زرين «إيقاف» و«غفوة» في الإشعار</label>
+  <label class="ck"><input type="checkbox" id="silent"> من غير صوت أصلًا (لتجربة الصامت)</label>
+  <label class="ck"><input type="checkbox" id="stopDismiss"> سحب الإشعار يوقّف التكرار</label>
+  <div class="btns">
+    <button id="bStart">ابدأ المنبه</button>
+    <button id="bOne" class="sec">إشعار واحد بس</button>
+    <button id="bStop" class="bad">إيقاف</button>
+  </div>
+  <p class="hint">لتجربة الشاشة المقفولة: خلّي «يبدأ بعد» 10 ثواني، دوس ابدأ، واقفل الشاشة.</p>
+  <div class="stat"><span>اتبعت</span><b id="sentN">0</b></div>
+  <div class="stat"><span>سمعت كام صوت؟</span><span><input id="heard" type="number" inputmode="numeric" min="0" style="width:90px;padding:5px"> <button class="sec" id="bCalc" style="padding:6px 10px">احسب</button></span></div>
+  <div class="stat"><span>نسبة الأصوات اللي وصلت</span><b id="ratio">—</b></div>
+</section>
+
+<section>
+  <h2>٣) نغمات جوه التطبيق (شاشة المنبه)</h2>
+  <div class="row">
+    <label>الوضع
+      <select id="tMode">
+        <option value="rotate">كل مرة نغمة مختلفة</option>
+        <option value="fixed">نغمة ثابتة</option>
+      </select>
+    </label>
+    <label>النغمة الثابتة<select id="tSel"></select></label>
+  </div>
+  <div class="row">
+    <label>التكرار كل (ثواني)<input id="tPeriod" type="number" inputmode="decimal" min="0.5" step="0.5" value="2"></label>
+    <label>الصوت<input id="tVol" type="number" inputmode="decimal" min="0.1" max="1" step="0.1" value="0.7"></label>
+  </div>
+  <div class="btns">
+    <button id="bTone">شغّل النغمات</button>
+    <button id="bAlarmScr" class="sec">افتح شاشة المنبه</button>
+    <button id="bToneStop" class="bad">إيقاف</button>
+  </div>
+  <p class="hint" id="toneNow">الصوت جوه الصفحة لوب حقيقي ومتحكم فيه بالكامل. ده اللي هيشتغل لما تفتح التطبيق من الإشعار.</p>
+</section>
+
+<section>
+  <h2>٤) السجل</h2>
+  <div id="log" role="log" aria-live="polite"></div>
+  <div class="btns">
+    <button class="sec" id="bCopy">انسخ السجل</button>
+    <button class="sec" id="bClear">امسح</button>
+  </div>
+  <p class="hint">الرقم اللي جنب كل إشعار هو الفرق بالملي ثانية عن اللي قبله. لو الفرق أكبر من الفاصل اللي حطيته، يبقى الجهاز أخّر الإشعار.</p>
+</section>
+</main>
+
+<div id="ov" role="alertdialog" aria-label="المنبه">
+  <div class="big">⏰ المنبه بيرن</div>
+  <div id="ovTone">—</div>
+  <div id="ovMsg"></div>
+  <button id="ovStop">إيقاف</button>
+  <button id="ovSnooze">غفوة</button>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var PATTERNS = [
+    { n: 'قصير', v: [200] },
+    { n: 'ثلاثي', v: [300, 100, 300, 100, 300] },
+    { n: 'سريع', v: [100, 50, 100, 50, 100, 50, 100] },
+    { n: 'طويل', v: [800] },
+    { n: 'نبضتين وطويلة', v: [150, 100, 150, 100, 600] }
+  ];
+  var logLines = [], lastSent = 0, sentCount = 0, reg = null;
+
+  function ts(d) { d = d || new Date(); return d.toTimeString().slice(0, 8) + '.' + String(d.getMilliseconds()).padStart(3, '0'); }
+  function log(text, cls) {
+    var line = ts() + '  ' + text; logLines.push(line);
+    var el = document.createElement('div'); if (cls) el.className = cls; el.textContent = line;
+    $('log').appendChild(el); $('log').scrollTop = $('log').scrollHeight;
+  }
+
+  PATTERNS.forEach(function (p, i) {
+    var o = document.createElement('option'); o.value = i; o.textContent = p.n + ' (' + p.v.join('-') + ')'; $('vibIdx').appendChild(o);
+  });
+
+  function chips() {
+    var c = [], supported = 'Notification' in window && 'serviceWorker' in navigator;
+    c.push([location.protocol === 'https:' || location.hostname === 'localhost' ? 'ok' : 'no', location.protocol === 'https:' ? 'https ✓' : 'مش https']);
+    c.push([supported ? 'ok' : 'no', supported ? 'المتصفح بيدعم' : 'المتصفح ما بيدعمش الإشعارات']);
+    var perm = 'Notification' in window ? Notification.permission : '—';
+    c.push([perm === 'granted' ? 'ok' : perm === 'denied' ? 'no' : 'mid', 'الإذن: ' + ({ granted: 'مسموح', denied: 'مرفوض', default: 'لسه' }[perm] || perm)]);
+    c.push([reg && reg.active ? 'ok' : 'mid', reg && reg.active ? 'الـ Worker شغال' : 'الـ Worker لسه']);
+    var st = window.matchMedia && matchMedia('(display-mode: standalone)').matches;
+    c.push(['mid', st ? 'متضاف للشاشة الرئيسية' : 'في المتصفح']);
+    $('chips').innerHTML = ''; c.forEach(function (x) { var s = document.createElement('span'); s.className = 'chip ' + x[0]; s.textContent = x[1]; $('chips').appendChild(s); });
+    if (!supported) $('permHint').textContent = 'على الآيفون لازم تضيف الصفحة للشاشة الرئيسية الأول (iOS 16.4 فما فوق).';
+  }
+
+  async function setup() {
+    if (!('serviceWorker' in navigator) || !('Notification' in window)) { chips(); log('المتصفح ده ما بيدعمش الإشعارات من الصفحة', 'e'); return false; }
+    var perm = Notification.permission;
+    if (perm === 'default') perm = await Notification.requestPermission();
+    try { reg = await navigator.serviceWorker.register('./sw.js'); await navigator.serviceWorker.ready; reg = await navigator.serviceWorker.getRegistration('./') || reg; }
+    catch (e) { log('فشل تسجيل الـ Worker: ' + e.message, 'e'); chips(); return false; }
+    chips(); log('الإذن: ' + perm + ' · الـ Worker جاهز', perm === 'granted' ? 's' : 'e');
+    return perm === 'granted';
+  }
+
+  function sw(msg) {
+    var a = reg && (reg.active || navigator.serviceWorker.controller);
+    if (!a) { log('الـ Worker مش جاهز — دوس «فعّل الإشعارات» الأول', 'e'); return false; }
+    a.postMessage(msg); return true;
+  }
+  function cfg(over) {
+    var c = { delay: +$('delay').value || 0, count: +$('count').value || 1, gap: Math.max(0.5, +$('gap').value || 2), silent: $('silent').checked,
+      vibMode: $('vibMode').value, vibIndex: +$('vibIdx').value, patterns: PATTERNS, sameTag: $('sameTag').checked, sticky: $('sticky').checked,
+      actions: $('actions').checked, stopOnDismiss: $('stopDismiss').checked, snoozeSec: +$('snooze').value || 20 };
+    return Object.assign(c, over || {});
+  }
+
+  navigator.serviceWorker && navigator.serviceWorker.addEventListener('message', function (e) {
+    var m = e.data || {};
+    if (m.type === 'sent') {
+      var d = lastSent ? (m.t - lastSent) + ' ms' : 'أول واحد'; lastSent = m.t; sentCount++; $('sentN').textContent = sentCount;
+      log('اتبعت ' + m.i + '/' + m.of + '  اهتزاز: ' + m.vib + '  (' + d + ')');
+    } else if (m.type === 'done') log('خلّص: اتبعت ' + m.count + ' إشعار', 's');
+    else if (m.type === 'stopped') log('اتوقف عند ' + m.at, 's');
+    else if (m.type === 'error') log('خطأ: ' + m.text, 'e');
+    else if (m.type === 'log') log(m.text);
+    else if (m.type === 'open-alarm') openAlarm('فتحت من الإشعار');
+  });
+
+  $('bPerm').onclick = setup;
+  $('bStart').onclick = async function () {
+    if (!reg || Notification.permission !== 'granted') { if (!(await setup())) return; }
+    lastSent = 0; sentCount = 0; $('sentN').textContent = 0; $('ratio').textContent = '—'; $('heard').value = '';
+    var c = cfg(); log('بدأ: ' + c.count + ' إشعار كل ' + c.gap + ' ث بعد ' + c.delay + ' ث');
+    sw({ type: 'burst', cfg: c });
+  };
+  $('bOne').onclick = async function () {
+    if (!reg || Notification.permission !== 'granted') { if (!(await setup())) return; }
+    lastSent = 0; sw({ type: 'burst', cfg: cfg({ delay: 0, count: 1 }) });
+  };
+  $('bStop').onclick = function () { sw({ type: 'stop' }); };
+  $('bCalc').onclick = function () {
+    var h = +$('heard').value; if (!sentCount) { $('ratio').textContent = 'ابدأ تجربة الأول'; return; }
+    $('ratio').textContent = Math.round(Math.min(100, h / sentCount * 100)) + '% (' + h + ' من ' + sentCount + ')';
+  };
+  $('bClear').onclick = function () { $('log').innerHTML = ''; logLines = []; };
+  $('bCopy').onclick = function () { var t = logLines.join('\n'); (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function () { log('اتنسخ', 's'); }, function () { log('النسخ مش متاح هنا', 'e'); }); };
+
+  /* ---------- نغمات جوه الصفحة (WebAudio، من غير ملفات) ---------- */
+  var ctx = null, loopT = null, snoozeT = null, k = 0;
+  function ac() { if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)(); return ctx; }
+  function osc(type, f, t0, dur, vol, f2) {
+    var c = ac(), o = c.createOscillator(), g = c.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t0); if (f2) o.frequency.linearRampToValueAtTime(f2, t0 + dur);
+    o.connect(g); g.connect(c.destination);
+    g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(Math.max(vol, 0.0002), t0 + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.start(t0); o.stop(t0 + dur + 0.03);
+  }
+  var TONES = [
+    { n: 'بيب مزدوج', p: function (t, v) { osc('square', 880, t, .12, v * .5); osc('square', 880, t + .22, .12, v * .5); } },
+    { n: 'جرس', p: function (t, v) { osc('sine', 660, t, 1, v); osc('sine', 1320, t, .7, v * .4); } },
+    { n: 'ديجيتال', p: function (t, v) { for (var j = 0; j < 4; j++) osc('square', 1000, t + j * .12, .07, v * .4); } },
+    { n: 'سارينة', p: function (t, v) { osc('sawtooth', 500, t, .9, v * .35, 1000); } },
+    { n: 'نبض', p: function (t, v) { osc('triangle', 330, t, .25, v); osc('triangle', 330, t + .35, .25, v); } }
+  ];
+  TONES.forEach(function (t, i) { var o = document.createElement('option'); o.value = i; o.textContent = t.n; $('tSel').appendChild(o); });
+
+  function startTones() {
+    stopTones(true);
+    var c = ac(); if (c.state === 'suspended') c.resume();
+    var period = Math.max(0.5, +$('tPeriod').value || 2), vol = Math.min(1, Math.max(0.1, +$('tVol').value || 0.7)); k = 0;
+    function tick() {
+      var i = $('tMode').value === 'rotate' ? k % TONES.length : +$('tSel').value;
+      TONES[i].p(ac().currentTime + 0.03, vol); $('toneNow').textContent = 'بيشغّل: ' + TONES[i].n + ' (المرة ' + (k + 1) + ')'; $('ovTone').textContent = TONES[i].n; k++;
+    }
+    tick(); loopT = setInterval(tick, period * 1000);
+    log('نغمات جوه الصفحة: كل ' + period + ' ث، وضع ' + ($('tMode').value === 'rotate' ? 'متبدّل' : 'ثابت') + (c.state !== 'running' ? ' (الصوت ممكن يتأخر لحد أول لمسة)' : ''));
+  }
+  function stopTones(quiet) { clearInterval(loopT); loopT = null; clearTimeout(snoozeT); if (!quiet) { $('toneNow').textContent = 'اتوقف.'; log('النغمات اتوقفت'); } }
+  function openAlarm(why) { $('ovMsg').textContent = why || ''; $('ov').classList.add('on'); startTones(); }
+  function closeAlarm() { $('ov').classList.remove('on'); stopTones(); sw({ type: 'stop' }); }
+  $('bTone').onclick = startTones;
+  $('bToneStop').onclick = function () { stopTones(); };
+  $('bAlarmScr').onclick = function () { openAlarm('تجربة يدوية'); };
+  $('ovStop').onclick = closeAlarm;
+  $('ovSnooze').onclick = function () {
+    var s = +$('snooze').value || 20; $('ov').classList.remove('on'); stopTones(true); log('غفوة ' + s + ' ثانية');
+    snoozeT = setTimeout(function () { openAlarm('رجع بعد الغفوة'); }, s * 1000);
+  };
+
+  chips();
+  if ('serviceWorker' in navigator) navigator.serviceWorker.getRegistration('./').then(function (r) { if (r) { reg = r; chips(); } });
+  if (/[?&]alarm=1/.test(location.search)) { log('اتفتحت من الإشعار'); openAlarm('فتحت من الإشعار'); }
+})();
+</script>
+</body>
+</html>
