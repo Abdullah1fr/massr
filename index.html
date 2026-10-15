@@ -6124,6 +6124,12 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
                         <button class="btn btn-secondary" onclick="document.getElementById('importBackupFile').click()">⬆️ استيراد نسخة</button>
                     </div>
                     <input type="file" id="importBackupFile" accept="application/json,.json" style="display:none;" onchange="importBackupFile(event)">
+                    <div class="settings-section-desc" style="margin-top:14px;">ملفات المحادثات الكبيرة (أكبر من 8 ميجا) بتتحفظ على جهازك تلقائي وبتفضل موجودة حتى بعد ما السيرفر يمسح نسخته. النسخة الاحتياطية العادية (JSON) مابتشملهاش، فصدّرها هنا كملف ZIP.</div>
+                    <div class="settings-row">
+                        <button class="btn" onclick="exportChatFilesZip()">⬇️ تصدير ملفات المحادثات (ZIP)</button>
+                        <button class="btn btn-secondary" onclick="document.getElementById('importChatFilesZip').click()">⬆️ استيراد ملفات المحادثات</button>
+                    </div>
+                    <input type="file" id="importChatFilesZip" accept=".zip,application/zip" style="display:none;" onchange="importChatFilesZip(event)">
                 </div>
 
                 <div class="settings-list-item" onclick="toggleSettingsItem(this)">
@@ -14931,6 +14937,50 @@ function restoreTimerState() {
         } catch (e) {
             showToast('حدث خطأ أثناء التصدير ⚠️');
         }
+    }
+
+    // ===== نسخة احتياطية لملفات المحادثات المحفوظة محليًا (ZIP: manifest.json + files/<id>) =====
+    async function exportChatFilesZip() {
+        try {
+            if (!window.spLocalFiles) { showToast('ميزة المحادثات لسه ماتحمّلتش ⚠️'); return; }
+            const list = await window.spLocalFiles.list();
+            if (!list.length) { showToast('مفيش ملفات محادثات محفوظة على الجهاز'); return; }
+            showToast('جاري تجهيز الملف... ⏳');
+            const JSZ = await aiLib('JSZip'), z = new JSZ(), man = {};
+            list.forEach(f => { man[f.id] = { name: f.name || 'file', size: f.size || 0, at: f.at || 0 }; z.file('files/' + f.id, f.blob, { binary: true }); });
+            z.file('manifest.json', JSON.stringify({ app: 'sanjzha-chat-files', version: 1, files: man }));
+            const blob = await z.generateAsync({ type: 'blob', compression: 'STORE' });
+            const fileName = `ملفات-المحادثات-${getDateKey()}.zip`;
+            if (window.AndroidNative && typeof AndroidNative.saveFileBase64 === 'function') {
+                const b64 = await new Promise((ok, no) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result).split(',')[1] || ''); fr.onerror = no; fr.readAsDataURL(blob); });
+                const ok = AndroidNative.saveFileBase64(b64, fileName, 'application/zip');
+                showToast(ok ? 'تم حفظ ملفات المحادثات في مجلد التنزيلات 💾' : 'تعذر حفظ الملف على الجهاز ⚠️');
+                return;
+            }
+            const url = URL.createObjectURL(blob), a = document.createElement('a');
+            a.href = url; a.download = fileName; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 30000);
+            showToast('تم تصدير ' + list.length + ' ملف 💾');
+        } catch (e) { showToast('تعذر تصدير ملفات المحادثات ⚠️'); }
+    }
+
+    async function importChatFilesZip(event) {
+        const file = event.target.files[0]; event.target.value = '';
+        if (!file) return;
+        try {
+            if (!window.spLocalFiles) { showToast('ميزة المحادثات لسه ماتحمّلتش ⚠️'); return; }
+            showToast('جاري استيراد الملفات... ⏳');
+            const z = await (await aiLib('JSZip')).loadAsync(file), mf = z.file('manifest.json');
+            if (!mf) throw new Error('bad');
+            const man = (JSON.parse(await mf.async('string')) || {}).files || {};
+            let n = 0;
+            for (const id of Object.keys(man)) {
+                if (!/^[A-Za-z0-9_-]{1,40}$/.test(id)) continue;
+                const e = z.file('files/' + id); if (!e) continue;
+                if (await window.spLocalFiles.put(id, await e.async('blob'), man[id].name)) n++;
+            }
+            showToast(n ? 'تم استيراد ' + n + ' ملف ✅' : 'مفيش ملفات صالحة في الأرشيف ⚠️');
+        } catch (e) { showToast('ملف ZIP غير صالح ⚠️'); }
     }
 
     function importBackupFile(event) {
@@ -35590,7 +35640,7 @@ window.aiAgent={ok:true,begin,names,used,runBatch,guide,claimsUnbacked,nudgeText
 })();
 
 </script>
-<script src="social.js?v=12"></script>
+<script src="social.js?v=14"></script>
 <script id="deviceLinkScript">
 /* ربط الأجهزة — مزامنة تلقائية في الاتجاهين بين أكتر من جهاز (زي واتساب ويب)
    - الربط بكود/QR قصير الصلاحية (5 دقايق، مرة واحدة) بيدّي الجهاز الجديد مفتاح مجموعة عشوائي طويل.

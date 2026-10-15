@@ -1035,14 +1035,19 @@ function leaveView(v) {
 function sgChatReadMap() { return sgRead('chatRead', {}); }
 function sgStopChat() {
   ['chatUnsub', 'readUnsub'].forEach(function (k) { if (SG[k]) { try { SG[k](); } catch (e) { } SG[k] = null; } });
-  SG.chatItems = []; SG.chatLoading = false; SG.chatMore = false; SG.readAt = 0; SG.myReadSent = 0; SG.dAt = 0; SG.played = {}; SG.chatFriend = '';
+  SG.chatItems = []; SG.chatLoading = false; SG.chatMore = false; SG.readAt = 0; SG.myReadSent = 0; SG.dAt = 0; SG.played = {}; SG.chatFriend = ''; SG.chatLive = false;
 }
 function chatStart(fid) {
   sgStopChat(); var d = db(); if (!d || !S.uid) return;
-  SG.chatFriend = fid; SG.chatLoading = true; var cid = sgChatId(fid), lim = SG.chatLimit || 40;
+  SG.chatFriend = fid; SG.chatLoading = true; SG.chatLive = false; var cid = sgChatId(fid), lim = SG.chatLimit || 40;
+  if (lim <= 40) {
+    if (MC[cid] && MC[cid].length) { SG.chatItems = MC[cid].slice(); try { chatRefresh(); } catch (e) { } }
+    else mcLoad(cid).then(function (it) { if (it && it.length && SG.chatFriend === fid && !SG.chatLive) { SG.chatItems = it; chatRefresh(); } });
+  }
   SG.chatUnsub = d.collection('socialChats').doc(cid).collection('messages').orderBy('createdAt', 'desc').limit(lim).onSnapshot({ includeMetadataChanges: true }, function (sn) {
     SG.chatItems = sn.docs.map(function (x) { var o = Object.assign({ id: x.id }, x.data({ serverTimestamps: 'estimate' })); o._p = x.metadata.hasPendingWrites; return o; }).reverse();
-    SG.chatMore = sn.size >= lim; SG.chatLoading = false; chatMarkRead(); chatRefresh(); try { cleanOld(cid); } catch (e) { }
+    SG.chatMore = sn.size >= lim; SG.chatLoading = false; SG.chatLive = true; mcSave(cid, SG.chatItems); chatMarkRead(); chatRefresh(); try { cleanOld(cid); } catch (e) { }
+    try { autoSaveIncoming(SG.chatItems); sn.docChanges().forEach(function (c) { if (c.type === 'removed') { var dm = c.doc.data(); if (dm && dm.type === 'file' && dm.fileId && LF.have[dm.fileId]) lfCheckGone(cid, c.doc.id, dm.fileId); } }); } catch (e) { }
   }, function () { SG.chatLoading = false; snack('تعذّر تحميل الشات. راجع قواعد أمان socialChats في Firestore.'); chatRefresh(); });
   try {
     SG.readUnsub = d.collection('socialChats').doc(cid).collection('reads').doc(fid).onSnapshot(function (s) {
@@ -1094,7 +1099,7 @@ function bubbleHtml(m, idx, tail) {
   else if (m.type === 'file' && m.fileId && expired(m)) body = '<div class="sx-fil"><span class="fi">' + ic('file', 22) + '</span><span style="min-width:0;flex:1"><b>' + esc(m.fileName || 'ملف مرفق') + '</b><small>انتهت صلاحية الملف (بعد ' + KEEP_DAYS + ' أيام)</small></span></div>';
   else if (m.type === 'file' && m.fileId) {
     var fi = m.fileId, st = SG.dlBusy[fi] ? ' busy' : (SG.dlDone[fi] ? ' done' : '');
-    body = '<div class="sx-fil"><span class="fi">' + ic('file', 22) + '</span><span style="min-width:0;flex:1"><b>' + esc(m.fileName || 'ملف مرفق') + '</b><small>' + fmtSize(m.fileSize) + '</small></span><button class="dlb' + st + '" data-dl="1" aria-label="تنزيل الملف" title="تنزيل">' + (SG.dlBusy[fi] ? '<b style="font-size:.72rem">' + (SG.dlPct[fi] || 0) + '%</b>' : ic(SG.dlDone[fi] ? 'check' : 'dl', 20)) + '</button></div>';
+    body = '<div class="sx-fil"><span class="fi">' + ic('file', 22) + '</span><span style="min-width:0;flex:1"><b>' + esc(m.fileName || 'ملف مرفق') + '</b><small>' + fmtSize(m.fileSize) + fileHint(m) + '</small></span><button class="dlb' + st + '" data-dl="1" aria-label="تنزيل الملف" title="تنزيل">' + (SG.dlBusy[fi] ? '<b style="font-size:.72rem">' + (SG.dlPct[fi] || 0) + '%</b>' : ic(SG.dlDone[fi] ? 'check' : 'dl', 20)) + '</button></div>';
   }
   else if (m.type === 'file') body = url ? '<a class="sx-fil" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer"><span class="fi">' + ic('file', 22) + '</span><span style="min-width:0"><b>' + esc(m.fileName || 'ملف مرفق') + '</b><small>اضغط للفتح</small></span></a>' : '<i style="opacity:.7">الملف مش متاح</i>';
   else body = '<span class="tx">' + linkify(m.text || '') + '</span>';
@@ -1235,7 +1240,7 @@ function sgSendMsg(fid, fields, preview) {
   b.set(ref, { participants: [S.uid, fid], updatedAt: now, lastMessage: String(preview || '').slice(0, 100), lastFrom: S.uid }, { merge: true });
   b.set(mref, Object.assign({ from: S.uid, to: fid, createdAt: now }, fields));
   UI.stick = true;
-  return b.commit().then(function () { return true; }).catch(function () { snack('فشل الإرسال. تحقق من قواعد Firestore الخاصة بالشات.'); return false; });
+  return b.commit().then(function () { return true; }).catch(function (e) { snack('فشل الإرسال' + (e && e.code ? ' (' + e.code + ')' : '') + '. تحقق من قواعد Firestore الخاصة بالشات.'); return false; });
 }
 window.spGameChatSend = function () {
   var inp = $('sxInput'), text = (inp && inp.value || '').trim(), fid = SG.chatFriend; if (!text || !fid) return;
@@ -1309,7 +1314,7 @@ function cfUpload(f, fid, u) {
     }
     return nx();
   }).then(function (r) {
-    if (r.st === 200) { rmUpl(u); UI.stick = true; var fl = { type: 'file', text: '', fileId: id, fileName: nm, fileSize: f.size, chunks: 0, store: 'cf' }; if (split) fl.parts = 2; return sgSendMsg(fid, fl, '📎 ' + f.name.slice(0, 100)); }
+    if (r.st === 200) { lfPut(id, f, nm); rmUpl(u); UI.stick = true; var fl = { type: 'file', text: '', fileId: id, fileName: nm, fileSize: f.size, chunks: 0, store: 'cf' }; if (split) fl.parts = 2; return sgSendMsg(fid, fl, '📎 ' + f.name.slice(0, 100)); }
     rmUpl(u); var e = {}; try { e = JSON.parse(r.text || '{}'); } catch (x) { }
     if (r.st === 429) { var t = split ? tierOf(f.size) : null, i; if (!t) for (i = 0; i < TIERS.length; i++) if (TIERS[i].k === e.k) t = TIERS[i]; snack('🚫 وصلت للحد اليومي: ' + (e.max || '') + ' ' + (e.max === 1 ? 'ملف' : 'ملفات') + ' ' + (t ? t.lbl : 'بالحجم ده') + ' في اليوم. الحصة بتتجدد بكرة.'); }
     else if (r.st === 413) snack('الحد الأقصى للملف ' + fmtSize(MAXBIG));
@@ -1319,8 +1324,12 @@ function cfUpload(f, fid, u) {
 function startUpload(f, fid, u, tr) {
   if (CF_URL && f.size > CF_MIN) { UI.upl.push(u); UI.stick = true; chatRefresh(); cfUpload(f, fid, u); return; }
   UI.upl.push(u); UI.stick = true; chatRefresh();
-  uploadFile(f, fid, u).then(function (info) { rmUpl(u); UI.stick = true; return sgSendMsg(fid, { type: 'file', text: '', fileId: info.id, fileName: f.name.slice(0, 120), fileSize: f.size, chunks: info.n }, '📎 ' + f.name.slice(0, 100)).then(function (ok) { if (ok) useQuota(tr); return ok; }); })
+  uploadFile(f, fid, u).then(function (info) { if (f.size > MAXFILE) lfPut(info.id, f, f.name); rmUpl(u); UI.stick = true; return sgSendMsg(fid, { type: 'file', text: '', fileId: info.id, fileName: f.name.slice(0, 120), fileSize: f.size, chunks: info.n }, '📎 ' + f.name.slice(0, 100)).then(function (ok) { if (ok) useQuota(tr); return ok; }); })
     .catch(function () { rmUpl(u); snack('فشل رفع الملف. راجع الاتصال وقواعد Firestore.'); });
+}
+function fileHint(m) {
+  if (!(+m.fileSize > MAXFILE)) return ''; if (LF.have[m.fileId]) return ' · ✅ محفوظ على جهازك';
+  var left = Math.ceil((ms(m.createdAt) + KEEP_DAYS * DAY - Date.now()) / DAY); return left > 0 ? ' · ينتهي من السيرفر بعد ' + left + ' يوم — نزّله عشان يتحفظ' : '';
 }
 function fmtSize(n) { n = +n || 0; return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB'; }
 function readB64(blob) { return new Promise(function (res, rej) { var fr = new FileReader(); fr.onerror = function () { rej(new Error('read')); }; fr.onload = function () { res(String(fr.result).split(',')[1] || ''); }; fr.readAsDataURL(blob); }); }
@@ -1344,59 +1353,136 @@ function uploadFile(f, fid, u) {
   });
 }
 function blobIds(id, n) { var a = [], i; for (i = 0; i < n; i++) a.push(id + '_' + i); return a; }
-window.spDownload = function (i) {
-  var m = SG.chatItems[i]; if (!m || !m.fileId || !/^[A-Za-z0-9_-]{1,40}$/.test(m.fileId)) return; var fi = m.fileId; if (SG.dlBusy[fi]) return;
-  if (expired(m)) { snack('الملف ده انتهت صلاحيته واتحذف من السيرفر'); return; }
+/* ===== نسخة محلية من الملفات الكبيرة على الجهاز (IndexedDB) — بتفضل حتى بعد ما السيرفر يمسح نسخته ===== */
+var LF = { db: null, have: {}, auto: {}, q: Promise.resolve(), ready: null }, AUTO_MAX = 25 * MB;
+function lfOpen() {
+  if (LF.db) return Promise.resolve(LF.db);
+  return new Promise(function (res, rej) {
+    try {
+      var r = indexedDB.open('spFilesDB', 2);
+      r.onupgradeneeded = function () { var dbx = r.result; if (!dbx.objectStoreNames.contains('f')) dbx.createObjectStore('f', { keyPath: 'id' }); if (!dbx.objectStoreNames.contains('m')) dbx.createObjectStore('m', { keyPath: 'id' }); };
+      r.onsuccess = function () { LF.db = r.result; try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { } res(LF.db); };
+      r.onerror = function () { rej(r.error); };
+    } catch (e) { rej(e); }
+  });
+}
+function lfTx(mode, fn) {
+  return lfOpen().then(function (d) {
+    return new Promise(function (res, rej) {
+      var t = d.transaction('f', mode), q = fn(t.objectStore('f'));
+      t.oncomplete = function () { res(q && q.result); }; t.onerror = t.onabort = function () { rej(t.error); };
+    });
+  });
+}
+function lfPut(id, blob, name) { return lfTx('readwrite', function (st) { return st.put({ id: id, blob: blob, name: name || '', size: blob.size, at: Date.now() }); }).then(function () { LF.have[id] = 1; try { chatRefresh(); } catch (e) { } return true; }, function () { return false; }); }
+function lfGet(id) { return lfTx('readonly', function (st) { return st.get(id); }).then(function (r) { return r ? r.blob : null; }, function () { return null; }); }
+function lfDel(id) { delete LF.have[id]; return lfTx('readwrite', function (st) { return st.delete(id); }).then(function () { try { chatRefresh(); } catch (e) { } }, function () { }); }
+function lfLoad() { return lfTx('readonly', function (st) { return st.getAllKeys(); }).then(function (ks) { (ks || []).forEach(function (k) { LF.have[k] = 1; }); try { chatRefresh(); } catch (e) { } }, function () { }); }
+LF.ready = lfLoad();
+window.spLocalFiles = {
+  list: function () { return lfTx('readonly', function (st) { return st.getAll(); }).then(function (a) { return a || []; }, function () { return []; }); },
+  put: function (id, blob, name) { return lfPut(id, blob, name); },
+  count: function () { return Object.keys(LF.have).length; }
+};
+
+/* ===== كاش آخر رسائل كل محادثة: المحادثة تفتح فورًا بدون "جاري التحميل" ===== */
+var MC = {}, MCT = {};
+function mcSave(cid, items) {
+  try {
+    var arr = items.filter(function (m) { return !m._p; }).slice(-40).map(function (m) { var o = Object.assign({}, m); o.createdAt = ms(m.createdAt); delete o._p; return o; });
+    MC[cid] = arr; clearTimeout(MCT[cid]);
+    MCT[cid] = setTimeout(function () { lfOpen().then(function (d) { d.transaction('m', 'readwrite').objectStore('m').put({ id: cid, items: arr, at: Date.now() }); }).catch(function () { }); }, 500);
+  } catch (e) { }
+}
+function mcLoad(cid) {
+  return lfOpen().then(function (d) { return new Promise(function (res) { var r = d.transaction('m', 'readonly').objectStore('m').get(cid); r.onsuccess = function () { res(r.result ? r.result.items : null); }; r.onerror = function () { res(null); }; }); }).catch(function () { return null; });
+}
+/* بيجيب الملف كـ Blob (من الـ Worker أو من قطع Firestore) */
+function fetchFileBlob(m, onP, cid) {
+  var fi = m.fileId;
   if (m.store === 'cf' && CF_URL && /^[A-Za-z0-9_-]{1,128}$/.test(m.from || '')) {
-    SG.dlBusy[fi] = true; SG.dlPct[fi] = 0; chatRefresh();
     var np = (+m.parts === 2) ? 2 : 1;
-    cfToken().then(function (tk) {
+    return cfToken().then(function (tk) {
       var out = [], k = 0;
       function nx() {
-        if (k >= np) return Promise.resolve({ st: 200, r: out.length > 1 ? new Blob(out) : out[0] });
+        if (k >= np) return Promise.resolve(out.length > 1 ? new Blob(out) : out[0]);
         var j = k++;
-        return cfReq('GET', '/f/' + m.from + '/' + fi + (np === 2 ? '?part=' + j : ''), tk, null, function (p) { SG.dlPct[fi] = Math.min(99, Math.round((j + p) / np * 100)); chatRefresh(); }, null, 'blob').then(function (r) { if (r.st !== 200) return r; out.push(r.r); return nx(); });
+        return cfReq('GET', '/f/' + m.from + '/' + fi + (np === 2 ? '?part=' + j : ''), tk, null, function (p) { onP((j + p) / np); }, null, 'blob').then(function (r) {
+          if (r.st !== 200) { var e = new Error('http'); e.st = r.st; throw e; }
+          out.push(r.r); return nx();
+        });
       }
       return nx();
-    }).then(function (r) {
-      if (r.st !== 200) { SG.dlBusy[fi] = false; chatRefresh(); snack(r.st === 404 ? 'الملف ده انتهت صلاحيته واتحذف' : 'تعذّر تحميل الملف'); return; }
-      var url = URL.createObjectURL(r.r), a = document.createElement('a'); a.href = url; a.download = String(m.fileName || 'file').replace(/[\\/:*?"<>|]/g, '_'); document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
-      SG.dlBusy[fi] = false; SG.dlPct[fi] = 100; SG.dlDone[fi] = true; chatRefresh(); snack('✅ تم تحميل الملف');
-    }).catch(function () { SG.dlBusy[fi] = false; chatRefresh(); snack('تعذّر تحميل الملف'); });
-    return;
+    });
   }
-  var d = db(), cid = sgChatId(SG.chatFriend), n = Math.min(+m.chunks || 1, 260), parts = new Array(n), next = 0, got = 0, active = 0, failed = false;
-  SG.dlBusy[fi] = true; SG.dlPct[fi] = 0; chatRefresh();
-  function fail() { if (failed) return; failed = true; SG.dlBusy[fi] = false; chatRefresh(); snack('تعذّر تحميل الملف (ممكن يكون اتحذف)'); }
-  function finish() {
-    var url = URL.createObjectURL(new Blob(parts, { type: 'application/octet-stream' })), a = document.createElement('a');
-    a.href = url; a.download = String(m.fileName || 'file').replace(/[\\/:*?"<>|]/g, '_'); document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
-    parts = null; SG.dlBusy[fi] = false; SG.dlPct[fi] = 100; SG.dlDone[fi] = true; chatRefresh(); snack('✅ تم تحميل الملف');
-  }
-  function pump() {
-    if (failed) return; if (got >= n) { finish(); return; }
-    while (active < 6 && next < n) {
-      (function (k) {
-        active++;
-        d.collection('socialChats').doc(cid).collection('blobs').doc(fi + '_' + k).get().then(function (x) {
-          if (!x.exists) throw new Error('missing');
-          var bin = atob(x.data().data), arr = new Uint8Array(bin.length), q; for (q = 0; q < bin.length; q++) arr[q] = bin.charCodeAt(q);
-          parts[k] = arr; active--; got++; SG.dlPct[fi] = Math.min(99, Math.round(got / n * 100)); if (got % 3 === 0) chatRefresh(); pump();
-        }).catch(fail);
-      })(next++);
+  var d = db(), n = Math.min(+m.chunks || 1, 260), parts = new Array(n), next = 0, got = 0, active = 0, failed = false;
+  return new Promise(function (res, rej) {
+    function pump() {
+      if (failed) return; if (got >= n) { res(new Blob(parts, { type: 'application/octet-stream' })); return; }
+      while (active < 6 && next < n) {
+        (function (k) {
+          active++;
+          d.collection('socialChats').doc(cid).collection('blobs').doc(fi + '_' + k).get().then(function (x) {
+            if (!x.exists) throw new Error('missing');
+            var bin = atob(x.data().data), arr = new Uint8Array(bin.length), q; for (q = 0; q < bin.length; q++) arr[q] = bin.charCodeAt(q);
+            parts[k] = arr; active--; got++; onP(got / n); pump();
+          }).catch(function (e) { if (!failed) { failed = true; rej(e); } });
+        })(next++);
+      }
     }
-  }
-  pump();
+    pump();
+  });
+}
+function saveBlobAs(blob, name) {
+  var url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = String(name || 'file').replace(/[\\/:*?"<>|]/g, '_');
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
+}
+window.spDownload = function (i) {
+  var m = SG.chatItems[i]; if (!m || !m.fileId || !/^[A-Za-z0-9_-]{1,40}$/.test(m.fileId)) return; var fi = m.fileId; if (SG.dlBusy[fi]) return;
+  var cid = sgChatId(SG.chatFriend);
+  SG.dlBusy[fi] = true; SG.dlPct[fi] = 0; chatRefresh();
+  lfGet(fi).then(function (b) {
+    if (b) return b;
+    if (srvExpired(m)) { var e = new Error('exp'); e.exp = 1; throw e; }
+    var last = -1;
+    return fetchFileBlob(m, function (p) { var v = Math.min(99, Math.round(p * 100)); SG.dlPct[fi] = v; if (v - last >= 3) { last = v; chatRefresh(); } }, cid).then(function (blob) { lfPut(fi, blob, m.fileName); return blob; });
+  }).then(function (blob) {
+    saveBlobAs(blob, m.fileName);
+    SG.dlBusy[fi] = false; SG.dlPct[fi] = 100; SG.dlDone[fi] = true; chatRefresh(); snack('✅ تم تحميل الملف');
+  }).catch(function (e) {
+    SG.dlBusy[fi] = false; chatRefresh();
+    snack(e && (e.exp || e.st === 404) ? 'الملف ده انتهت صلاحيته واتحذف من السيرفر' : 'تعذّر تحميل الملف (ممكن يكون اتحذف)');
+  });
 };
+/* الملفات الصغيرة (لحد 25 ميجا) اللي بتوصلني بتتحفظ على جهازي تلقائي قبل ما السيرفر يمسحها */
+function autoSaveIncoming(items) {
+  if (!SG.chatFriend) return; try { if (navigator.connection && navigator.connection.saveData) return; } catch (e) { }
+  var cid = sgChatId(SG.chatFriend);
+  LF.ready.then(function () {
+    items.forEach(function (m) {
+      if (m.type !== 'file' || m.from === S.uid || m._p || !m.fileId || !/^[A-Za-z0-9_-]{1,40}$/.test(m.fileId)) return;
+      if (LF.have[m.fileId] || LF.auto[m.fileId] || SG.dlBusy[m.fileId]) return;
+      if (!(+m.fileSize > MAXFILE) || +m.fileSize > AUTO_MAX || srvExpired(m)) return;
+      LF.auto[m.fileId] = 1;
+      LF.q = LF.q.then(function () { return fetchFileBlob(m, function () { }, cid).then(function (b) { return lfPut(m.fileId, b, m.fileName); }); }).catch(function () { });
+    });
+  });
+}
+/* لو الرسالة اتمسحت من عند الطرف التاني، نمسح النسخة المحلية كمان (بنتأكد من السيرفر عشان الرسائل القديمة اللي بتخرج من نافذة التحميل ماتتحسبش محذوفة) */
+function lfCheckGone(cid, mid, fid) {
+  var d = db(); if (!d) return;
+  d.collection('socialChats').doc(cid).collection('messages').doc(mid).get({ source: 'server' }).then(function (x) { if (!x.exists) lfDel(fid); }, function () { });
+}
 function cleanOld(cid) {
   var done = {}; try { done = JSON.parse(LS.getItem('sp_cleaned') || '{}'); } catch (e) { } var ch = false, d = db(); if (!d) return;
   SG.chatItems.forEach(function (m) {
-    if (m.from !== S.uid || m.store === 'cf' || !expired(m) || !m.fileId || done[m.fileId] || !/^[A-Za-z0-9_-]{1,40}$/.test(m.fileId)) return;
+    if (m.from !== S.uid || m.store === 'cf' || !srvExpired(m) || !m.fileId || done[m.fileId] || !/^[A-Za-z0-9_-]{1,40}$/.test(m.fileId)) return;
     done[m.fileId] = 1; ch = true; blobIds(m.fileId, Math.min(+m.chunks || 1, 260)).forEach(function (k) { d.collection('socialChats').doc(cid).collection('blobs').doc(k).delete().catch(function () { }); });
   });
   if (ch) { try { LS.setItem('sp_cleaned', JSON.stringify(done)); } catch (e) { } }
 }
-function expired(m) { return !!(m && m.type === 'file' && +m.fileSize > MAXFILE && Date.now() - ms(m.createdAt) > KEEP_DAYS * DAY); }
+function srvExpired(m) { return !!(m && m.type === 'file' && +m.fileSize > MAXFILE && Date.now() - ms(m.createdAt) > KEEP_DAYS * DAY); }
+function expired(m) { return srvExpired(m) && !LF.have[m.fileId]; }
 function hiddenMap() { try { return JSON.parse(LS.getItem('sp_hid_' + sgChatId(SG.chatFriend)) || '{}'); } catch (e) { return {}; } }
 function selMsg() { var k, it = SG.chatItems; for (k = 0; k < it.length; k++) if (it[k].id === UI.sel) return it[k]; return null; }
 function msgPreview(m) { return m.type === 'image' ? '📷 ' + (m.text || 'صورة') : m.type === 'voice' ? '🎤 رسالة صوتية ' + fmtDur(m.dur) : m.type === 'file' ? '📎 ' + (m.fileName || 'ملف') : String(m.text || '').slice(0, 120); }
@@ -1425,11 +1511,11 @@ window.spJump = function (id) {
   try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { el.scrollIntoView(); }
   el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); setTimeout(function () { el.classList.remove('flash'); }, 1500);
 };
-function delBlobs(m) { var cc = db().collection('socialChats').doc(sgChatId(SG.chatFriend)); if (m.store === 'cf' && CF_URL) { cfToken().then(function (tk) { cfReq('DELETE', '/f/' + m.fileId, tk); }).catch(function () { }); return cc; } if (m.fileId && /^[A-Za-z0-9_-]{1,40}$/.test(m.fileId)) blobIds(m.fileId, Math.min(+m.chunks || 1, 260)).forEach(function (k) { cc.collection('blobs').doc(k).delete().catch(function () { }); }); return cc; }
+function delBlobs(m) { var cc = db().collection('socialChats').doc(sgChatId(SG.chatFriend)); if (m.type === 'file' && m.fileId) lfDel(m.fileId); if (m.store === 'cf' && CF_URL) { cfToken().then(function (tk) { cfReq('DELETE', '/f/' + m.fileId, tk); }).catch(function () { }); return cc; } if (m.fileId && /^[A-Za-z0-9_-]{1,40}$/.test(m.fileId)) blobIds(m.fileId, Math.min(+m.chunks || 1, 260)).forEach(function (k) { cc.collection('blobs').doc(k).delete().catch(function () { }); }); return cc; }
 window.spDelMsg = function () {
   var m = selMsg(); if (!m) return; var own = m.from === S.uid, items = [];
   if (own) items.push({ t: 'حذف لدى الجميع', ic: 'trash', danger: true, f: function () { if (!confirm('تحذف الرسالة عند الطرفين؟')) return; var cc = delBlobs(m); cc.collection('messages').doc(m.id).delete().catch(function () { snack('تعذّر الحذف'); }); UI.sel = ''; selRefresh(); } });
-  items.push({ t: 'حذف لدي', ic: 'trash', danger: true, f: function () { var h = hiddenMap(); h[m.id] = 1; try { LS.setItem('sp_hid_' + sgChatId(SG.chatFriend), JSON.stringify(h)); } catch (e) { } UI.sel = ''; selRefresh(); chatRefresh(); } });
+  items.push({ t: 'حذف لدي', ic: 'trash', danger: true, f: function () { if (m.type === 'file' && m.fileId) lfDel(m.fileId); var h = hiddenMap(); h[m.id] = 1; try { LS.setItem('sp_hid_' + sgChatId(SG.chatFriend), JSON.stringify(h)); } catch (e) { } UI.sel = ''; selRefresh(); chatRefresh(); } });
   items.push({ t: 'إلغاء', ic: 'close', f: function () { } });
   actions('حذف الرسالة؟', items);
 };
