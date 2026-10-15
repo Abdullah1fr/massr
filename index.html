@@ -6139,7 +6139,7 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
                 </div>
                 <div class="settings-section settings-collapsible" id="emailAccountSection">
                     <div class="settings-section-desc" id="emailAccountDesc">
-                        سجّل بإيميلك وكلمة مرور عشان بياناتك تترفع تلقائيًا للسحابة، وترجعلك أوتوماتيك لو غيّرت جهاز أو مسحت التطبيق. التسجيل اختياري — بس لو مسجلتش، بياناتك محفوظة على جهازك بس وممكن تضيع لو اتمسح التطبيق أو ضاع الجهاز.
+                        سجّل بحساب جوجل عشان بياناتك تترفع تلقائيًا للسحابة، وترجعلك أوتوماتيك لو غيّرت جهاز أو مسحت التطبيق. التسجيل اختياري — بس لو مسجلتش، بياناتك محفوظة على جهازك بس وممكن تضيع لو اتمسح التطبيق أو ضاع الجهاز.
                     </div>
 
                     <!-- الحالة: مش مسجل دخول -->
@@ -6147,13 +6147,18 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
                         <div class="settings-section-desc" style="color:#c9930f; background:rgba(255,193,7,0.08); border:1px solid rgba(255,193,7,0.3); border-radius:8px; padding:8px 10px;">
                             ⚠️ لسه مسجلتش. بياناتك حاليًا محفوظة على الجهاز ده بس.
                         </div>
-                        <input type="email" id="emailAuthEmailInput" placeholder="بريدك الإلكتروني" autocomplete="email" style="width:100%; margin-top:8px;">
-                        <input type="password" id="emailAuthPassInput" placeholder="كلمة المرور (6 خانات على الأقل)" autocomplete="current-password" style="width:100%; margin-top:8px;">
-                        <div style="display:flex; gap:8px; margin-top:8px;">
-                            <button class="btn" style="flex:1;" onclick="handleEmailLogin()">🔑 دخول</button>
-                            <button class="btn btn-secondary" style="flex:1;" onclick="handleEmailRegister()">🆕 إنشاء حساب</button>
-                        </div>
-                        <button class="btn btn-secondary" style="width:100%; margin-top:8px; font-size:0.75rem;" onclick="handleForgotPassword()">نسيت كلمة المرور؟</button>
+                        <button class="btn" style="width:100%; margin-top:10px; background:#fff; color:#3c4043; border:1px solid #dadce0; font-weight:700;" onclick="handleGoogleLogin()">
+                            <svg width="18" height="18" viewBox="0 0 48 48" style="vertical-align:middle; margin-left:8px;"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4.1 7.1-10.1 7.1-17.5z"/><path fill="#FBBC05" d="M10.5 28.7A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.8-4.7l-7.9-6.1A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.8l7.9-6.1z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.5-5.8c-2.1 1.4-4.9 2.3-8.4 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/></svg>
+                            المتابعة بحساب جوجل
+                        </button>
+                        <div class="settings-section-desc" style="margin-top:6px;">حساب جوجل واحد = حساب واحد في التطبيق (بياناتك، النسخ الاحتياطي، والمنافسة والأصدقاء كلها على نفس الحساب).</div>
+                        <details style="margin-top:10px;">
+                            <summary style="font-size:0.78rem; cursor:pointer; opacity:.8;">عندي حساب قديم بالإيميل وكلمة المرور</summary>
+                            <input type="email" id="emailAuthEmailInput" placeholder="بريدك الإلكتروني" autocomplete="email" style="width:100%; margin-top:8px;">
+                            <input type="password" id="emailAuthPassInput" placeholder="كلمة المرور" autocomplete="current-password" style="width:100%; margin-top:8px;">
+                            <button class="btn btn-secondary" style="width:100%; margin-top:8px;" onclick="handleEmailLogin()">🔑 دخول بالإيميل</button>
+                            <button class="btn btn-secondary" style="width:100%; margin-top:8px; font-size:0.75rem;" onclick="handleForgotPassword()">نسيت كلمة المرور؟</button>
+                        </details>
                         <div id="emailAuthMsg" style="font-size:0.75rem; margin-top:6px; min-height: 1em;"></div>
                     </div>
 
@@ -6217,7 +6222,7 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
                         </label>
                     </div>
                     <div id="appLockSetupRow" class="lock-setup-row" style="display:none;">
-                        <input type="email" id="appLockEmailInput" placeholder="بريدك الإلكتروني (لاسترجاع كلمة المرور لو نسيتها)" autocomplete="email" style="width:100%; margin-bottom:8px;">
+                        <input type="email" id="appLockEmailInput" placeholder="إيميل حساب جوجل بتاعك (للتحقق لو نسيت كلمة المرور)" autocomplete="email" style="width:100%; margin-bottom:8px;">
                         <input type="password" id="appLockNewPass" placeholder="كلمة مرور جديدة (6 خانات، حرف+رقم+رمز)" autocomplete="off">
                         <input type="password" id="appLockConfirmPass" placeholder="تأكيد كلمة المرور" autocomplete="off">
                         <button class="btn" onclick="saveNewAppLockPassword()">💾 حفظ كلمة المرور</button>
@@ -6751,13 +6756,13 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
 
             <!-- المرحلة 1: كتابة الإيميل المسجل، وبعتلوله رابط تحقق حقيقي عليه -->
             <div id="recoveryStageEmail">
-                <div class="settings-section-desc" style="margin-bottom:14px;">اكتب بريدك الإلكتروني اللي كنت مسجل بيه، هنبعتلك رابط تحقق عليه للتأكد إنه فعلاً بريدك.</div>
-                <input type="email" id="recoveryEmailInput" placeholder="بريدك الإلكتروني" autocomplete="email" style="width:100%; margin-bottom:6px; direction:ltr; text-align:center;">
+                <div class="settings-section-desc" style="margin-bottom:14px;">للتأكد إنك صاحب الحساب، سجّل دخول بحساب جوجل بتاعك (نفس الإيميل اللي بتستخدمه في التطبيق). بعد التحقق هتقدر تحدد كلمة مرور جديدة للقفل.</div>
                 <div class="app-lock-error" id="recoveryEmailError"></div>
                 <div class="btn-group" style="margin-top:10px;">
-                    <button class="btn" onclick="startAppLockEmailRecovery()">إرسال رابط التحقق 📧</button>
+                    <button class="btn" style="background:#fff; color:#3c4043; border:1px solid #dadce0; font-weight:700;" onclick="startAppLockGoogleRecovery()">🔐 التحقق بحساب جوجل</button>
                     <button class="btn btn-secondary" onclick="closeForgotPasswordModal()">إلغاء</button>
                 </div>
+                <input type="hidden" id="recoveryEmailInput">
             </div>
 
             <!-- المرحلة 2: بعد ما يفتح الرابط من إيميله ويحدد كلمة مرور مؤقتة، يرجع هنا يأكدها -->
@@ -6774,12 +6779,13 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
 
             <!-- المرحلة 3: اتأكدنا إنه فعلاً صاحب الإيميل، يحدد كلمة مرور قفل جديدة -->
             <div id="recoveryStageNewPass" style="display:none;">
-                <div class="settings-section-desc" style="margin-bottom:14px;">تمام، اتأكدنا إنك صاحب الإيميل ✅. دلوقتي حدد كلمة مرور جديدة لقفل التطبيق.</div>
+                <div class="settings-section-desc" style="margin-bottom:14px;">تمام، اتأكدنا إنك صاحب الحساب ✅. حدد كلمة مرور جديدة لقفل التطبيق، أو اختار «تجاهل» لإلغاء القفل.</div>
                 <input type="password" id="recoveryNewPass" placeholder="كلمة مرور جديدة (6 خانات، حرف+رقم+رمز)" autocomplete="off" style="width:100%; margin-bottom:10px;">
                 <input type="password" id="recoveryConfirmPass" placeholder="تأكيد كلمة المرور" autocomplete="off" style="width:100%; margin-bottom:6px;">
                 <div class="app-lock-error" id="recoveryError"></div>
                 <div class="btn-group" style="margin-top:10px;">
                     <button class="btn" onclick="verifyRecoveryAndReset()">حفظ كلمة المرور الجديدة ✅</button>
+                    <button class="btn btn-secondary" onclick="skipAppLockAfterRecovery()">تجاهل وإلغاء القفل</button>
                 </div>
             </div>
 
@@ -15835,7 +15841,7 @@ function restoreTimerState() {
         toggle.checked = enabled;
         setupRow.style.display = 'none';
         changeRow.style.display = enabled ? 'block' : 'none';
-        document.getElementById('appLockEmailInput').value = localStorage.getItem('app_lock_email') || '';
+        document.getElementById('appLockEmailInput').value = localStorage.getItem('app_lock_email') || ((typeof fbAuth !== 'undefined' && fbAuth && fbAuth.currentUser && fbAuth.currentUser.email) || '');
         document.getElementById('appLockNewPass').value = '';
         document.getElementById('appLockConfirmPass').value = '';
     }
@@ -15882,17 +15888,8 @@ function restoreTimerState() {
     // بيربط إيميل قفل التطبيق بحساب Firebase في الخلفية (من غير ما المستخدم يحس)،
     // عشان نقدر نبعتله رابط استرجاع حقيقي بعدين لو نسي كلمة مرور القفل.
     // لو الإيميل مرتبط بالفعل بحساب (زي حساب النسخ الاحتياطي السحابي)، بيتجاهل الخطأ ويكمل عادي.
-    async function linkAppLockEmailToFirebase(email) {
-        if (fbInitError || !fbAuth) return { ok: false, reason: 'no_firebase' };
-        try {
-            await fbAuth.createUserWithEmailAndPassword(email, randomInternalPassword());
-            await fbAuth.signOut();
-            return { ok: true };
-        } catch (err) {
-            if (err && err.code === 'auth/email-already-in-use') return { ok: true };
-            return { ok: false, reason: err ? err.code : 'unknown' };
-        }
-    }
+    // التحقق بقى بحساب جوجل (من غير ما نعمل حساب Firebase تاني ولا نقفل جلسة المستخدم)
+    async function linkAppLockEmailToFirebase(email) { return { ok: true }; }
 
     async function saveNewAppLockPassword() {
         const email = (document.getElementById('appLockEmailInput').value || '').trim();
@@ -15981,7 +15978,7 @@ function restoreTimerState() {
         document.getElementById('recoveryFallbackError').innerText = '';
 
         const hasEmailLinked = !!localStorage.getItem('app_lock_email');
-        const canUseEmailFlow = hasEmailLinked && !fbInitError && !!fbAuth;
+        const canUseEmailFlow = !fbInitError && !!fbAuth && typeof firebase !== 'undefined';
 
         document.getElementById('recoveryStageEmail').style.display = canUseEmailFlow ? 'block' : 'none';
         document.getElementById('recoveryStageConfirm').style.display = 'none';
@@ -15996,6 +15993,51 @@ function restoreTimerState() {
     }
 
     // المرحلة 1 → بتبعت رابط تحقق حقيقي من Firebase على الإيميل اللي كتبه
+    // التحقق بحساب جوجل عن طريق تطبيق Firebase ثانوي (عشان جلسة الحساب الأساسي متتأثرش)
+    async function startAppLockGoogleRecovery() {
+        const errorEl = document.getElementById('recoveryEmailError');
+        errorEl.innerText = '';
+        if (fbInitError || typeof firebase === 'undefined') { errorEl.innerText = 'خدمة التحقق مش متاحة دلوقتي (تأكد من الإنترنت) ⚠️'; return; }
+        let vauth;
+        try {
+            let vapp; try { vapp = firebase.app('verify'); } catch (e) { vapp = firebase.initializeApp(firebaseConfig, 'verify'); }
+            vauth = vapp.auth();
+        } catch (e) { errorEl.innerText = 'تعذّر بدء التحقق ⚠️'; return; }
+        const provider = new firebase.auth.GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: 'select_account' });
+        try {
+            const cred = await vauth.signInWithPopup(provider);
+            const gmail = ((cred.user && cred.user.email) || '').toLowerCase();
+            try { await vauth.signOut(); } catch (e) { }
+            const saved = (localStorage.getItem('app_lock_email') || '').toLowerCase();
+            const mainEmail = ((fbAuth && fbAuth.currentUser && fbAuth.currentUser.email) || '').toLowerCase();
+            if (!gmail || !((saved && gmail === saved) || (mainEmail && gmail === mainEmail))) {
+                errorEl.innerText = 'حساب جوجل ده مش نفس حساب التطبيق ❌ جرّب الحساب الصحيح.';
+                return;
+            }
+            document.getElementById('recoveryStageEmail').style.display = 'none';
+            document.getElementById('recoveryStageNewPass').style.display = 'block';
+        } catch (err) {
+            const c = err && err.code;
+            if (c === 'auth/popup-closed-by-user' || c === 'auth/cancelled-popup-request') return;
+            if (c === 'auth/unauthorized-domain') errorEl.innerText = 'الرابط ده مش معتمد في Firebase ⚠️';
+            else if (c === 'auth/operation-not-allowed') errorEl.innerText = 'تسجيل الدخول بجوجل مش مفعّل في Firebase ⚠️';
+            else errorEl.innerText = 'تعذّر التحقق بجوجل ⚠️ (' + (c || 'خطأ') + ')';
+        }
+    }
+
+    // بعد التحقق: تجاهل تحديد كلمة جديدة = إلغاء القفل
+    function skipAppLockAfterRecovery() {
+        if (!confirm('هتلغي قفل التطبيق بكلمة المرور. متأكد؟')) return;
+        ['app_lock_hash', 'app_lock_salt', 'app_lock_email', 'app_lock_biometric_enabled'].forEach(function (k) { try { localStorage.removeItem(k); } catch (e) { } });
+        sessionStorage.setItem('app_unlocked', '1');
+        closeForgotPasswordModal();
+        const lockScreen = document.getElementById('appLockScreen');
+        if (lockScreen) lockScreen.classList.remove('show');
+        try { initAppLockSettingsUI(); } catch (e) { }
+        showToast('تم إلغاء قفل التطبيق 🔓');
+    }
+
     async function startAppLockEmailRecovery() {
         const email = (document.getElementById('recoveryEmailInput').value || '').trim();
         const errorEl = document.getElementById('recoveryEmailError');
@@ -17298,9 +17340,16 @@ function handleEmailLogin() {
     if (!email || !pass) { setEmailAuthMsg('اكتب الإيميل وكلمة المرور الأول', true); return; }
     setEmailAuthMsg('جاري تسجيل الدخول...', false);
     fbAuth.signInWithEmailAndPassword(email, pass).then(function (cred) {
-        return fbDb.collection('users').doc(cred.user.uid).get();
-    }).then(function (doc) {
-        if (doc.exists) {
+        return afterCloudLogin(cred.user);
+    }).catch(function (err) {
+        setEmailAuthMsg(emailAuthErrorMessage(err), true);
+    });
+}
+
+// بعد أي تسجيل دخول (جوجل أو إيميل): استرجاع النسخة السحابية لو موجودة
+function afterCloudLogin(user) {
+    return fbDb.collection('users').doc(user.uid).get().then(function (doc) {
+        if (doc.exists && doc.data().updated_at) {
             if (confirm('تم العثور على نسخة بيانات محفوظة لحسابك. هل تريد استرجاعها؟ (هيتم استبدال بيانات هذا الجهاز الحالية)')) {
                 applyImportedDataBundle(doc.data());
                 showToast('تم استرجاع بياناتك من السحابة ✅');
@@ -17311,11 +17360,34 @@ function handleEmailLogin() {
         localStorage.setItem('app_cloud_last_sync', new Date().toISOString());
         updateEmailAccountUI(fbAuth.currentUser);
         setEmailAuthMsg('', false);
-        closeSettingsModal();
+        try { closeSettingsModal(); } catch (e) { }
+    });
+}
+
+function handleGoogleLogin() {
+    if (fbInitError || !fbAuth) { setEmailAuthMsg('خدمة الحساب السحابي غير مفعّلة حاليًا ⚠️', true); return; }
+    setEmailAuthMsg('جاري فتح حساب جوجل...', false);
+    const provider = new firebase.auth.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    fbAuth.signInWithPopup(provider).then(function (cred) {
+        return afterCloudLogin(cred.user);
     }).catch(function (err) {
+        const c = err && err.code;
+        if (c === 'auth/popup-blocked' || c === 'auth/operation-not-supported-in-this-environment') {
+            fbAuth.signInWithRedirect(provider);
+            return;
+        }
+        if (c === 'auth/popup-closed-by-user' || c === 'auth/cancelled-popup-request') { setEmailAuthMsg('', false); return; }
+        if (c === 'auth/unauthorized-domain') { setEmailAuthMsg('الرابط ده مش معتمد في Firebase (Authorized domains) ⚠️', true); return; }
+        if (c === 'auth/operation-not-allowed') { setEmailAuthMsg('تسجيل الدخول بجوجل مش مفعّل في Firebase ⚠️', true); return; }
         setEmailAuthMsg(emailAuthErrorMessage(err), true);
     });
 }
+try {
+    if (fbAuth && fbAuth.getRedirectResult) {
+        fbAuth.getRedirectResult().then(function (cred) { if (cred && cred.user) return afterCloudLogin(cred.user); }).catch(function () { });
+    }
+} catch (e) { }
 
 function handleForgotPassword() {
     if (fbInitError || !fbAuth) { setEmailAuthMsg('خدمة الحساب السحابي غير مفعّلة حاليًا ⚠️', true); showToast('خدمة الحساب السحابي غير مفعّلة حاليًا ⚠️'); return; }
@@ -35640,7 +35712,7 @@ window.aiAgent={ok:true,begin,names,used,runBatch,guide,claimsUnbacked,nudgeText
 })();
 
 </script>
-<script src="social.js?v=14"></script>
+<script src="social.js?v=15"></script>
 <script id="deviceLinkScript">
 /* ربط الأجهزة — مزامنة تلقائية في الاتجاهين بين أكتر من جهاز (زي واتساب ويب)
    - الربط بكود/QR قصير الصلاحية (5 دقايق، مرة واحدة) بيدّي الجهاز الجديد مفتاح مجموعة عشوائي طويل.

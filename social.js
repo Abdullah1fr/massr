@@ -26,7 +26,18 @@ function sapp() {
 function db() { try { if (!S.db) { var a = sapp(); if (a) S.db = a.firestore(); } return S.db || null; } catch (e) { return null; } }
 function sauth() { try { var a = sapp(); return a ? a.auth() : null; } catch (e) { return null; } }
 function FV() { return firebase.firestore.FieldValue; }
-function whenUser(a) {
+function mainAuth() { try { return (typeof fbAuth !== 'undefined' && fbAuth) ? fbAuth : null; } catch (e) { return null; } }
+function mainDb() { try { return (typeof fbDb !== 'undefined' && fbDb) ? fbDb : null; } catch (e) { return null; } }
+function mainUser() {
+  return new Promise(function (res) {
+    var m = mainAuth(); if (!m) { res(null); return; }
+    var un = m.onAuthStateChanged(function (u) { try { un(); } catch (e) { } res(u || null); }, function () { res(null); });
+  });
+}
+function curSocial(a) { return new Promise(function (res, rej) { var un = a.onAuthStateChanged(function (u) { try { un(); } catch (e) { } res(u); }, rej); }); }
+function socialEmail(uid, sfx) { return 'sg_' + String(uid).toLowerCase() + (sfx || '') + '@sanjiz-social.app'; }
+function randPass() { var b = new Uint8Array(24), o = '', i; (window.crypto || window.msCrypto).getRandomValues(b); for (i = 0; i < b.length; i++) o += ('0' + b[i].toString(16)).slice(-2); return o; }
+function anonUser(a) {
   return new Promise(function (res, rej) {
     var un = a.onAuthStateChanged(function (u) {
       try { un(); } catch (e) { }
@@ -34,6 +45,42 @@ function whenUser(a) {
     }, rej);
   });
 }
+/* هوية المنافسة مربوطة بحساب الإيميل: نفس الهوية على أي جهاز/رابط بعد تسجيل الدخول.
+   بيانات الدخول الخاصة بالهوية بتتخزن في وثيقة المستخدم users/{uid} (نفس اللي بتتزامن مع الحساب). */
+function linkedUser(a, mu) {
+  var ref = mainDb().collection('users').doc(mu.uid);
+  return Promise.all([curSocial(a), ref.get()]).then(function (r) {
+    var cu = r[0], doc = r[1], sl = doc.exists ? (doc.data().socialLogin || null) : null;
+    if (sl && !(sl.email && sl.pass)) sl = null;
+    if (cu && !cu.isAnonymous) { if (sl && cu.email === sl.email) return cu; return a.signOut().then(function () { cu = null; }); }
+  }).then(function () { return Promise.all([curSocial(a), ref.get()]); }).then(function (r) {
+    var cu = r[0], doc = r[1], sl = doc.exists ? (doc.data().socialLogin || null) : null;
+    if (sl && !(sl.email && sl.pass)) sl = null;
+    if (cu && !cu.isAnonymous && sl && cu.email === sl.email) return cu;
+    var hasData = (cu && cu.isAnonymous) ? db().collection('profiles').doc(cu.uid).get().then(function (s) { return !!(s.exists && s.data().code); }, function () { return false; }) : Promise.resolve(false);
+    return hasData.then(function (has) {
+      if (sl && !(sl.fresh && has)) return a.signInWithEmailAndPassword(sl.email, sl.pass).then(function (c) { return c.user; });
+      var email = socialEmail(mu.uid, sl ? 'b' + Date.now().toString(36) : ''), pass = randPass(), cred = firebase.auth.EmailAuthProvider.credential(email, pass);
+      var p = (cu && cu.isAnonymous) ? cu.linkWithCredential(cred).then(function (c) { return c.user; }) : a.createUserWithEmailAndPassword(email, pass).then(function (c) { return c.user; });
+      return p.then(function (u) { return ref.set({ socialLogin: { email: email, pass: pass, fresh: !has } }, { merge: true }).then(function () { return u; }); });
+    });
+  });
+}
+function whenUser(a) {
+  return mainUser().then(function (mu) {
+    if (!mu || !mainDb()) return anonUser(a);
+    return linkedUser(a, mu).catch(function (e) { try { console.warn('social link failed', e); } catch (x) { } return anonUser(a); });
+  });
+}
+/* لو المستخدم سجّل/خرج من حساب الإيميل بعد ما التطبيق اشتغل */
+try {
+  var __ma = mainAuth(), __first = true;
+  if (__ma) __ma.onAuthStateChanged(function (u) {
+    if (__first) { __first = false; return; }
+    if (u) { S.booting = false; if (LS.getItem('sp_on') === '1' || UI.open) { teardown(); S.uid = ''; init().then(function () { render(true); }); } }
+    else { var sa = sauth(); if (sa && sa.currentUser && !sa.currentUser.isAnonymous) { sa.signOut().then(function () { teardown(); S.uid = ''; LS.removeItem('sp_on'); render(true); }); } }
+  });
+} catch (e) { }
 
 /* ---------- إحصائيات الأسبوع (من بيانات التطبيق نفسها) ---------- */
 function wkStart() { var d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - ((d.getDay() + 1) % 7)); return d; }
@@ -169,6 +216,19 @@ function init() {
   if (S.booting) return Promise.resolve();
   S.booting = true; S.err = '';
   return whenUser(a).then(function (u) { if (S.uid === u.uid && S.code) { S.booting = false; return; } teardown(); S.uid = u.uid; return boot(); }).catch(fail);
+}
+function autoActivate() {
+  if (S.code || S.booting || !mainAuth()) return;
+  mainUser().then(function (mu) {
+    if (!mu || S.code || S.booting) return;
+    var a = sauth(); if (!a || !db()) return; S.booting = true;
+    return whenUser(a).then(function (u) {
+      return db().collection('profiles').doc(u.uid).get().then(function (sn) {
+        S.booting = false;
+        if (sn.exists && sn.data().code) { teardown(); S.uid = u.uid; return boot(); }
+      });
+    });
+  }).catch(function () { S.booting = false; });
 }
 function mkCode(n) {
   var c = gen(), d = db();
@@ -314,7 +374,7 @@ function picOf(id) { var u = ''; try { u = (id === S.uid) ? (LS.getItem('sp_pic'
 function avatar(name, id, sz) {
   var s = String(id || name || '?'), h = 0, i; for (i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
   var ch = String(name || '?').trim().charAt(0) || '?', z = sz || 48, pic = picOf(id);
-  if (pic) return '<span class="sx-av" style="width:' + z + 'px;height:' + z + 'px;background:#222 url(\'' + pic + '\') center/cover no-repeat;"></span>';
+  if (pic) return '<span class="sx-av" role="button" onclick="event.stopPropagation();spViewAv(\'' + (String(id || '').replace(/[^A-Za-z0-9_-]/g, '')) + '\')" style="cursor:zoom-in;width:' + z + 'px;height:' + z + 'px;background:#222 url(\'' + pic + '\') center/cover no-repeat;"></span>';
   return '<span class="sx-av" style="width:' + z + 'px;height:' + z + 'px;font-size:' + Math.round(z * .42) + 'px;background:' + AVC[h % AVC.length] + ';">' + esc(ch.toUpperCase()) + '</span>';
 }
 function two(n) { return n < 10 ? '0' + n : '' + n; }
@@ -712,7 +772,7 @@ window.spOpen = function () {
   p.style.display = 'flex'; var bdo = $('spBackdrop'); if (bdo) bdo.classList.add('on'); try { history.pushState({ sx: 0 }, ''); UI.hist = true; } catch (e) { UI.hist = false; }
   vvFit(); msg('');
   render(true);
-  if (LS.getItem('sp_on') === '1' && !S.code) init(); else if (S.code) { autoVerify(); consumePending(); syncSent(); }
+  if (LS.getItem('sp_on') === '1' && !S.code) init(); else if (!S.code) autoActivate(); else if (S.code) { autoVerify(); consumePending(); syncSent(); }
 };
 window.spClose = function () {
   if (!UI.open) return;
@@ -751,10 +811,31 @@ function actions(title, items) {
 }
 function actClose() { var o = $('sxAct'); if (o) o.classList.remove('on'); }
 window.spAct = function (i) { var it = (UI.acts || [])[i]; actClose(); if (it && it.f) it.f(); };
+window.spViewAv = function (id) {
+  var u = '';
+  try { u = (id === S.uid) ? (LS.getItem('sp_pic_big') || LS.getItem('sp_pic') || '') : ((S.fp[id] && S.fp[id].data && (S.fp[id].data.picBig || S.fp[id].data.pic)) || ''); } catch (e) { }
+  u = sgSafeImg(u); if (u) spView(u);
+};
 window.spView = function (src) {
   if (!src) return; var v = $('sxViewer');
-  if (!v) { v = document.createElement('div'); v.id = 'sxViewer'; v.className = 'sx-viewer'; v.onclick = function () { v.classList.remove('on'); }; document.body.appendChild(v); }
-  v.innerHTML = '<button class="x" aria-label="إغلاق">' + ic('close', 22) + '</button><button class="sv" aria-label="حفظ على الجهاز" title="حفظ على الجهاز" onclick="event.stopPropagation();spSaveImg(this)">' + ic('dl', 22) + '</button><img alt="صورة" src="' + esc(src) + '">'; v.classList.add('on');
+  if (!v) { v = document.createElement('div'); v.id = 'sxViewer'; v.className = 'sx-viewer'; v.onclick = function (e) { if (e.target === v || (e.target.closest && e.target.closest('.x'))) v.classList.remove('on'); }; document.body.appendChild(v); }
+  v.innerHTML = '<button class="x" aria-label="إغلاق">' + ic('close', 22) + '</button><button class="sv" aria-label="حفظ على الجهاز" title="حفظ على الجهاز" onclick="event.stopPropagation();spSaveImg(this)">' + ic('dl', 22) + '</button><button class="sv" style="left:68px" aria-label="مشاركة" title="مشاركة" onclick="event.stopPropagation();spShareImg(this)">' + ic('fwd', 22) + '</button><img alt="صورة" src="' + esc(src) + '" style="transition:transform .2s;touch-action:manipulation" ondblclick="event.stopPropagation();spZoomImg(event)">'; v.classList.add('on');
+  var im = v.querySelector('img'), lt = 0;
+  im.addEventListener('click', function (e) { e.stopPropagation(); var n = Date.now(); if (n - lt < 320) { spZoomImg(e); lt = 0; } else lt = n; });
+};
+window.spZoomImg = function (e) {
+  var im = $('sxViewer') && $('sxViewer').querySelector('img'); if (!im) return;
+  if (im.dataset.z === '1') { im.style.transform = ''; im.dataset.z = ''; return; }
+  var r = im.getBoundingClientRect(), x = ((e.clientX - r.left) / r.width) * 100, y = ((e.clientY - r.top) / r.height) * 100;
+  im.style.transformOrigin = x + '% ' + y + '%'; im.style.transform = 'scale(2.5)'; im.dataset.z = '1';
+};
+window.spShareImg = function (btn) {
+  var v = $('sxViewer'), im = v && v.querySelector('img'); if (!im) return; var src = im.getAttribute('src');
+  fetch(src).then(function (r) { return r.blob(); }).then(function (b) {
+    var f = new File([b], 'sanjezha-' + Date.now() + '.' + (b.type === 'image/png' ? 'png' : b.type === 'image/webp' ? 'webp' : 'jpg'), { type: b.type });
+    if (navigator.canShare && navigator.canShare({ files: [f] })) return navigator.share({ files: [f] });
+    if (saveImg(src)) snack('الجهاز مش بيدعم المشاركة — اتحفظت الصورة بدلًا منها');
+  }).catch(function (e) { if (e && e.name !== 'AbortError') snack('تعذّرت المشاركة'); });
 };
 function saveImg(src) {
   if (!src) return false; var mt = /^data:image\/(png|webp|jpeg)/.exec(src), ext = mt ? (mt[1] === 'jpeg' ? 'jpg' : mt[1]) : 'jpg';
@@ -943,7 +1024,7 @@ function pickPageHtml() {
 }
 function settingsHtml() {
   var hid = LS.getItem('sp_hide') === '1', nd = LS.getItem('sp_nodisc') === '1';
-  return '<div class="sx-prof"><label style="cursor:pointer;position:relative;display:inline-block">' + avatar(S.name, S.uid, 96) + '<span class="sx-camb">' + ic('camera', 18) + '</span><input type="file" accept="image/*" hidden onchange="spPickPic(this)"></label>' + (picOf(S.uid) ? '<button class="sx-link" onclick="spPicDel()">حذف الصورة</button>' : '<small style="color:var(--text-secondary)">اضغط على الدايرة لاختيار صورتك</small>') + '</div><div class="sx-pad"><label class="sx-lbl">اسمي (بيظهر لأصحابي)</label><div style="display:flex;gap:8px"><input type="text" id="spNameIn2" class="sp-in" maxlength="20" value="' + esc(S.name) + '"><button class="btn" style="flex:none;padding:0 20px" onclick="spSaveName()">حفظ</button></div>' +
+  return '<div class="sx-prof"><div style="position:relative;display:inline-block">' + avatar(S.name, S.uid, 96) + '<label class="sx-camb" style="cursor:pointer">' + ic('camera', 18) + '<input type="file" accept="image/*" hidden onchange="spPickPic(this)"></label></div>' + (picOf(S.uid) ? '<button class="sx-link" onclick="spPicDel()">حذف الصورة</button>' : '<small style="color:var(--text-secondary)">اضغط على الدايرة لاختيار صورتك</small>') + '</div><div class="sx-pad"><label class="sx-lbl">اسمي (بيظهر لأصحابي)</label><div style="display:flex;gap:8px"><input type="text" id="spNameIn2" class="sp-in" maxlength="20" value="' + esc(S.name) + '"><button class="btn" style="flex:none;padding:0 20px" onclick="spSaveName()">حفظ</button></div>' +
     '<div class="sx-card" style="margin-top:16px"><div class="sx-sw" onclick="spHide()"><div><b>إخفاء إحصائياتي</b><small>' + (hid ? 'مخفية — أصحابك مش شايفين نقاطك' : 'ظاهرة لأصحابك (نقاط، مهام، تركيز، streak)') + '</small></div><span class="sx-tg ' + (hid ? 'on' : '') + '"></span></div><div class="sx-sw" onclick="spDisc()"><div><b>الظهور في البحث بالاسم</b><small>' + (nd ? 'مخفي — بالكود أو الـ QR بس' : 'ظاهر في نتائج البحث') + '</small></div><span class="sx-tg ' + (nd ? '' : 'on') + '"></span></div></div>' +
     '<div class="sx-card"><div class="sx-hint" style="margin:0">كودي: <b style="font-family:monospace;letter-spacing:3px;color:var(--accent)">' + esc(S.code) + '</b></div><div class="sx-btnrow"><button class="btn btn-secondary" onclick="spAddPage(\'mine\')">' + ic('qr', 18) + ' عرض الـ QR</button></div></div>' +
     '<div class="sx-hint">الأصدقاء بيشوفوا أرقامك بس (نقاط، مهام منجزة، دقايق تركيز، streak) — مش عناوين مهامك ولا ملاحظاتك.</div></div>';
@@ -953,12 +1034,13 @@ window.spPickPic = function (inp) {
   var url = URL.createObjectURL(f), im = new Image();
   im.onload = function () {
     try { var z = 192, c = document.createElement('canvas'); c.width = c.height = z; var x = c.getContext('2d'), m = Math.min(im.width, im.height);
-      x.drawImage(im, (im.width - m) / 2, (im.height - m) / 2, m, m, 0, 0, z, z); LS.setItem('sp_pic', c.toDataURL('image/jpeg', .8)); } catch (e) { snack('تعذّر تجهيز الصورة'); }
+      x.drawImage(im, (im.width - m) / 2, (im.height - m) / 2, m, m, 0, 0, z, z); LS.setItem('sp_pic', c.toDataURL('image/jpeg', .8));
+      var zb = Math.min(640, m), cb = document.createElement('canvas'); cb.width = cb.height = zb; cb.getContext('2d').drawImage(im, (im.width - m) / 2, (im.height - m) / 2, m, m, 0, 0, zb, zb); LS.setItem('sp_pic_big', cb.toDataURL('image/jpeg', .82)); } catch (e) { snack('تعذّر تجهيز الصورة'); }
     URL.revokeObjectURL(url); push(true); snack('✅ اتغيّرت صورتك'); render(true);
   };
   im.onerror = function () { URL.revokeObjectURL(url); snack('الصورة دي مش مدعومة'); }; im.src = url;
 };
-window.spPicDel = function () { LS.removeItem('sp_pic'); push(true); render(true); };
+window.spPicDel = function () { LS.removeItem('sp_pic'); LS.removeItem('sp_pic_big'); push(true); render(true); };
 window.spSaveName = function () {
   var n = (($('spNameIn2') || {}).value || '').trim(); if (!n) { snack('اكتب اسمك الأول ✏️'); return; }
   S.name = n.slice(0, 20); LS.setItem('sp_name', S.name); push(true); snack('اتحفظ الاسم ✅'); render(true);
@@ -2187,5 +2269,6 @@ setTimeout(function () {
   css();
   if (LS.getItem('sp_pending')) { spOpen(); }
   else if (LS.getItem('sp_on') === '1') init();
+  else autoActivate();
 }, 2500);
 })();
