@@ -1234,7 +1234,7 @@ window.spEmojiAdd = function (e) {
   i.value = i.value.slice(0, a) + e + i.value.slice(b); try { i.setSelectionRange(a + e.length, a + e.length); } catch (x) { } spInp(i);
 };
 function sgSendMsg(fid, fields, preview) {
-  if (UI.reply && UI.reply.fid === fid) { fields = Object.assign({}, fields, { rp: { id: UI.reply.id, from: UI.reply.from, ty: UI.reply.ty, tx: UI.reply.tx } }); UI.reply = null; try { rplUi(); } catch (e) { } }
+  if (UI.reply && UI.reply.fid === fid) { fields = Object.assign({}, fields, { rp: { id: UI.reply.id, from: UI.reply.from, ty: UI.reply.ty, tx: String(UI.reply.tx || '').slice(0, 120) } }); UI.reply = null; try { rplUi(); } catch (e) { } }
   var d = db(); if (!d || !S.uid || !fid) return Promise.resolve(false);
   var ref = d.collection('socialChats').doc(sgChatId(fid)), mref = ref.collection('messages').doc(), now = FV().serverTimestamp(), b = d.batch();
   b.set(ref, { participants: [S.uid, fid], updatedAt: now, lastMessage: String(preview || '').slice(0, 100), lastFrom: S.uid }, { merge: true });
@@ -1508,7 +1508,23 @@ window.spRplX = function () { UI.reply = null; rplUi(); };
 window.spJump = function (id) {
   var box = $('sxMsgs'); if (!box) return; var el = box.querySelector('.sx-b[data-mid="' + String(id).replace(/[^A-Za-z0-9_-]/g, '') + '"]');
   if (!el) { snack('الرسالة الأصلية قديمة — اضغط «تحميل رسائل أقدم» وجرّب تاني'); return; }
-  try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { el.scrollIntoView(); }
+  /* سكرول يدوي ناعم داخل صندوق الرسائل بس (من غير ما scrollIntoView يحرّك حاجة تانية في الصفحة) */
+  UI.stick = false; UI.stickKb = false;
+  var br = box.getBoundingClientRect(), er = el.getBoundingClientRect(), maxTop = box.scrollHeight - box.clientHeight;
+  var from = box.scrollTop, to = Math.max(0, Math.min(maxTop, from + (er.top - br.top) - Math.max(0, (box.clientHeight - er.height) / 2))), dist = to - from;
+  if (SG.jumpRaf) { try { cancelAnimationFrame(SG.jumpRaf); } catch (e) { } SG.jumpRaf = 0; }
+  if (Math.abs(dist) < 2) { /* قدامك أصلاً */ }
+  else {
+    var dur = Math.max(260, Math.min(650, 220 + Math.abs(dist) * 0.25)), t0 = null;
+    var stop = function () { if (SG.jumpRaf) { try { cancelAnimationFrame(SG.jumpRaf); } catch (e) { } SG.jumpRaf = 0; } box.removeEventListener('touchstart', stop); box.removeEventListener('wheel', stop); };
+    box.addEventListener('touchstart', stop, { passive: true }); box.addEventListener('wheel', stop, { passive: true });
+    var step = function (ts) {
+      if (t0 === null) t0 = ts; var p = Math.min(1, (ts - t0) / dur), e = p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+      box.scrollTop = from + dist * e;
+      if (p < 1) SG.jumpRaf = requestAnimationFrame(step); else { SG.jumpRaf = 0; box.removeEventListener('touchstart', stop); box.removeEventListener('wheel', stop); }
+    };
+    SG.jumpRaf = requestAnimationFrame(step);
+  }
   el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); setTimeout(function () { el.classList.remove('flash'); }, 1500);
 };
 function delBlobs(m) { var cc = db().collection('socialChats').doc(sgChatId(SG.chatFriend)); if (m.type === 'file' && m.fileId) lfDel(m.fileId); if (m.store === 'cf' && CF_URL) { cfToken().then(function (tk) { cfReq('DELETE', '/f/' + m.fileId, tk); }).catch(function () { }); return cc; } if (m.fileId && /^[A-Za-z0-9_-]{1,40}$/.test(m.fileId)) blobIds(m.fileId, Math.min(+m.chunks || 1, 260)).forEach(function (k) { cc.collection('blobs').doc(k).delete().catch(function () { }); }); return cc; }
