@@ -1,0 +1,14 @@
+{
+  "hosting": {
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**",
+      "sitemap.xml",
+      "google*.html",
+      "download",
+      "README*"
+    ]
+  }
+}
