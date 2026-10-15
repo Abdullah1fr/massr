@@ -4,7 +4,7 @@
    - طلبات الذكاء الاصطناعي ويوتيوب وفايربيز والسيرفرات التانية مابنلمسهاش.
    - إشعارات وهو مقفول: Web Push (سيرفر صغير بيصحّي الـ worker) + الجدول متخزّن في IndexedDB.
    لو رفعت نسخة جديدة وعايزها فورًا: غيّر رقم VERSION. */
-const VERSION = 'v2';
+const VERSION = 'v4';
 const CACHE = 'prod-platform-' + VERSION;
 const CORE = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 const CDN_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com', 'cdnjs.cloudflare.com'];
@@ -33,6 +33,20 @@ self.addEventListener('fetch', e => {
       if (cached) { e.waitUntil(update); return cached; }
       const net = await update;
       return net || new Response('مفيش نت ولسه التطبيق ماتخزّنش على الجهاز', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+    })());
+    return;
+  }
+  if (sameOrigin && /\/(icon-[^/]*\.png|apple-touch-icon\.png|manifest\.json)$/.test(url.pathname)) {
+    /* الأيقونات والـ manifest: النت الأول (من غير كاش)، والكاش بس لو مفيش نت */
+    e.respondWith((async () => {
+      const cache = await caches.open(CACHE);
+      try {
+        const r = await fetch(req, { cache: 'no-cache' });
+        if (r && r.ok) cache.put(req, r.clone());
+        return r;
+      } catch (err) {
+        return (await cache.match(req)) || (await cache.match(url.pathname.split('/').pop())) || Response.error();
+      }
     })());
     return;
   }
