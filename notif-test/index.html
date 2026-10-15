@@ -60,7 +60,7 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
     <label>عدد الإشعارات<input id="count" type="number" inputmode="numeric" min="1" max="120" value="15"></label>
   </div>
   <div class="row">
-    <label>الفاصل بينهم (ثواني)<input id="gap" type="number" inputmode="decimal" min="0.5" step="0.5" value="2"></label>
+    <label>الفاصل بينهم (ثواني)<input id="gap" type="number" inputmode="decimal" min="0.1" step="0.025" value="0.25"></label>
     <label>غفوة تجريبية (ثواني)<input id="snooze" type="number" inputmode="numeric" min="5" max="600" value="20"></label>
   </div>
   <div class="row">
@@ -74,7 +74,9 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
     </label>
     <label>النمط الثابت<select id="vibIdx"></select></label>
   </div>
-  <label class="ck"><input type="checkbox" id="sameTag" checked> كل إشعار يحل محل اللي قبله (نفس الـ tag)</label>
+  <label class="ck"><input type="checkbox" id="pulse" checked> كارت ثابت ما بيتحركش + نبضات الرنين بتظهر وتختفي (الأحسن للمنبه)</label>
+  <label class="ck"><input type="checkbox" id="closePrev" checked> اقفل الإشعار اللي قبله برمجيًا قبل ما يظهر الجديد (يحاكي إنك بتسحبه)</label>
+  <label class="ck"><input type="checkbox" id="sameTag"> كل إشعار يحل محل اللي قبله (نفس الـ tag)</label>
   <label class="ck"><input type="checkbox" id="sticky" checked> يفضل على الشاشة لحد ما تتفاعل معاه</label>
   <label class="ck"><input type="checkbox" id="actions" checked> زرين «إيقاف» و«غفوة» في الإشعار</label>
   <label class="ck"><input type="checkbox" id="silent"> من غير صوت أصلًا (لتجربة الصامت)</label>
@@ -185,8 +187,8 @@ button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid 
     a.postMessage(msg); return true;
   }
   function cfg(over) {
-    var c = { delay: +$('delay').value || 0, count: +$('count').value || 1, gap: Math.max(0.5, +$('gap').value || 2), silent: $('silent').checked,
-      vibMode: $('vibMode').value, vibIndex: +$('vibIdx').value, patterns: PATTERNS, sameTag: $('sameTag').checked, sticky: $('sticky').checked,
+    var c = { delay: +$('delay').value || 0, count: +$('count').value || 1, gap: Math.max(0.1, +$('gap').value || 0.25), silent: $('silent').checked,
+      vibMode: $('vibMode').value, vibIndex: +$('vibIdx').value, patterns: PATTERNS, sameTag: $('sameTag').checked, closePrev: $('closePrev').checked, pulse: $('pulse').checked, sticky: $('sticky').checked,
       actions: $('actions').checked, stopOnDismiss: $('stopDismiss').checked, snoozeSec: +$('snooze').value || 20 };
     return Object.assign(c, over || {});
   }

@@ -13,6 +13,11 @@ function closeAll() {
     ns.forEach(function (n) { if ((n.tag || '').indexOf('alarm-test') === 0) n.close(); });
   });
 }
+function closePulses() {
+  return self.registration.getNotifications().then(function (ns) {
+    ns.forEach(function (n) { if ((n.tag || '').indexOf('alarm-test-p-') === 0) n.close(); });
+  });
+}
 function pick(cfg, i) {
   var P = cfg.patterns && cfg.patterns.length ? cfg.patterns : FALLBACK.patterns;
   if (cfg.vibMode === 'off') return { n: 'من غير اهتزاز', v: [] };
@@ -26,22 +31,34 @@ async function burst(cfg) {
     await tell({ type: 'log', text: 'الـ Worker بتاع التجربة هيبدأ بعد ' + cfg.delay + ' ثانية — اقفل الشاشة دلوقتي لو عايز تجرب وهي مقفولة' });
     await sleep(cfg.delay * 1000);
   }
+  if (cfg.pulse) {
+    try {
+      await self.registration.showNotification('⏰ المنبه شغال', { body: 'دوس إيقاف أو غفوة', tag: 'alarm-test-main', silent: true, requireInteraction: true, lang: 'ar', dir: 'rtl',
+        actions: cfg.actions ? [{ action: 'stop', title: '⏹ إيقاف' }, { action: 'snooze', title: '💤 غفوة' }] : [] });
+    } catch (e) { await tell({ type: 'error', text: String(e && e.message || e) }); return; }
+  }
   for (var i = 0; i < cfg.count; i++) {
     if (S.stopped || id !== S.run) { await tell({ type: 'stopped', at: i }); return; }
     var p = pick(cfg, i);
     var opts = {
       body: 'نمط الاهتزاز: ' + p.n + ' · الفاصل ' + cfg.gap + ' ث',
-      tag: cfg.sameTag ? 'alarm-test' : 'alarm-test-' + i,
+      tag: cfg.pulse ? 'alarm-test-p-' + i + '-' + id : ((cfg.sameTag && !cfg.closePrev) ? 'alarm-test' : 'alarm-test-' + i + '-' + id),
       renotify: true, requireInteraction: !!cfg.sticky, silent: !!cfg.silent,
       vibrate: p.v, lang: 'ar', dir: 'rtl', data: { i: i + 1 },
-      actions: cfg.actions ? [{ action: 'stop', title: '⏹ إيقاف' }, { action: 'snooze', title: '💤 غفوة' }] : []
+      actions: (cfg.actions && !cfg.pulse) ? [{ action: 'stop', title: '⏹ إيقاف' }, { action: 'snooze', title: '💤 غفوة' }] : []
     };
+    if (cfg.pulse) opts.requireInteraction = false;
     try {
       await self.registration.showNotification('⏰ تجربة المنبه ' + (i + 1) + '/' + cfg.count, opts);
       await tell({ type: 'sent', i: i + 1, of: cfg.count, t: Date.now(), vib: p.n });
     } catch (e) { await tell({ type: 'error', text: String(e && e.message || e) }); return; }
-    if (i < cfg.count - 1) await sleep(cfg.gap * 1000);
+    if (i < cfg.count - 1) {
+      await sleep(cfg.gap * 1000);
+      if (cfg.pulse) { try { await closePulses(); } catch (e) {} }
+      else if (cfg.closePrev) { try { await closeAll(); } catch (e) {} }
+    }
   }
+  if (cfg.pulse) { try { await sleep(cfg.gap * 1000); await closePulses(); } catch (e) {} }
   if (id === S.run) await tell({ type: 'done', count: cfg.count });
 }
 self.addEventListener('install', function () { self.skipWaiting(); });
