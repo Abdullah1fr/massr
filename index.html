@@ -5717,7 +5717,7 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
                         <button type="button" class="ai-rec-cancel" onclick="aiMicCancel()" title="إلغاء وإهمال الكلام">✕</button>
                         <div class="ai-rec-wave" id="aiRecWave"></div>
                         <button type="button" class="ai-rec-stop" onclick="aiMicConfirm()" title="إيقاف التسجيل" aria-label="إيقاف التسجيل"><span></span></button>
-                        <button type="button" class="ai-rec-send" onclick="aiMicSendNow()" title="اعتماد الكلام ووضعه في خانة الكتابة" aria-label="اعتماد"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+                        <button type="button" class="ai-rec-send" onclick="aiMicSendNow()" title="تفريغ الكلام وإرساله للمساعد فورًا" aria-label="إرسال"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
                     </div>
                 </div>
                 <div class="ai-chat-input-row" id="aiChatInputRow" style="position:relative;">
@@ -23334,7 +23334,7 @@ function aiMicEngineAvailable(e) {
 }
 function aiMicPickEngine() {
     // "تلقائي" = Gemini أولًا (بيفهم كل اللغات وبيخلطها). لغة محددة = Web Speech أولًا لو متاح.
-    const order = aiMic.lang === 'auto' ? ['gemini', 'web', 'native'] : ['web', 'gemini', 'native'];
+    const order = ['web', 'gemini', 'native']; // Web Speech أولًا: الكلام بيظهر لحظيًا كلمة بكلمة. Gemini/أندرويد احتياطي لو مش متاح
     return order.find(e => aiMic.tried.indexOf(e) === -1 && aiMicEngineAvailable(e)) || null;
 }
 
@@ -23605,7 +23605,9 @@ function aiMicTeardown() {
     aiMicShowStrip(false);
 }
 function aiMicSendNow() {
-    // اعتماد التسجيل: النص بيدخل خانة الكتابة للمراجعة، ومفيش إرسال تلقائي
+    // ↑ = يفرّغ ويبعت للمساعد على طول (قواعد القاموس بس من غير انتظار التصحيح الذكي). ■ = يصحّح ويحط النص في الخانة للمراجعة
+    if (!aiMic.active || aiMic.finishing) return;
+    aiMic.sendAfter = true;
     aiMicConfirm();
 }
 function aiMicCancel() {
@@ -23630,12 +23632,19 @@ function aiMicFinalize(noFix) {
     if (!aiMic.active) return;
     aiMicCommitBuf();
     const text = aiMicJoin(aiMic.finalText, aiMic.interim);
-    aiMic.sendAfter = false;
+    const sendNow = !!aiMic.sendAfter; aiMic.sendAfter = false;
     aiMicTeardown();
     aiMic.finalText = ''; aiMic.interim = ''; aiMic.buf = '';
     if (!text) { showToast('مسمعتش حاجة 🎙️'); return; }
     const input = document.getElementById('aiChatInput');
     if (!input) return;
+    if (sendNow) {
+        let sendText = text; try { sendText = AI_DICT_RULES.apply(text).text; } catch (e) {}
+        input.value = (input.value ? input.value + ' ' : '') + sendText;
+        updateAIChatInputRowState();
+        try { sendAIChatMessage(); } catch (e) { showToast('تعذر الإرسال ⚠️ — النص في الخانة'); }
+        return;
+    }
     // مرحلة التصحيح: الكلام يفضل ظاهر فوق الكبسولة وهو باهت لحد ما المساعد يخلّص
     const strip = document.getElementById('aiRecStrip'), bar = document.getElementById('aiChatBottomBar'), box = document.getElementById('aiRecText');
     if (strip && box) {
@@ -36048,7 +36057,53 @@ window.registerAppTile = function (o) {
   } catch (e) { }
 };
 </script>
-<script src="social.js?v=17"></script>
+<script>window.__socialErrs=[];window.addEventListener('error',function(e){try{if(e&&e.filename&&/social\.js/.test(e.filename))window.__socialErrs.push((e.message||'خطأ')+(e.lineno?' @'+e.lineno:''))}catch(x){}},true);</script>
+<script src="social.js?v=17" onerror="window.__socialLoadFailed=1"></script>
+<script id="socialGuardScript">
+/* حارس تحميل المنافسة والأصدقاء: لو social.js مجاش (كاش قديم/ملف مش واصل) بيحاول يجيبه تاني، ولو فشل بيظهر زرار يشرح السبب بدل ما القسم يختفي */
+(function(){
+'use strict';
+function ready(){return typeof window.spTaskEvent==='function';}
+function hasTile(){var h=document.getElementById('appModuleTiles');if(!h)return false;var ts=h.querySelectorAll('.more-feature-tile');for(var i=0;i<ts.length;i++){if(/المنافسة|الأصدقاء|الاصدقاء|تحدي/.test(ts[i].textContent||''))return true}return false}
+function reason(){
+ if(window.__socialLoadFailed)return 'ملف social.js مجاش على الجهاز ده (النت أو الملف مش مرفوع جنب index.html)';
+ if(window.__socialErrs.length)return 'الملف اتحمّل بس فيه خطأ: '+window.__socialErrs[0];
+ if(window.__socialHttp)return String(window.__socialHttp);
+ return 'غالبًا نسخة قديمة محفوظة في كاش الجهاز';
+}
+function clean(){
+ var jobs=[];
+ try{if(navigator.serviceWorker)jobs.push(navigator.serviceWorker.getRegistrations().then(function(rs){return Promise.all(rs.map(function(r){return r.unregister()}))}))}catch(e){}
+ try{if(window.caches)jobs.push(caches.keys().then(function(ks){return Promise.all(ks.map(function(k){return caches.delete(k)}))}))}catch(e){}
+ Promise.all(jobs).catch(function(){}).then(function(){location.reload()});
+}
+function entry(){
+ var names=['spOpen','spShow','spOpenSocial','spOpenHome','spOpenFriends','spOpenCompetition'];
+ for(var i=0;i<names.length;i++){if(typeof window[names[i]]==='function'){try{window[names[i]]();return true}catch(e){}}}
+ return false;
+}
+function addTile(){
+ try{registerAppTile({id:'socialGuardTile',icon:'🏆',label:'المنافسة والأصدقاء ⚠️',onClick:function(){
+  if(ready()&&entry())return;
+  if(confirm('قسم المنافسة والأصدقاء مش ظاهر على الجهاز ده.\nالسبب: '+reason()+'\n\nأعمل تحديث نظيف؟ (بيمسح نسخة الصفحة المخزّنة وبيعيد التحميل — بياناتك ومهامك ما بتتمسحش)'))clean();
+ }})}catch(e){}
+}
+async function check(){
+ if(ready()||hasTile())return;
+ try{
+  var r=await fetch('social.js?v=17&r='+Date.now(),{cache:'reload'});
+  if(r.ok){var code=await r.text();
+   if(/^\s*</.test(code))window.__socialHttp='السيرفر رجّع صفحة HTML بدل الملف (social.js مش مرفوع)';
+   else{var s=document.createElement('script');s.textContent=code;document.head.appendChild(s)}}
+  else window.__socialHttp='السيرفر رجّع '+r.status+' لملف social.js';
+ }catch(e){window.__socialHttp='تعذر الوصول للملف (نت ضعيف أو مفيش اتصال)'}
+ await new Promise(function(r){setTimeout(r,700)});
+ if(ready()||hasTile()){try{showToast('المنافسة والأصدقاء اتحمّلوا ✅')}catch(e){}return}
+ addTile();
+}
+window.addEventListener('load',function(){setTimeout(check,1500)});
+})();
+</script>
 <script id="deviceLinkScript">
 /* ربط الأجهزة — مزامنة تلقائية في الاتجاهين بين أكتر من جهاز (زي واتساب ويب)
    - الربط بكود/QR قصير الصلاحية (5 دقايق، مرة واحدة) بيدّي الجهاز الجديد مفتاح مجموعة عشوائي طويل.
@@ -37462,15 +37517,16 @@ function bytesOf(it){
  if(it.k==='art')return{name:safeName(it.title)+'.'+it.ext,b64:b64FromText(it.content),mime:it.mime};
  return{name:safeName(it.title),b64:it.part.inlineData.data,mime:it.mime||'application/octet-stream'};
 }
-let items=[];
+let items=[],allItems=[],fsMode='files';
 function ensureSheet(){
  if($('fsRoot'))return;
  const r=document.createElement('div');r.id='fsRoot';
- r.innerHTML='<div id="fsBox"><div class="gr"></div><div class="hd"><b>الملفات والمخرجات</b><button type="button" id="fsX" aria-label="إغلاق">'+IC('<path d="M6 6l12 12M18 6L6 18"/>',20)+'</button></div><div id="fsList"></div><button type="button" id="fsAll">تنزيل الكل</button></div>';
+ r.innerHTML='<div id="fsBox"><div class="gr"></div><div class="hd"><b>الملفات والمخرجات</b><button type="button" id="fsX" aria-label="إغلاق">'+IC('<path d="M6 6l12 12M18 6L6 18"/>',20)+'</button></div><div id="fsTabs"><button type="button" data-m="files" class="on">الملفات</button><button type="button" data-m="img">الصور</button></div><div id="fsList"></div><button type="button" id="fsAll">تنزيل الكل</button></div>';
  document.body.appendChild(r);
  const v=document.createElement('div');v.id='fsView';document.body.appendChild(v);
  r.addEventListener('click',e=>{if(e.target===r||e.target.closest('#fsX'))closeSheet()});
  $('fsAll').addEventListener('click',downloadAll);
+ $('fsTabs').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;fsMode=b.dataset.m;fsApply();draw()});
  $('fsList').addEventListener('click',async e=>{
   const c=e.target.closest('.fsC');if(!c)return;const it=items[Number(c.dataset.i)];if(!it)return;
   if(e.target.closest('.dl')){dl(it);return}
@@ -37481,11 +37537,15 @@ function closeSheet(){const r=$('fsRoot');if(r)r.classList.remove('on')}
 async function openSheet(){
  ensureSheet();$('fsRoot').classList.add('on');
  $('fsList').innerHTML='<div class="fsEmp">لحظة…</div>';
- items=await collect();draw();
+ allItems=await collect();fsMode='files';fsApply();draw();
+}
+function fsApply(){
+ items=allItems.filter(it=>fsMode==='img'?!!it.img:!it.img);
+ const tb=$('fsTabs');if(tb)tb.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.m===fsMode));
 }
 function draw(){
  const L=$('fsList');
- if(!items.length){L.innerHTML='<div class="fsEmp">مفيش ملفات أو مخرجات في المحادثة دي لسه.</div>';$('fsAll').disabled=true;return}
+ if(!items.length){L.innerHTML='<div class="fsEmp">'+(fsMode==='img'?'مفيش صور في المحادثة دي لسه.':'مفيش ملفات أو مخرجات في المحادثة دي لسه.')+'</div>';$('fsAll').disabled=true;return}
  $('fsAll').disabled=false;
  L.innerHTML=items.map((it,i)=>{
   const th=it.img?'<img alt="" src="data:'+esc(it.mime)+';base64,'+it.part.inlineData.data+'">':esc((it.k==='art'?it.ext:it.ext).toUpperCase());
@@ -37525,7 +37585,7 @@ function openItem(it){
 let filesSig='';
 let artCache={k:'',n:0};
 function filesCount(){
- let n=0;try{(aiChatHistory||[]).forEach(t=>(t.parts||[]).forEach(p=>{if(p&&(p.imageRef||(p.inlineData&&p.inlineData.data)))n++}))}catch(e){}
+ let n=0;try{(aiChatHistory||[]).forEach(t=>(t.parts||[]).forEach(p=>{if(p&&!p.imageRef&&p.inlineData&&p.inlineData.data&&String(p.inlineData.mimeType||'').indexOf('image/')!==0)n++}))}catch(e){}
  const id=cid();
  if(id!=null){try{
   const raw=LS.getItem('app_ai_artifacts')||'[]',k=id+':'+raw.length;
@@ -37613,7 +37673,7 @@ function ensureFloat(){
  fl.addEventListener('mousedown',e=>e.preventDefault());
  flm.addEventListener('mousedown',e=>e.preventDefault());
  flm.addEventListener('touchstart',e=>{if(e.target.closest('button'))e.preventDefault()},{passive:false});
- flm.addEventListener('click',e=>{
+ flm.addEventListener('pointerup',e=>{
   const b=e.target.closest('button');if(!b)return;
   if(b.classList.contains('end')){closeMenu();endAIVoiceCall()}
   else if(b.classList.contains('mt')){toggleAIVoiceCallMute();paintMenu()}
@@ -38138,6 +38198,353 @@ function bind(){
  });
 }
 bind();setInterval(bind,900);
+})();
+</script>
+<style id="aiVcVoicePickCss">
+.ai-vc-sheet-overlay.vpx{background:#000;align-items:center;justify-content:center;padding:0}
+#aiVcVp{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:max(18px,env(safe-area-inset-top)) 12px max(22px,env(safe-area-inset-bottom));box-sizing:border-box;color:#fff;direction:ltr;text-align:center;font-family:inherit}
+#aiVcVp .vp-title{font-size:1.65rem;font-weight:800;letter-spacing:.2px}
+#aiVcVp .vp-stage{width:100%;max-width:560px;display:flex;align-items:center;justify-content:center;gap:4px;touch-action:pan-y;user-select:none;-webkit-user-select:none}
+#aiVcVp .vp-side{flex:1 1 0;min-width:0;background:none;border:0;color:#fff;opacity:.34;cursor:pointer;font-family:inherit;padding:6px 2px;transition:opacity .2s}
+#aiVcVp .vp-side:hover{opacity:.6}
+#aiVcVp .vp-side b{display:block;font-size:.88rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#aiVcVp .vp-side small{display:block;font-size:.66rem;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#aiVcVp .vp-arrow{flex:0 0 auto;width:34px;height:44px;background:none;border:0;color:#b8b8bd;font-size:1.9rem;line-height:1;cursor:pointer;padding:0;-webkit-tap-highlight-color:transparent}
+#aiVcVp .vp-arrow:active{transform:scale(.88);color:#fff}
+#aiVcVp .vp-center{flex:0 0 auto;width:min(46vw,190px);display:flex;flex-direction:column;align-items:center;gap:6px}
+#aiVcVp .vp-orb{width:min(40vw,156px);height:min(40vw,156px);border-radius:50%;cursor:pointer;margin-bottom:12px;transform:scale(var(--vl,1));transition:transform .09s linear,filter .3s;
+ background:radial-gradient(120% 90% at 30% 108%,#b4c6fb 0%,rgba(180,198,251,0) 55%),linear-gradient(160deg,#4a7bec 0%,#4a7bec 36%,#e9edff 53%,#f4f6ff 60%,#c4d2fb 80%,#aebffa 100%);background-size:200% 200%;animation:aiVcOrbFlow 9s ease-in-out infinite;box-shadow:0 14px 34px rgba(74,123,236,.28)}
+#aiVcVp[data-st="loading"] .vp-orb{animation:aiVcOrbFlow 9s ease-in-out infinite,aiVcVpBreath 1.1s ease-in-out infinite;filter:saturate(.8) brightness(.9)}
+#aiVcVp[data-st="error"] .vp-orb{filter:grayscale(.7) brightness(.75)}
+@keyframes aiVcVpBreath{0%,100%{box-shadow:0 14px 34px rgba(74,123,236,.2)}50%{box-shadow:0 14px 44px rgba(74,123,236,.55)}}
+#aiVcVp .vp-center b{font-size:1.18rem;font-weight:800}
+#aiVcVp .vp-center small{font-size:.8rem;color:#c9c9ce}
+#aiVcVp .vp-fade{animation:aiVcVpIn .22s ease}
+@keyframes aiVcVpIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+#aiVcVp .vp-note{min-height:1.2em;font-size:.72rem;color:#9a9aa0;max-width:92%}
+#aiVcVp .vp-cur{font-size:.7rem;color:#8fb0ff;min-height:1em}
+#aiVcVp .vp-count{font-size:.72rem;color:#77777d;font-variant-numeric:tabular-nums}
+#aiVcVp .vp-use{width:min(290px,82%);height:54px;border-radius:30px;border:0;background:#fff;color:#000;font-family:inherit;font-weight:800;font-size:1rem;cursor:pointer;transition:transform .12s}
+#aiVcVp .vp-use:active{transform:scale(.97)}
+#aiVcVp .vp-cancel{background:none;border:0;color:#d6d6da;font-family:inherit;font-weight:700;font-size:.95rem;cursor:pointer;padding:6px 18px}
+@media (max-width:420px){#aiVcVp .vp-side small{display:none}}
+@media (prefers-reduced-motion:reduce){#aiVcVp .vp-orb{animation:none!important}#aiVcVp .vp-fade{animation:none}}
+</style>
+<script id="aiVcVoicePickScript">
+/* ===== اختيار صوت المساعد: كرة زرقاء في النص، تنقّل بالأسهم أو السحب، وكل صوت بيقول جملة ترحيب ثابتة ===== */
+(function () {
+'use strict';
+const $ = function (id) { return document.getElementById(id); };
+const VOICES = AI_LIVE_VOICES.filter(function (v) { return v.id; });
+const GREETING = 'أهلاً بيك! أنا مدرب الإنتاجية، وجاهز أساعدك في أي وقت.';
+const MODELS = ['gemini-2.5-flash-preview-tts', 'gemini-2.5-pro-preview-tts'];
+let idx = 0, token = 0, actx = null, src = null, an = null, raf = 0, savedMute = null, timer = 0, buf8 = null;
+const cache = new Map();
+
+function mount() {
+    const o = $('aiVcVoiceSheetOverlay');
+    if (!o || o.getAttribute('data-vp')) return;
+    o.setAttribute('data-vp', '1'); o.removeAttribute('onclick'); o.classList.add('vpx');
+    o.innerHTML =
+        '<div id="aiVcVp" data-st="idle">' +
+        '<div class="vp-title">اختار صوت</div>' +
+        '<div class="vp-stage" id="aiVcVpStage">' +
+          '<button type="button" class="vp-side" id="aiVcVpPrevTxt" aria-label="الصوت السابق"><b></b><small></small></button>' +
+          '<button type="button" class="vp-arrow" id="aiVcVpPrev" aria-label="الصوت السابق">‹</button>' +
+          '<div class="vp-center">' +
+            '<div class="vp-orb" id="aiVcVpOrb" role="button" tabindex="0" aria-label="سمّعني الصوت ده"></div>' +
+            '<b id="aiVcVpName"></b><small id="aiVcVpHint"></small>' +
+            '<span class="vp-cur" id="aiVcVpCur"></span>' +
+          '</div>' +
+          '<button type="button" class="vp-arrow" id="aiVcVpNext" aria-label="الصوت التالي">›</button>' +
+          '<button type="button" class="vp-side" id="aiVcVpNextTxt" aria-label="الصوت التالي"><b></b><small></small></button>' +
+        '</div>' +
+        '<span class="vp-note" id="aiVcVpNote" aria-live="polite"></span>' +
+        '<span class="vp-count" id="aiVcVpCount"></span>' +
+        '<button type="button" class="vp-use" id="aiVcVpUse">استخدم الصوت ده</button>' +
+        '<button type="button" class="vp-cancel" id="aiVcVpCancel">إلغاء</button>' +
+        '</div>';
+    $('aiVcVpPrev').onclick = $('aiVcVpPrevTxt').onclick = function () { go(-1); };
+    $('aiVcVpNext').onclick = $('aiVcVpNextTxt').onclick = function () { go(1); };
+    $('aiVcVpOrb').onclick = function () { clearTimeout(timer); preview(); };
+    $('aiVcVpOrb').onkeydown = function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); preview(); } };
+    $('aiVcVpUse').onclick = function () { const id = VOICES[idx].id; stopAudio(); window.closeAIVcVoiceSheet(); selectAIVcVoice(id); };
+    $('aiVcVpCancel').onclick = function () { window.closeAIVcVoiceSheet(); };
+    // سحب يمين/شمال
+    const st = $('aiVcVpStage'); let sx = null;
+    st.addEventListener('pointerdown', function (e) { sx = e.clientX; });
+    st.addEventListener('pointerup', function (e) { if (sx === null) return; const dx = e.clientX - sx; sx = null; if (Math.abs(dx) > 44) go(dx > 0 ? -1 : 1); });
+    st.addEventListener('pointercancel', function () { sx = null; });
+    document.addEventListener('keydown', function (e) {
+        if (!isOpen()) return;
+        if (e.key === 'ArrowLeft') go(-1); else if (e.key === 'ArrowRight') go(1); else if (e.key === 'Escape') window.closeAIVcVoiceSheet();
+    });
+}
+function isOpen() { const o = $('aiVcVoiceSheetOverlay'); return !!(o && o.classList.contains('open')); }
+function at(i) { return VOICES[(i + VOICES.length) % VOICES.length]; }
+function setSide(id, v) { const b = $(id); if (!b) return; const n = b.querySelector('b'), h = b.querySelector('small'); if (n) n.textContent = v.name; if (h) h.textContent = v.hint; }
+function render() {
+    const v = at(idx);
+    $('aiVcVpName').textContent = v.name; $('aiVcVpHint').textContent = v.hint;
+    $('aiVcVpCur').textContent = (v.id === aiLiveVoice) ? '✓ الصوت الحالي' : '';
+    setSide('aiVcVpPrevTxt', at(idx - 1)); setSide('aiVcVpNextTxt', at(idx + 1));
+    $('aiVcVpCount').textContent = (idx + 1) + ' / ' + VOICES.length;
+    ['aiVcVpName', 'aiVcVpHint'].forEach(function (id) { const e = $(id); e.classList.remove('vp-fade'); void e.offsetWidth; e.classList.add('vp-fade'); });
+}
+function setState(s) { const r = $('aiVcVp'); if (r) r.setAttribute('data-st', s); }
+function note(m) { const n = $('aiVcVpNote'); if (n) n.textContent = m || ''; }
+
+/* ---- توليد العيّنة: نفس محرك الـ TTS الموجود في التطبيق، وبديل مستقل لو مش متاح ---- */
+function pcmToWav(pcm, rate) {
+    const b = new ArrayBuffer(44 + pcm.length), v = new DataView(b);
+    const w = function (o, s) { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+    w(0, 'RIFF'); v.setUint32(4, 36 + pcm.length, true); w(8, 'WAVE'); w(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    w(36, 'data'); v.setUint32(40, pcm.length, true); new Uint8Array(b, 44).set(pcm);
+    return b;
+}
+async function fallbackGen(voice, text) {
+    if (navigator.onLine === false) throw { code: 'offline' };
+    let last = { code: 'network' };
+    for (let attempt = 0; attempt < 3; attempt++) {
+        const ctx = consumeActiveAIKeyContext();
+        if (!ctx || !ctx.key) break;
+        for (const model of MODELS) {
+            let res;
+            try {
+                res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(ctx.key), {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ contents: [{ parts: [{ text: text || GREETING }] }], generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } } } })
+                });
+            } catch (e) { last = { code: 'network' }; break; }
+            if (res.ok) {
+                let j = null; try { j = await res.json(); } catch (e) {}
+                const parts = j && j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts;
+                const inl = Array.isArray(parts) ? parts.map(function (p) { return p.inlineData || p.inline_data; }).find(function (d) { return d && d.data; }) : null;
+                if (inl) {
+                    const m = /rate=(\d+)/.exec(inl.mimeType || inl.mime_type || '');
+                    const bin = atob(inl.data), u = new Uint8Array(bin.length);
+                    for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+                    return pcmToWav(u, m ? parseInt(m[1], 10) : 24000);
+                }
+                last = { code: 'empty' }; break;
+            }
+            const txt = (await res.text().catch(function () { return ''; })).toLowerCase();
+            if (res.status === 429 || res.status === 401 || res.status === 403) {
+                try { if (ctx.isDefault && ctx.index !== -1 && /resource_exhausted|quota|429|permission_denied|api key not valid/.test(txt)) markDefaultKeyExhaustedToday(ctx.index); } catch (e) {}
+                last = { code: 'quota' }; break;
+            }
+            if (res.status === 404) continue;
+            last = { code: 'http' }; break;
+        }
+    }
+    throw last;
+}
+async function genWav(voice) {
+    if (cache.has(voice)) return cache.get(voice).slice(0);
+    let wav = null;
+    if (typeof quranTtsGenerate === 'function') { try { wav = await quranTtsGenerate(GREETING, voice); } catch (e) { wav = null; } }
+    if (!wav) wav = await fallbackGen(voice);
+    cache.set(voice, wav);
+    return wav.slice(0);
+}
+
+/* ---- التشغيل وحركة الكرة مع مستوى الصوت ---- */
+function stopLoop() { if (raf) cancelAnimationFrame(raf); raf = 0; const o = $('aiVcVpOrb'); if (o) o.style.removeProperty('--vl'); }
+function stopAudio() {
+    token++; clearTimeout(timer);
+    if (src) { try { src.onended = null; src.stop(); } catch (e) {} try { src.disconnect(); } catch (e) {} src = null; }
+    stopLoop(); setState('idle');
+}
+function loop() {
+    if (!an) { raf = 0; return; }
+    if (!buf8 || buf8.length !== an.fftSize) buf8 = new Uint8Array(an.fftSize);
+    an.getByteTimeDomainData(buf8);
+    let s = 0; for (let i = 0; i < buf8.length; i++) { const x = (buf8[i] - 128) / 128; s += x * x; }
+    const lv = Math.min(1, Math.sqrt(s / buf8.length) * 3.2);
+    const o = $('aiVcVpOrb'); if (o) o.style.setProperty('--vl', (1 + lv * 0.2).toFixed(3));
+    raf = requestAnimationFrame(loop);
+}
+async function playWav(wav, my) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) throw { code: 'noaudio' };
+    actx = actx || new AC();
+    if (actx.state === 'suspended') { try { await actx.resume(); } catch (e) {} }
+    const ab = await new Promise(function (ok, no) { actx.decodeAudioData(wav, ok, no); });
+    if (my !== token) return;
+    src = actx.createBufferSource(); src.buffer = ab;
+    an = actx.createAnalyser(); an.fftSize = 512;
+    src.connect(an); an.connect(actx.destination);
+    src.onended = function () { if (my === token) { stopLoop(); setState('idle'); } };
+    src.start(); setState('speaking');
+    if (!raf) raf = requestAnimationFrame(loop);
+}
+function errMsg(e) {
+    const c = e && e.code;
+    if (c === 'offline') return 'مفيش نت — مش هقدر أسمّعك العيّنة، بس تقدر تختار الصوت عادي';
+    if (c === 'quota') return 'العيّنة مش متاحة دلوقتي (الحصة خلصت) — تقدر تختار الصوت عادي';
+    return 'تعذر تشغيل العيّنة — تقدر تختار الصوت عادي';
+}
+function preview() {
+    const v = at(idx), my = ++token;
+    if (src) { try { src.onended = null; src.stop(); } catch (e) {} src = null; }
+    stopLoop(); setState('loading'); note('');
+    genWav(v.id).then(function (w) { if (my !== token) return; return playWav(w, my); })
+        .catch(function (e) { if (my !== token) return; setState('error'); note(errMsg(e)); });
+}
+function go(d) {
+    idx = (idx + d + VOICES.length) % VOICES.length;
+    stopAudio(); note(''); render();
+    timer = setTimeout(preview, 320); // استنى لحظة عشان التنقل السريع ماينطقش كل الأصوات
+}
+
+/* ---- فتح/قفل الشيت: الميكروفون بيتكتم مؤقتًا عشان المساعد ماسمعش العيّنة ---- */
+window.openAIVcVoiceSheet = function () {
+    mount();
+    const o = $('aiVcVoiceSheetOverlay'); if (!o) return;
+    const cur = VOICES.findIndex(function (v) { return v.id === aiLiveVoice; });
+    idx = cur >= 0 ? cur : 0;
+    render(); note(''); setState('idle');
+    if (savedMute === null) { savedMute = aiLiveMicMuted; aiLiveMicMuted = true; }
+    try { stopAILivePlayback(); } catch (e) {}
+    o.classList.add('open');
+    clearTimeout(timer); timer = setTimeout(preview, 380);
+};
+window.closeAIVcVoiceSheet = function () {
+    const o = $('aiVcVoiceSheetOverlay');
+    stopAudio();
+    if (o) o.classList.remove('open');
+    if (savedMute !== null) { if (aiLiveCallActive) aiLiveMicMuted = savedMute; savedMute = null; }
+};
+window.aiTtsGenerate = async function (text, voice) {
+    if (typeof quranTtsGenerate === 'function') { try { return await quranTtsGenerate(text, voice); } catch (e) {} }
+    return fallbackGen(voice, text);
+};
+mount();
+})();
+</script>
+<style id="aiBatchFixCss">
+/* شاشة المكالمة نظيفة: السحب لتحت هو التصغير، فنشيل زرار التصغير ومقبض السحب (الزرار مخفي مش محذوف عشان التخطيط يفضل متوازن) */
+.ai-voice-call-drag-handle{display:none!important}
+.ai-vc-top .ai-vc-round:last-child{visibility:hidden!important;pointer-events:none!important}
+/* العناصر المضافة للشات ماتتضغطش لما الرسايل تكتر (كانت صور البحث بتتحول لسطر) */
+#aiChatMessages>*{flex-shrink:0}
+.ai-image-search-gallery{flex-shrink:0!important;min-height:min(58vw,370px)}
+.ai-image-search-gallery.ai-image-search-single{min-height:0}
+.ai-image-search-card img{min-height:80px}
+#fsTabs{display:flex;gap:8px;padding:4px 18px 10px;flex-shrink:0}
+#fsTabs button{flex:1;height:38px;border-radius:19px;border:1.5px solid rgba(0,0,0,.12);background:transparent;color:inherit;font-family:inherit;font-weight:800;font-size:.86rem;cursor:pointer}
+#fsTabs button.on{background:#111;color:#fff;border-color:#111}
+</style>
+<script id="aiReadAloudScript">
+/* قراءة رسالة المساعد بصوت عالي: بصوت المساعد المختار (Gemini TTS) ونص منضّف من الماركداون والرموز. صوت الجهاز احتياطي بس. */
+(function () {
+'use strict';
+let session = 0, curBubble = null, curBtn = null, actx = null, src = null, resolveCur = null;
+const LBL_ON = '⏹️ إيقاف القراءة', LBL_OFF = '🔊 قراءة بصوت عالي';
+
+function cleanForSpeech(raw) {
+    let s = String(raw || '');
+    s = s.replace(/```[\s\S]*?```/g, ' (كود) ');
+    s = s.replace(/\*\*|__/g, '');
+    s = s.replace(/`([^`]*)`/g, '$1');
+    s = s.replace(/!\[[^\]]*\]\([^)]*\)/g, ' ');
+    s = s.replace(/\[([^\]]+)\]\(https?:\/\/[^)]*\)/g, '$1');
+    s = s.replace(/https?:\/\/\S+/g, ' ');
+    s = s.replace(/^\s{0,3}#{1,6}\s*/gm, '');
+    s = s.replace(/^\s*[-*+•]\s+/gm, '');
+    s = s.replace(/^\s*\d+[.)]\s+/gm, '');
+    s = s.replace(/^\s*>+\s?/gm, '');
+    s = s.replace(/^\s*[-_*=]{3,}\s*$/gm, ' ');
+    s = s.replace(/\|/g, ' ');
+    s = s.replace(/[*_~#`^<>]/g, '');
+    s = s.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu, '');
+    s = s.replace(/\s*\n\s*/g, '. ').replace(/([.!?؟،:؛])(\s*\.)+/g, '$1').replace(/\s+/g, ' ').replace(/^[\s.،]+/, '').trim();
+    return s;
+}
+function chunkText(s, max) {
+    const sentences = s.split(/(?<=[.!?؟…])\s+/);
+    const out = []; let cur = '';
+    function push(p) { if (!p) return; if (cur && (cur + ' ' + p).length > max) { out.push(cur); cur = p; } else cur = cur ? cur + ' ' + p : p; }
+    sentences.forEach(function (st) {
+        if (st.length <= max) { push(st); return; }
+        st.split(/(?<=[،,;؛:])\s+/).forEach(function (p) {
+            if (p.length <= max) { push(p); return; }
+            for (let i = 0; i < p.length; i += max) push(p.slice(i, i + max));
+        });
+    });
+    if (cur) out.push(cur);
+    return out;
+}
+window.__aiCleanForSpeech = cleanForSpeech; window.__aiChunkText = chunkText;
+
+function setBtn(btn, label) { if (btn) { try { btn.textContent = label; } catch (e) {} } }
+function stop() {
+    session++;
+    if (src) { try { src.onended = null; src.stop(); } catch (e) {} try { src.disconnect(); } catch (e) {} src = null; }
+    if (resolveCur) { const r = resolveCur; resolveCur = null; r(); }
+    try { window.speechSynthesis && speechSynthesis.cancel(); } catch (e) {}
+    if (curBtn) setBtn(curBtn, LBL_OFF);
+    curBubble = null; curBtn = null;
+    try { aiSpeakingBubble = null; } catch (e) {}
+}
+function playWav(wav, my) {
+    return new Promise(function (resolve, reject) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) { reject(new Error('noaudio')); return; }
+        actx = actx || new AC();
+        const go = function () {
+            actx.decodeAudioData(wav, function (ab) {
+                if (my !== session) { resolve(); return; }
+                const s = actx.createBufferSource(); s.buffer = ab; s.connect(actx.destination);
+                s.onended = function () { if (src === s) src = null; resolveCur = null; resolve(); };
+                src = s; resolveCur = resolve; s.start();
+            }, function (e) { reject(e || new Error('decode')); });
+        };
+        if (actx.state === 'suspended') { actx.resume().then(go, go); } else go();
+    });
+}
+function deviceSpeak(text, my, btn) {
+    if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') { showToast('القراءة بصوت عالي مش مدعومة على الجهاز ده ⚠️'); stop(); return; }
+    showToast('صوت المساعد مش متاح دلوقتي — بقرا بصوت الجهاز 🔈');
+    const synth = speechSynthesis; synth.cancel();
+    const voices = synth.getVoices ? synth.getVoices() : [];
+    const ar = voices.find(function (v) { return /^ar/i.test(v.lang || ''); });
+    const parts = chunkText(text, 200);
+    parts.forEach(function (c, i) {
+        const u = new SpeechSynthesisUtterance(c); u.lang = ar ? ar.lang : 'ar-EG'; if (ar) u.voice = ar;
+        if (i === parts.length - 1) u.onend = function () { if (my === session) stop(); };
+        u.onerror = function () { if (my === session) stop(); };
+        synth.speak(u);
+    });
+}
+async function speak(bubble, btn) {
+    if (curBubble === bubble) { stop(); return; }
+    stop();
+    const my = ++session; curBubble = bubble; curBtn = btn;
+    try { aiSpeakingBubble = bubble; } catch (e) {}
+    const text = cleanForSpeech(aiMsgRawText(bubble));
+    if (!text) { stop(); showToast('مفيش نص أقراه في الرسالة دي'); return; }
+    // بنجهّز الصوت جوه ضغطة المستخدم عشان المتصفح ما يمنعش التشغيل
+    try { const AC = window.AudioContext || window.webkitAudioContext; if (AC) { actx = actx || new AC(); if (actx.state === 'suspended') actx.resume(); } } catch (e) {}
+    setBtn(btn, '⏳ بجهّز الصوت…');
+    const voice = (typeof aiLiveVoice === 'string' && aiLiveVoice) ? aiLiveVoice : 'Charon';
+    const chunks = chunkText(text, 320);
+    const gen = function (c) { const p = window.aiTtsGenerate(c, voice); p.catch(function () {}); return p; };
+    let next = gen(chunks[0]);
+    for (let i = 0; i < chunks.length; i++) {
+        let wav;
+        try { wav = await next; } catch (e) { if (my !== session) return; deviceSpeak(chunks.slice(i).join(' '), my, btn); return; }
+        if (my !== session) return;
+        next = (i + 1 < chunks.length) ? gen(chunks[i + 1]) : null; // بنجهّز المقطع الجاي وإحنا بنشغّل الحالي
+        setBtn(btn, LBL_ON);
+        try { await playWav(wav, my); } catch (e) { if (my !== session) return; deviceSpeak(chunks.slice(i).join(' '), my, btn); return; }
+        if (my !== session) return;
+    }
+    if (my === session) stop();
+}
+window.aiSpeakMessage = speak;
 })();
 </script>
 </body>
