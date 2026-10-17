@@ -28,6 +28,77 @@ window.__isDesk=function(){return d.classList.contains('dev-desktop')};})();</sc
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&family=Almarai:wght@400;700&family=Amiri&family=Lalezar&family=Aref+Ruqaa&family=Reem+Kufi&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script id="aiGatewayShim">
+/* بوابة Gemini: المفاتيح الافتراضية بقت على السيرفر (Cloudflare). التطبيق بيحط "proxy.N" مكان المفتاح،
+   وهنا بنحوّل أي طلب فيه proxy.N (fetch أو WebSocket) لرابط البوابة. مفتاح المستخدم الشخصي بيروح لـ Google مباشرة زي ما هو. */
+(function () {
+    var GW = 'https://sanjiz-gemini.abdo-k99999.workers.dev'; /* ← غيّر السطر ده لرابط الـ Worker بعد ما ترفعه (من غير / في الآخر) */
+    var G = 'generativelanguage.googleapis.com', PH = /^proxy\.(\d{1,2})$/;
+    var ready = GW.indexOf('REPLACE') < 0 && /^https:\/\/[a-z0-9.-]+$/i.test(GW);
+    var warned = false;
+    function warn() { if (warned) return; warned = true; try { console.error('AI gateway URL not set in index.html (aiGatewayShim)'); } catch (e) {} try { if (typeof showToast === 'function') showToast('⚠️ بوابة الذكاء الاصطناعي لسه ما اتضبطتش'); } catch (e) {} }
+    /* توكن تسجيل الدخول (لو المستخدم داخل) بيتبعت للبوابة: تحسب الحدود على حسابه، وتقدر تشترط الدخول. الضيف بيكمّل عادي من غير توكن.
+       بنحتفظ بآخر توكن في cachedTok عشان الـ WebSocket (الصوت) ما يقدرش يستنى. onIdTokenChanged بيجدده تلقائي كل ساعة. */
+    var cachedTok = '', hooked = false;
+    function hookAuth() {
+        if (hooked) return true;
+        try {
+            var a = window.firebase && window.firebase.auth && window.firebase.auth();
+            if (!a) return false;
+            hooked = true;
+            a.onIdTokenChanged(function (u) { if (!u) { cachedTok = ''; return; } u.getIdToken().then(function (t) { cachedTok = t || ''; }, function () { }); });
+            return true;
+        } catch (e) { return false; }
+    }
+    (function wait(n) { if (!hookAuth() && n < 60) setTimeout(function () { wait(n + 1); }, 1000); })(0);
+    function idToken() {
+        try {
+            hookAuth();
+            var u = window.firebase && window.firebase.auth && window.firebase.auth().currentUser;
+            return u ? u.getIdToken().then(function (t) { cachedTok = t || ''; return cachedTok; }, function () { return cachedTok; }) : (cachedTok = '', Promise.resolve(''));
+        } catch (e) { return Promise.resolve(''); }
+    }
+    var _fetch = window.fetch;
+    window.fetch = function (input, init) {
+        try {
+            if (typeof input === 'string' && input.indexOf('https://' + G + '/') === 0) {
+                var u = new URL(input), h = init && init.headers, hk = '';
+                if (h) { if (typeof h.get === 'function') hk = h.get('x-goog-api-key') || ''; else { for (var k in h) { if (String(k).toLowerCase() === 'x-goog-api-key') hk = String(h[k]); } } }
+                var m = PH.exec(u.searchParams.get('key') || hk);
+                if (m) {
+                    if (!ready) { warn(); return Promise.reject(new TypeError('AI gateway not configured')); }
+                    u.searchParams.delete('key');
+                    var nh = new Headers(h || {}); nh.delete('x-goog-api-key'); nh.set('X-Key-Index', m[1]);
+                    var ni = {}; for (var p in init) ni[p] = init[p]; ni.headers = nh;
+                    var self = this, gwUrl = GW + u.pathname + u.search;
+                    return idToken().then(function (t) { if (t) nh.set('Authorization', 'Bearer ' + t); return _fetch.call(self, gwUrl, ni); });
+                }
+            }
+        } catch (e) {}
+        return _fetch.apply(this, arguments);
+    };
+    var _WS = window.WebSocket;
+    if (_WS) {
+        var PW = function (url, protocols) {
+            try {
+                if (typeof url === 'string' && url.indexOf('wss://' + G + '/') === 0) {
+                    var u = new URL(url), m = PH.exec(u.searchParams.get('key') || '');
+                    if (m) {
+                        if (!ready) { warn(); throw new TypeError('AI gateway not configured'); }
+                        u.searchParams.delete('key'); u.searchParams.set('k', m[1]);
+                        if (cachedTok) u.searchParams.set('t', cachedTok);
+                        url = 'wss://' + GW.slice(8) + u.pathname + u.search;
+                    }
+                }
+            } catch (e) { if (e instanceof TypeError && /gateway/.test(String(e.message))) throw e; }
+            return protocols === undefined ? new _WS(url) : new _WS(url, protocols);
+        };
+        PW.prototype = _WS.prototype;
+        ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'].forEach(function (n) { PW[n] = _WS[n]; });
+        window.WebSocket = PW;
+    }
+})();
+    </script>
     <title>سأنجزها</title>
     <meta name="description" content="سأنجزها تطبيق عربي مجاني لإدارة المهام والملاحظات وجلسات التركيز مع مدرّب ذكاء اصطناعي ومصحف، يعمل على الجوال والكمبيوتر.">
     <meta name="application-name" content="سأنجزها">
@@ -4884,6 +4955,16 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
                     <div class="week-compare-box" id="weekCompareBox"></div>
                 </div>
 
+                <div class="chart-box" id="periodSummaryBox">
+                    <div class="chart-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                        <span>📆 ملخص الفترة</span>
+                        <div id="periodChips" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
+                    </div>
+                    <div id="periodSummaryBody"></div>
+                </div>
+
+                <div class="chart-box" id="friendsReportBox" style="display:none;"></div>
+
                 <div class="chart-box">
                     <div class="chart-header">🏅 الشارات والإنجازات</div>
                     <div class="badges-grid" id="badgesGrid"></div>
@@ -5231,11 +5312,8 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
                     <div class="more-feature-icon"><span class="ai-ico-sq"></span></div>
                     <div class="more-feature-label">مدرب الذكاء الاصطناعي</div>
                 </div>
-                <div class="more-feature-tile" style="position:relative;" onclick="spOpen()">
-                    <div class="more-feature-icon">🏆</div>
-                    <div class="more-feature-label">المنافسة والأصدقاء</div>
-                    <span id="moreSocialBadge" style="display:none;position:absolute;top:8%;right:14%;min-width:18px;height:18px;border-radius:99px;background:#e74c3c;color:#fff;font-size:.62rem;font-weight:800;place-items:center;padding:0 5px;"></span>
-                </div>
+                <!-- مكان تسجيل أقسام الملفات المنفصلة (social.js وغيره): كل ملف بيضيف زرّه بنفسه عن طريق registerAppTile، ولو الملف اتشال الزر بيختفي -->
+                <div id="appModuleTiles" style="display:contents"></div>
                 <div class="more-feature-tile" onclick="switchTab('alarms')">
                     <div class="more-feature-icon">⏰</div>
                     <div class="more-feature-label">التنبيهات</div>
@@ -7452,21 +7530,12 @@ let categories = JSON.parse(localStorage.getItem('app_categories')) || ['📚 د
     // بياخد المفتاح اللي بعد اللي فات مباشرة (مش بيفضل على نفس المفتاح لحد ما يخلص حصته) —
     // عشان نبعّد قد الإمكان عن حد الطلبات في الدقيقة (RPM) اللي بيتصطدم بيه المستخدم قبل
     // ما يقرب أصلاً من الحد اليومي (RPD). المفتاح اللي خلص حصته اليومية بس بيتخطى تلقائيًا.
-    const AI_DEFAULT_KEYS_B64 = [
-        'QVEuQWI4Uk42STlFNTcxTFVSQkF1bjFnS3IwWjJ0UTQ5V3QyeUQ1ME9pZUd4dnlvMS1TLXc=',
-        'QVEuQWI4Uk42SnVWTjVmR2ZHMFVnT01BNFVpLXRfRnVpZjgzV1RQclIxNDJzTjhNTE9WOEE=',
-        'QVEuQWI4Uk42S3NtYklGM1VQVXczQlBuS0tsY2dlR1RLV1llRjRsWlFZbWp6QnU4UlJCUmc=',
-        'QVEuQWI4Uk42SVl1ZXVpZWw4ZVZlZ1NmS1d3VFFxdmVGUVVLU09pWTFYd29rRzN3ZDFDcGc=',
-        'QVEuQWI4Uk42SlpaaklUcUFFeXNVdV8zQTA3WE92Zlhoamh1UkFPTFJ1WEpPTWtTMVNyaEE=',
-        'QVEuQWI4Uk42TFk0Z09zTmhzN1R5RDRrRGJ0M2hnZ0NLaS1JQU85RkM2QW9uaWtrd180RlE=',
-        'QVEuQWI4Uk42SS1MRXBaQzRlUThXdWdkaG1jM01TMTVTQkNLSTRwWGZuT1VsV1NlQ0FqUWc=',
-        'QVEuQWI4Uk42S09FY1hFb2t2VDJQd19aeUQtaHpUQTBZSXBsSGhDYldkeTdtRmlRRkU0VlE=',
-        'QVEuQWI4Uk42SXV6YWJXX1dicE9ySDRsMW9qR1ZTbGMxMC11YWV5NHBwX3gxQ2o3NkxHWmc=',
-        'QVEuQWI4Uk42SzZsMS1IcmVSaFNuWmdOazNKUGFEdkNLX0xLckttTS01SjhXSDlJcC1JREE='
-    ];
+    /* المفاتيح الافتراضية بقت على السيرفر (بوابة Gemini على Cloudflare) — هنا بس عدد المفاتيح (10) عشان دوران الطلبات وعدّاد الاستهلاك يفضلوا شغالين.
+       القيم مش مفاتيح: التطبيق بيحط مكانها proxy.N والبوابة بتحط المفتاح الحقيقي. لو غيّرت عدد المفاتيح على السيرفر غيّر العدد هنا. */
+    const AI_DEFAULT_KEYS_B64 = ['gw', 'gw', 'gw', 'gw', 'gw', 'gw', 'gw', 'gw', 'gw', 'gw'];
 
     function decodeDefaultAIKey(i) {
-        try { return atob(AI_DEFAULT_KEYS_B64[i]); } catch (e) { return ''; }
+        return (i >= 0 && i < AI_DEFAULT_KEYS_B64.length) ? 'proxy.' + i : ''; /* مفتاح وهمي: shim البوابة (aiGatewayShim في الـ head) بيحوّله للسيرفر */
     }
 
     function getDefaultAIKeyUsage(i) {
@@ -8463,6 +8532,7 @@ let categories = JSON.parse(localStorage.getItem('app_categories')) || ['📚 د
                                 <span>${priorityText}</span>
                                 <span>${repeatText}</span>
                                 ${(task.reminderOffset > 0 && task.dueDate) ? `<span>🔔 ${formatReminderOffsetLabel(task.reminderOffset)}</span>` : ''}
+                                ${(task.duelRef && typeof window.spDuelChip === 'function') ? window.spDuelChip(task) : ''}
                             </div>
                         </div>
                     </div>
@@ -9740,6 +9810,7 @@ let categories = JSON.parse(localStorage.getItem('app_categories')) || ['📚 د
             localStorage.setItem('app_completed_history', JSON.stringify(completedHistory));
         }
         localStorage.setItem('app_tasks', JSON.stringify(tasks));
+        if (completed) { try { if (!new URLSearchParams(location.search).get('nativeAction') && typeof window.spTaskEvent === 'function') window.spTaskEvent(task); } catch (e) {} }
         return true;
     }
 
@@ -9761,6 +9832,8 @@ let categories = JSON.parse(localStorage.getItem('app_categories')) || ['📚 د
             task.completedDate = null;
         }
         saveAndRenderTasks();
+        // الخطوة 7: إنجاز المهمة يوصل فورًا للـXP والأوسمة والمنافسة والتحديات
+        if (task.completed) { try { if (typeof window.spTaskEvent === 'function') window.spTaskEvent(task); } catch (e) {} }
     }
 
     // بتحوّل مهمة متكررة (يومي/أسبوعي) إلى "بدون تكرار" — تفضل موجودة النهارده بس وتتمسح تلقائيًا بكرة ومش هتظهر تاني
@@ -11551,6 +11624,7 @@ let categories = JSON.parse(localStorage.getItem('app_categories')) || ['📚 د
         
         updateStatsUI();
         saveTimerState();
+        try { if (typeof window.spProgressCheck === 'function') window.spProgressCheck('focus'); } catch (e) {}
     }
 
     // بيتنادى لما المستخدم يدوس "لأ، لسه ما عملتهاش" في نافذة انتهاء المؤقت — بيرجع المهمة
@@ -11903,7 +11977,13 @@ function restoreTimerState() {
         });
         if (newlyEarned.length > 0) {
             localStorage.setItem('app_badges', JSON.stringify(earned));
-            newlyEarned.forEach(b => showToast(`🎉 شارة جديدة: ${b.name} ${b.icon}`));
+            // الأوسمة الجديدة (social.js) بتبلّغ بنفس الإنجاز، فمنكررش الإشعار لو ليه مقابل عندها
+            const OLD_TO_NEW_BADGE = { 'first-task': 'first', 'streak-7': 'streak7', 'streak-30': 's30', 'focus-10h': 'focus600', 'focus-100h': 'f6000', 'tasks-50': 'fifty' };
+            newlyEarned.forEach(b => {
+                let dup = false;
+                try { dup = !!(OLD_TO_NEW_BADGE[b.key] && typeof window.spHasBadge === 'function' && window.spHasBadge(OLD_TO_NEW_BADGE[b.key])); } catch (e) {}
+                if (!dup) showToast(`🎉 شارة جديدة: ${b.name} ${b.icon}`);
+            });
         }
         renderBadges();
     }
@@ -12163,6 +12243,49 @@ function restoreTimerState() {
         toast.hideTimer = setTimeout(() => { toast.style.opacity = '0'; }, 2500);
     }
 
+    // ملخص الفترة: اليوم / 7 أيام / 30 يوم / الكل، مع مقارنة بالفترة اللي قبلها
+    window.__periodDays = window.__periodDays === undefined ? 7 : window.__periodDays;
+    function periodStats(days, offsetDays) {
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        let first = null;
+        Object.keys(dailyFocusHistory).forEach(k => { if (!first || k < first) first = k; });
+        completedHistory.forEach(e => { if (e && e.date) { const k = getDateKey(new Date(e.date)); if (!first || k < first) first = k; } });
+        let n = days;
+        if (!days) { n = first ? Math.max(1, Math.round((today - new Date(first + 'T00:00:00')) / 86400000) + 1) : 1; }
+        const keys = [];
+        for (let i = 0; i < n; i++) { const d = new Date(today); d.setDate(today.getDate() - i - (offsetDays || 0)); keys.push(getDateKey(d)); }
+        const set = new Set(keys), todayKey = getDateKey(today);
+        let focusSec = 0, best = { sec: 0, key: '' }, active = 0;
+        keys.forEach(k => { const s = (k === todayKey) ? todayFocusSeconds : (dailyFocusHistory[k] || 0); focusSec += s; if (s > 0) active++; if (s > best.sec) best = { sec: s, key: k }; });
+        const seen = new Set(); let tasksDone = 0;
+        completedHistory.forEach(e => { if (!e || !e.date) return; const k = getDateKey(new Date(e.date)); if (!set.has(k)) return; const u = (e.taskId != null ? e.taskId : (e.title || e.id)) + '|' + k; if (seen.has(u)) return; seen.add(u); tasksDone++; });
+        return { days: n, focusMin: Math.round(focusSec / 60), tasks: tasksDone, active, best, avg: Math.round(focusSec / 60 / n) };
+    }
+    function setPeriodDays(d) { window.__periodDays = d; renderPeriodSummary(); }
+    function renderPeriodSummary() {
+        const body = document.getElementById('periodSummaryBody'), chips = document.getElementById('periodChips');
+        if (!body || !chips) return;
+        const opts = [[1, 'اليوم'], [7, '7 أيام'], [30, '30 يوم'], [0, 'الكل']];
+        chips.innerHTML = opts.map(o => `<button class="btn ${window.__periodDays === o[0] ? '' : 'btn-secondary'}" style="padding:4px 10px; font-size:0.7rem;" onclick="setPeriodDays(${o[0]})">${o[1]}</button>`).join('');
+        const cur = periodStats(window.__periodDays, 0), prev = window.__periodDays ? periodStats(window.__periodDays, window.__periodDays) : null;
+        const delta = (a, b) => { if (!prev) return ''; if (!b) return a ? '<div style="font-size:0.62rem;color:var(--info);">جديد</div>' : ''; const p = Math.round((a - b) / b * 100); return `<div style="font-size:0.62rem;color:${p >= 0 ? 'var(--success)' : 'var(--warning)'};">${p >= 0 ? '▲' : '▼'} ${Math.abs(p)}% عن الفترة اللي قبلها</div>`; };
+        const fmt = m => m >= 60 ? Math.floor(m / 60) + 'س ' + (m % 60) + 'د' : m + 'د';
+        const bestTxt = cur.best.sec > 0 ? (() => { const d = new Date(cur.best.key + 'T00:00:00'); return `${d.getDate()} ${HEATMAP_MONTH_NAMES[d.getMonth()]} (${fmt(Math.round(cur.best.sec / 60))})`; })() : '—';
+        body.innerHTML = `<div class="pro-stats-grid">
+            <div class="pro-stat-card"><div class="stat-icon-pro">⏱️</div><div class="stat-value-pro">${fmt(cur.focusMin)}</div><div class="stat-label-pro">وقت التركيز</div>${delta(cur.focusMin, prev && prev.focusMin)}</div>
+            <div class="pro-stat-card"><div class="stat-icon-pro">✅</div><div class="stat-value-pro">${cur.tasks}</div><div class="stat-label-pro">مهام منجزة</div>${delta(cur.tasks, prev && prev.tasks)}</div>
+            <div class="pro-stat-card"><div class="stat-icon-pro">📅</div><div class="stat-value-pro">${cur.active}/${cur.days}</div><div class="stat-label-pro">أيام نشطة</div></div>
+            <div class="pro-stat-card"><div class="stat-icon-pro">📊</div><div class="stat-value-pro">${fmt(cur.avg)}</div><div class="stat-label-pro">متوسط التركيز يوميًا</div></div>
+        </div>
+        <div style="margin-top:10px;font-size:0.75rem;color:var(--text-secondary);">🌟 أفضل يوم: <b>${bestTxt}</b></div>
+        <button class="btn btn-secondary" style="margin-top:10px;width:100%;" onclick="sharePeriodSummary()">📤 شارك ملخصي</button>`;
+    }
+    function sharePeriodSummary() {
+        const c = periodStats(window.__periodDays, 0), label = { 1: 'اليوم', 7: 'آخر 7 أيام', 30: 'آخر 30 يوم', 0: 'كل الوقت' }[window.__periodDays];
+        const text = `📊 ملخصي على "سأنجزها" (${label}):\n⏱️ تركيز ${c.focusMin} دقيقة\n✅ ${c.tasks} مهمة منجزة\n📅 ${c.active} يوم نشط\n🔥 سلسلة ${currentStreak} يوم` + (window.spRankLine ? (window.spRankLine() || '') : '');
+        if (navigator.share) navigator.share({ text }).catch(() => { }); else { try { navigator.clipboard.writeText(text); showToast('اتنسخ الملخص ✅'); } catch (e) { showToast(text); } }
+    }
+
     function updateStatsUI() {
         // تحديث أرقام الجلسات البسيطة
         const safeSetText = (id, text) => { const el = document.getElementById(id); if(el) el.innerText = text; };
@@ -12172,6 +12295,7 @@ function restoreTimerState() {
 
         updateGoalProgressUI();
         renderYearHeatmap();
+        try { renderPeriodSummary(); if (window.spReportFriendsRender) window.spReportFriendsRender(); } catch (e) { }
 
         // الحسابات الرئيسية من قائمة المهام المباشرة (بدون قراءة localStorage مرة أخرى)
         const totalTasks = tasks.length;
@@ -12180,7 +12304,7 @@ function restoreTimerState() {
 
         // تحديث لوحة التقارير الاحترافية
         safeSetText('adv-completed', completedTasks);
-        safeSetText('adv-focus', todayFocusMinutes);
+        safeSetText('adv-focus', Math.round(Object.keys(dailyFocusHistory).reduce((a, k) => a + (dailyFocusHistory[k] || 0), 0) / 60));
         safeSetText('adv-rate', completionRate + '%');
         safeSetText('adv-streak', currentStreak);
 
@@ -14663,10 +14787,24 @@ function restoreTimerState() {
         });
 
         // نمرّر تلقائيًا لآخر شهر (الحالي) عند فتح الصفحة، بغض النظر عن اتجاه RTL
-        requestAnimationFrame(() => {
-            const lastBlock = container.lastElementChild;
-            if (lastBlock) lastBlock.scrollIntoView({ inline: 'end', block: 'nearest' });
-        });
+        // نوقف على الشهر الحالي ونوسّط اليوم الحالي (مثلًا 15 أكتوبر) فورًا، حتى لو القسم كان مخفي وقت الرسم
+        const focusToday = () => {
+            const blocks = container.children, cur = blocks[blocks.length - 1];
+            if (!cur || !container.clientWidth) return false;
+            const cr = container.getBoundingClientRect(), tr = cur.getBoundingClientRect();
+            container.scrollLeft += (tr.left + tr.width / 2) - (cr.left + cr.width / 2);
+            return true;
+        };
+        requestAnimationFrame(focusToday);
+        setTimeout(focusToday, 250);
+        setTimeout(focusToday, 900);
+        try {
+            if (window.IntersectionObserver) {
+                if (container._hmObs) container._hmObs.disconnect();
+                container._hmObs = new IntersectionObserver((es) => { if (es.some(e => e.isIntersecting)) { focusToday(); container._hmObs.disconnect(); } });
+                container._hmObs.observe(container);
+            }
+        } catch (e) { }
     }
 
     // بيعرض ملخص سريع لأي يوم تدوس عليه في الخريطة الحرارية: دقائق التركيز، عدد الجلسات، والمهام المنجزة
@@ -17504,12 +17642,12 @@ function saveAIApiKey() {
     const val = (input?.value || '').trim();
     if (!val) { showToast('الصق المفتاح الأول ✍️'); return; }
 
-    // خطوة 1: فحص الشكل محليًا وبسرعة — مفاتيح Gemini API (Google AI Studio) دايمًا
-    // بتبدأ بـ "AIza" وطولها 39 حرف (حروف/أرقام/underscore/hyphen بس). لو مش مطابق،
+    // خطوة 1: فحص الشكل محليًا وبسرعة — مفاتيح Gemini API (Google AI Studio) يا إما بتبدأ بـ "AIza"
+    // وطولها 39 حرف (الشكل القديم)، يا إما بتبدأ بـ "AQ." (الشكل الجديد)، حروف/أرقام/underscore/hyphen بس. لو مش مطابق،
     // يبقى أكيد مش مفتاح Gemini أصلاً (يمكن اتلصق غلط أو من خدمة تانية) فمفيش داعي نكلف
     // نفسنا نتصل بالنت.
-    if (!/^AIza[0-9A-Za-z_-]{35}$/.test(val)) {
-        alert('⚠️ المفتاح ده مش شكل مفتاح Gemini API الصحيح.\n\nمفتاح Gemini المفروض يبدأ بـ "AIza" وطوله 39 حرف. تأكد إنك ناسخ المفتاح صح وكامل من Google AI Studio (aistudio.google.com) — يمكن نسخت مسافة زيادة أو المفتاح ده من خدمة تانية مش جوجل.');
+    if (!/^(AIza[0-9A-Za-z_-]{35}|AQ\.[0-9A-Za-z_-]{20,120})$/.test(val)) {
+        alert('⚠️ المفتاح ده مش شكل مفتاح Gemini API الصحيح.\n\nمفتاح Gemini المفروض يبدأ بـ "AIza" (39 حرف) أو بـ "AQ." (الشكل الجديد). تأكد إنك ناسخ المفتاح صح وكامل من Google AI Studio (aistudio.google.com) — يمكن نسخت مسافة زيادة أو المفتاح ده من خدمة تانية مش جوجل.');
         return;
     }
 
@@ -20045,9 +20183,8 @@ const APP_ACTIONS = {
         handler: (args) => {
             const task = findTaskByTitle(args.title);
             if (!task) return { status: 'error', message: 'مفيش مهمة بالاسم ده' };
-            task.completed = true;
-            task.completedDate = new Date().toISOString();
-            saveAndRenderTasks();
+            if (task.completed) return { status: 'ok', message: `المهمة "${task.title}" منجزة بالفعل` };
+            toggleTask(task.id);
             appendAIBubble('action', `✅ اتحددت "${task.title}" كمهمة منجزة`);
             return { status: 'ok', message: `تم إنجاز المهمة "${task.title}"` };
         }
@@ -33531,8 +33668,17 @@ updateAIThinkingButton();
     var okCtx = /^https?:$/.test(location.protocol) && 'serviceWorker' in navigator;
     var timer = null, running = false, askedPerm = false;
 
-    try { var q = new URLSearchParams(location.search).get('push'); if (q) { localStorage.setItem('app_push_url', q); } } catch (e) {}
-    function pushUrl() { try { return (localStorage.getItem('app_push_url') || PUSH_URL_DEFAULT || '').replace(/\/+$/, ''); } catch (e) { return PUSH_URL_DEFAULT; } }
+    /* أمان: رابط سيرفر الإشعارات لازم يبقى https://...workers.dev بس (من غير مسار). سيرفر الإشعارات بيستلم عناوين مهامك ومواعيدها،
+       فرابط خبيث بـ ?push= كان يقدر يخلّي التطبيق يبعت بياناتك لسيرفر المهاجم. دلوقتي: فلتر + تأكيد منك + شيل الباراميتر من العنوان. */
+    function okPushUrl(u) { return typeof u === 'string' && u.length < 120 && /^https:\/\/[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)?\.workers\.dev\/?$/i.test(u); }
+    try {
+        var q = new URLSearchParams(location.search).get('push');
+        if (q) {
+            if (okPushUrl(q) && confirm('تغيير سيرفر الإشعارات إلى:\n' + q + '\n\nاسمح بده بس لو إنت اللي عملته. تكمل؟')) { localStorage.setItem('app_push_url', q.replace(/\/+$/, '')); }
+            try { var u2 = new URL(location.href); u2.searchParams.delete('push'); history.replaceState(null, '', u2.pathname + u2.search + u2.hash); } catch (e2) {}
+        }
+    } catch (e) {}
+    function pushUrl() { try { var v = localStorage.getItem('app_push_url'); return (okPushUrl(v) ? v : (PUSH_URL_DEFAULT || '')).replace(/\/+$/, ''); } catch (e) { return PUSH_URL_DEFAULT; } }
     var failToasted = false;
     function setStatus(s) {
         try { localStorage.setItem('app_push_status', s + ' @ ' + new Date().toISOString()); } catch (e) {}
@@ -33590,6 +33736,8 @@ updateAIThinkingButton();
                 if (e && e.kind === 'focusTimer' && e.timestamp > now && e.timestamp < horizon) out.push({ key: 'focus:' + e.timestamp, tag: 'focusTimer:focus', at: e.timestamp, kind: 'focus', title: e.title || '🎯 خلصت جلسة التركيز', body: e.body || '' });
             });
         } catch (e) {}
+        /* مواعيد من الملفات المنفصلة (مثلًا نهاية التحديات من social.js) - لو الملف مش موجود بيتخطى */
+        try { if (typeof window.spPushItems === 'function') out = out.concat(window.spPushItems()); } catch (e) {}
         out.sort(function (a, b) { return a.at - b.at; });
         return out.slice(0, MAX_ITEMS);
     }
@@ -35712,7 +35860,21 @@ window.aiAgent={ok:true,begin,names,used,runBatch,guide,claimsUnbacked,nudgeText
 })();
 
 </script>
-<script src="social.js?v=15"></script>
+<script id="appModulesRegistry">
+/* سجل الأقسام: أي ملف منفصل (social.js، ملف التحكم، ملف الاختبارات...) بينده registerAppTile عشان يضيف زرّه في «المزيد».
+   لو الملف اتشال من المشروع، الزر مابيتضافش ومفيش حاجة في الـ index بتتكسر. */
+window.registerAppTile = function (o) {
+  try {
+    var host = document.getElementById('appModuleTiles'); if (!host || !o || !o.id || document.getElementById(o.id)) return;
+    var d = document.createElement('div'); d.className = 'more-feature-tile'; d.id = o.id; d.style.position = 'relative';
+    d.onclick = function () { try { o.onClick && o.onClick(); } catch (e) { } };
+    d.innerHTML = '<div class="more-feature-icon">' + (o.icon || '') + '</div><div class="more-feature-label">' + (o.label || '') + '</div>' +
+      (o.badgeId ? '<span id="' + o.badgeId + '" style="display:none;position:absolute;top:8%;right:14%;min-width:18px;height:18px;border-radius:99px;background:#e74c3c;color:#fff;font-size:.62rem;font-weight:800;place-items:center;padding:0 5px;"></span>' : '');
+    host.appendChild(d);
+  } catch (e) { }
+};
+</script>
+<script src="social.js?v=17"></script>
 <script id="deviceLinkScript">
 /* ربط الأجهزة — مزامنة تلقائية في الاتجاهين بين أكتر من جهاز (زي واتساب ويب)
    - الربط بكود/QR قصير الصلاحية (5 دقايق، مرة واحدة) بيدّي الجهاز الجديد مفتاح مجموعة عشوائي طويل.
