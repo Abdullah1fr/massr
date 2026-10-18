@@ -16,83 +16,72 @@ function msg(t) { if (t) snack(t); }
 function toast(t) { if (UI.open) { snack(t); return; } try { if (typeof showToast === 'function') { showToast(t); return; } } catch (e) { } }
 function ago(t) { var s = Math.max(0, Math.round((Date.now() - t) / 1000)); if (s < 60) return 'دلوقتي'; if (s < 3600) return 'من ' + Math.round(s / 60) + ' د'; if (s < 86400) return 'من ' + Math.round(s / 3600) + ' س'; return 'من ' + Math.round(s / 86400) + ' يوم'; }
 
-/* ---------- Firebase (تطبيق ثانوي "social" — هوية مجهولة معزولة عن حساب الإيميل) ---------- */
+/* ---------- هوية واحدة لكل مستخدم = حساب التطبيق (إيميل/جوجل). نفس الـ uid في المنافسة والأصدقاء والدردشة والـ AI ----------
+   قبل كده كان فيه حساب منافسة تاني مخفي (sg_…@sanjiz-social.app) أو مجهول. دلوقتي مفيش: الاسم والصورة
+   بيتكتبوا مرة واحدة في شاشة البداية (onboarding.js) وبيتستخدموا في كل حتة. */
 function sapp() {
   if (S.app) return S.app;
-  if (typeof firebase === 'undefined' || typeof firebaseConfig === 'undefined') return null;
-  try { S.app = firebase.app('social'); } catch (e) { S.app = firebase.initializeApp(firebaseConfig, 'social'); }
+  if (typeof firebase === 'undefined') return null;
+  try { S.app = firebase.app(); } catch (e) { return null; }
   return S.app;
 }
-function db() {
-  try {
-    if (!S.db) {
-      var a = sapp();
-      if (a) {
-        S.db = a.firestore();
-        /* أوفلاين: Firestore يخزّن الأصدقاء والمحادثات والتحديات على الجهاز، فتفتح فورًا من غير نت */
-        try { S.db.enablePersistence({ synchronizeTabs: true }).catch(function () { }); } catch (e) { }
-      }
-    }
-    return S.db || null;
-  } catch (e) { return null; }
-}
-function sauth() { try { var a = sapp(); return a ? a.auth() : null; } catch (e) { return null; } }
-function FV() { return firebase.firestore.FieldValue; }
 function mainAuth() { try { return (typeof fbAuth !== 'undefined' && fbAuth) ? fbAuth : null; } catch (e) { return null; } }
 function mainDb() { try { return (typeof fbDb !== 'undefined' && fbDb) ? fbDb : null; } catch (e) { return null; } }
+function db() {
+  try { if (!S.db) { var m = mainDb(); S.db = m || (sapp() ? sapp().firestore() : null); } return S.db || null; } catch (e) { return null; }
+}
+function sauth() { try { var a = mainAuth(); if (a) return a; var b = sapp(); return b ? b.auth() : null; } catch (e) { return null; } }
+function FV() { return firebase.firestore.FieldValue; }
 function mainUser() {
   return new Promise(function (res) {
     var m = mainAuth(); if (!m) { res(null); return; }
     var un = m.onAuthStateChanged(function (u) { try { un(); } catch (e) { } res(u || null); }, function () { res(null); });
   });
 }
-function curSocial(a) { return new Promise(function (res, rej) { var un = a.onAuthStateChanged(function (u) { try { un(); } catch (e) { } res(u); }, rej); }); }
-function socialEmail(uid, sfx) { return 'sg_' + String(uid).toLowerCase() + (sfx || '') + '@sanjiz-social.app'; }
-function randPass() { var b = new Uint8Array(24), o = '', i; (window.crypto || window.msCrypto).getRandomValues(b); for (i = 0; i < b.length; i++) o += ('0' + b[i].toString(16)).slice(-2); return o; }
-function anonUser(a) {
-  return new Promise(function (res, rej) {
-    var un = a.onAuthStateChanged(function (u) {
-      try { un(); } catch (e) { }
-      if (u) res(u); else a.signInAnonymously().then(function (c) { res(c.user); }, rej);
-    }, rej);
-  });
+/* اسم الحساب (مصدر واحد): اللي اتكتب في شاشة البداية، وبعده أي اسم قديم، وبعده اسم حساب جوجل */
+function acctName() {
+  var n = '', m = mainAuth();
+  try { n = (LS.getItem('app_user_name') || LS.getItem('sp_name') || LS.getItem('app_ai_user_name') || '').trim(); } catch (e) { }
+  if (!n && m && m.currentUser) n = (m.currentUser.displayName || '').trim();
+  return n.slice(0, 30);
 }
-/* هوية المنافسة مربوطة بحساب الإيميل: نفس الهوية على أي جهاز/رابط بعد تسجيل الدخول.
-   بيانات الدخول الخاصة بالهوية بتتخزن في وثيقة المستخدم users/{uid} (نفس اللي بتتزامن مع الحساب). */
-function linkedUser(a, mu) {
-  var ref = mainDb().collection('users').doc(mu.uid);
-  return Promise.all([curSocial(a), ref.get()]).then(function (r) {
-    var cu = r[0], doc = r[1], sl = doc.exists ? (doc.data().socialLogin || null) : null;
-    if (sl && !(sl.email && sl.pass)) sl = null;
-    if (cu && !cu.isAnonymous) { if (sl && cu.email === sl.email) return cu; return a.signOut().then(function () { cu = null; }); }
-  }).then(function () { return Promise.all([curSocial(a), ref.get()]); }).then(function (r) {
-    var cu = r[0], doc = r[1], sl = doc.exists ? (doc.data().socialLogin || null) : null;
-    if (sl && !(sl.email && sl.pass)) sl = null;
-    if (cu && !cu.isAnonymous && sl && cu.email === sl.email) return cu;
-    var hasData = (cu && cu.isAnonymous) ? db().collection('profiles').doc(cu.uid).get().then(function (s) { return !!(s.exists && s.data().code); }, function () { return false; }) : Promise.resolve(false);
-    return hasData.then(function (has) {
-      if (sl && !(sl.fresh && has)) return a.signInWithEmailAndPassword(sl.email, sl.pass).then(function (c) { return c.user; });
-      var email = socialEmail(mu.uid, sl ? 'b' + Date.now().toString(36) : ''), pass = randPass(), cred = firebase.auth.EmailAuthProvider.credential(email, pass);
-      var p = (cu && cu.isAnonymous) ? cu.linkWithCredential(cred).then(function (c) { return c.user; }) : a.createUserWithEmailAndPassword(email, pass).then(function (c) { return c.user; });
-      return p.then(function (u) { return ref.set({ socialLogin: { email: email, pass: pass, fresh: !has } }, { merge: true }).then(function () { return u; }); });
-    });
-  });
+function saveAcctName(n) {
+  n = String(n || '').trim().slice(0, 30); if (!n) return;
+  try { LS.setItem('app_user_name', n); LS.setItem('sp_name', n); LS.setItem('app_ai_user_name', n); } catch (e) { }
+  try {
+    var m = mainAuth(), d = mainDb();
+    if (m && m.currentUser) {
+      m.currentUser.updateProfile({ displayName: n }).catch(function () { });
+      if (d) d.collection('users').doc(m.currentUser.uid).set({ acctName: n }, { merge: true }).catch(function () { });
+    }
+  } catch (e) { }
 }
+function clearSocialLocal() {
+  ['sp_on', 'sp_sess', 'sp_pic', 'sp_pic_big', 'sp_name'].forEach(function (k) { try { LS.removeItem(k); } catch (e) { } });
+}
+/* لازم يكون فيه حساب مسجّل. مفيش حساب مجهول ولا حساب تاني مخفي */
 function whenUser(a) {
-  return mainUser().then(function (mu) {
-    if (!mu || !mainDb()) return anonUser(a);
-    return linkedUser(a, mu).catch(function (e) { try { console.warn('social link failed', e); } catch (x) { } return anonUser(a); });
-  });
+  return mainUser().then(function (mu) { if (!mu) return Promise.reject({ code: 'auth/no-account' }); return mu; });
 }
-/* لو المستخدم سجّل/خرج من حساب الإيميل بعد ما التطبيق اشتغل */
+/* لو المستخدم سجّل دخول/خرج بعد ما التطبيق اشتغل (أو بدّل الحساب) */
 try {
-  var __ma = mainAuth(), __first = true;
+  var __ma = mainAuth(), __prev;
   if (__ma) __ma.onAuthStateChanged(function (u) {
-    if (__first) { __first = false; return; }
-    if (u) { S.booting = false; if (LS.getItem('sp_on') === '1' || UI.open) { teardown(); S.uid = ''; init().then(function () { render(true); }); } }
-    else { var sa = sauth(); if (sa && sa.currentUser && !sa.currentUser.isAnonymous) { sa.signOut().then(function () { teardown(); S.uid = ''; LS.removeItem('sp_on'); LS.removeItem('sp_sess'); S.hyd = false; render(true); }); } }
+    var uid = u ? u.uid : '';
+    if (__prev === undefined) { __prev = uid; return; }
+    if (uid === __prev) return; __prev = uid;
+    S.booting = false; teardown(); S.uid = '';
+    if (!uid) { clearSocialLocal(); S.hyd = false; try { render(true); } catch (e) { } return; }
+    /* دخول بحساب جديد: لو شاشة البداية شغالة هي اللي هتنده spActivate بعد ما الاسم يتكتب */
+    if (window.__onbPending && window.__onbPending()) return;
+    init().then(function () { render(true); });
   });
 } catch (e) { }
+/* بتتنده من شاشة البداية بعد ما الاسم والصورة يتحفظوا: بتفعّل المنافسة بنفس حساب التطبيق */
+window.spActivate = function () {
+  S.booting = false; S.name = acctName() || S.name;
+  return init().then(function () { if (S.code) { var n = acctName(); if (n) S.name = n; try { push(true); } catch (e) { } } try { render(true); } catch (e) { } });
+};
 
 /* ---------- إحصائيات الأسبوع (من بيانات التطبيق نفسها) ---------- */
 function wkStart() { var d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - ((d.getDay() + 1) % 7)); return d; }
@@ -231,10 +220,11 @@ function autoVerify() {
 /* ---------- فتح فوري من نسخة محفوظة (زي واتساب): الهوية بتتحفظ على الجهاز، والبيانات من كاش Firestore ---------- */
 function sessSave() { try { if (S.uid && S.code) LS.setItem('sp_sess', JSON.stringify({ uid: S.uid, code: S.code, name: S.name || '' })); } catch (e) { } }
 function hydrate() {
+  if (window.__onbPending && window.__onbPending()) return false;
   if (S.code || S.uid || LS.getItem('sp_on') !== '1') return false;
   var j = null; try { j = JSON.parse(LS.getItem('sp_sess') || 'null'); } catch (e) { }
   if (!j || !j.uid || !j.code || !db()) return false;
-  S.uid = j.uid; S.code = j.code; S.name = j.name || LS.getItem('sp_name') || 'صديق'; S.hyd = true;
+  S.uid = j.uid; S.code = j.code; S.name = acctName() || j.name || 'صديق'; S.hyd = true;
   try { listen(); } catch (e) { S.uid = null; S.code = ''; S.hyd = false; return false; }
   return true;
 }
@@ -245,6 +235,7 @@ try {
 } catch (e) { }
 /* ---------- التشغيل والاتصال ---------- */
 function init() {
+  if (window.__onbPending && window.__onbPending()) return Promise.resolve();
   var a = sauth();
   if (!a || !db()) { S.err = 'خدمة Firebase مش متاحة دلوقتي ⚠️'; render(true); return Promise.resolve(); }
   if (S.booting) return Promise.resolve();
@@ -256,26 +247,25 @@ function autoActivate() {
   if (S.code || S.booting || !mainAuth()) return;
   mainUser().then(function (mu) {
     if (!mu || S.code || S.booting) return;
-    var a = sauth(); if (!a || !db()) return; S.booting = true;
-    return whenUser(a).then(function (u) {
-      return db().collection('profiles').doc(u.uid).get().then(function (sn) {
-        S.booting = false;
-        if (sn.exists && sn.data().code) { teardown(); S.uid = u.uid; return boot(); }
-      });
-    });
+    if (window.__onbPending && window.__onbPending()) return;
+    return init();
   }).catch(function () { S.booting = false; });
 }
 function mkCode(n) {
   var c = gen(), d = db();
   return d.collection('codes').doc(c).set({ uid: S.uid }).then(function () {
-    S.code = c; S.name = LS.getItem('sp_name') || LS.getItem('app_ai_user_name') || 'صديق';
+    S.code = c; S.name = acctName() || 'صديق';
     return d.collection('profiles').doc(S.uid).set({ name: S.name, code: c, createdAt: Date.now() }, { merge: true });
   }).catch(function (e) { if (n < 3 && e && e.code === 'permission-denied') return mkCode(n + 1); throw e; });
 }
 function boot() {
   var d = db();
   return d.collection('profiles').doc(S.uid).get().then(function (s) {
-    if (s.exists && s.data().code) { S.code = s.data().code; S.name = s.data().name || LS.getItem('sp_name') || 'صديق'; return; }
+    if (s.exists && s.data().code) {
+      var pd = s.data(); S.code = pd.code; S.name = acctName() || pd.name || 'صديق';
+      try { if (pd.pic && !LS.getItem('sp_pic')) LS.setItem('sp_pic', pd.pic); if (pd.picBig && !LS.getItem('sp_pic_big')) LS.setItem('sp_pic_big', pd.picBig); } catch (e) { }
+      return;
+    }
     return mkCode(0);
   }).then(function () { LS.setItem('sp_on', '1'); sessSave(); S.hyd = true; S.booting = false; listen(); push(true); render(true); consumePending(); }).catch(fail);
 }
@@ -1502,7 +1492,7 @@ function pickPageHtml() {
 }
 function settingsHtml() {
   var hid = LS.getItem('sp_hide') === '1', nd = LS.getItem('sp_nodisc') === '1';
-  return '<div class="sx-prof"><div style="position:relative;display:inline-block">' + avatar(S.name, S.uid, 96) + '<label class="sx-camb" style="cursor:pointer">' + ic('camera', 18) + '<input type="file" accept="image/*" hidden onchange="spPickPic(this)"></label></div>' + (picOf(S.uid) ? '<button class="sx-link" onclick="spPicDel()">حذف الصورة</button>' : '<small style="color:var(--text-secondary)">اضغط على الدايرة لاختيار صورتك</small>') + '</div><div class="sx-pad"><label class="sx-lbl">اسمي (بيظهر لأصحابي)</label><div style="display:flex;gap:8px"><input type="text" id="spNameIn2" class="sp-in" maxlength="20" value="' + esc(S.name) + '"><button class="btn" style="flex:none;padding:0 20px" onclick="spSaveName()">حفظ</button></div>' +
+  return '<div class="sx-prof"><div style="position:relative;display:inline-block">' + avatar(S.name, S.uid, 96) + '<label class="sx-camb" style="cursor:pointer">' + ic('camera', 18) + '<input type="file" accept="image/*" hidden onchange="spPickPic(this)"></label></div>' + (picOf(S.uid) ? '<button class="sx-link" onclick="spPicDel()">حذف الصورة</button>' : '<small style="color:var(--text-secondary)">اضغط على الدايرة لاختيار صورتك</small>') + '</div><div class="sx-pad"><label class="sx-lbl">اسمي (بيظهر لأصحابي)</label><div style="display:flex;gap:8px"><input type="text" id="spNameIn2" class="sp-in" maxlength="30" value="' + esc(S.name) + '"><button class="btn" style="flex:none;padding:0 20px" onclick="spSaveName()">حفظ</button></div>' +
     '<div class="sx-card" style="margin-top:16px"><div class="sx-sw" onclick="spHide()"><div><b>إخفاء إحصائياتي</b><small>' + (hid ? 'مخفية — أصحابك مش شايفين نقاطك' : 'ظاهرة لأصحابك (نقاط، مهام، تركيز، streak)') + '</small></div><span class="sx-tg ' + (hid ? 'on' : '') + '"></span></div><div class="sx-sw" onclick="spDisc()"><div><b>الظهور في البحث بالاسم</b><small>' + (nd ? 'مخفي — بالكود أو الـ QR بس' : 'ظاهر في نتائج البحث') + '</small></div><span class="sx-tg ' + (nd ? '' : 'on') + '"></span></div></div>' +
     '<div class="sx-card"><div class="sx-hint" style="margin:0">كودي: <b style="font-family:monospace;letter-spacing:3px;color:var(--accent)">' + esc(S.code) + '</b></div><div class="sx-btnrow"><button class="btn btn-secondary" onclick="spAddPage(\'mine\')">' + ic('qr', 18) + ' عرض الـ QR</button></div></div>' +
     '<div class="sx-hint">الأصدقاء بيشوفوا أرقامك بس (نقاط، مهام منجزة، دقايق تركيز، streak) — مش عناوين مهامك ولا ملاحظاتك.</div></div>';
@@ -1521,16 +1511,17 @@ window.spPickPic = function (inp) {
 window.spPicDel = function () { LS.removeItem('sp_pic'); LS.removeItem('sp_pic_big'); push(true); render(true); };
 window.spSaveName = function () {
   var n = (($('spNameIn2') || {}).value || '').trim(); if (!n) { snack('اكتب اسمك الأول ✏️'); return; }
-  S.name = n.slice(0, 20); LS.setItem('sp_name', S.name); push(true); snack('اتحفظ الاسم ✅'); render(true);
+  S.name = n.slice(0, 30); saveAcctName(S.name); push(true); snack('اتحفظ الاسم ✅'); render(true);
 };
 function duelPageHtml(id) { var d = duelById(id); return d ? '<div class="sx-pad">' + duelCard(d) + '</div>' : ''; }
 
 /* ---------- شاشة البداية (قبل تفعيل الخدمة) ---------- */
 function onboardHtml() {
-  var pend = LS.getItem('sp_pending');
+  var pend = LS.getItem('sp_pending'), signed = !!(mainAuth() && mainAuth().currentUser);
   return '<div class="sx-onb"><div class="logo">🏆</div><h2>المنافسة والأصدقاء</h2><p>نافس صحابك على المهام والتركيز، وادردش معاهم. الأصدقاء بيشوفوا أرقامك بس (نقاط، مهام، تركيز، streak) — مش عناوين مهامك ولا ملاحظاتك، وتقدر تخفيها في أي وقت.</p>' +
     (S.err ? '<div class="sp-sm" style="color:#e74c3c">' + esc(S.err) + '</div>' : '') + (pend ? '<div class="sp-card" style="width:100%;max-width:320px">🎉 وصلك كود صديق (<b>' + esc(pend) + '</b>) — ابدأ وهنضيفه تلقائيًا.</div>' : '') +
-    '<input type="text" id="spNameIn" class="sp-in" maxlength="20" placeholder="اسمك اللي هيظهر لأصحابك" value="' + esc(LS.getItem('sp_name') || LS.getItem('app_ai_user_name') || '') + '"><button class="btn" onclick="spStart()">' + (S.booting ? '⏳ جاري التجهيز...' : '🚀 ابدأ') + '</button></div>';
+    (signed ? '<div class="sp-sm">هتظهر لأصحابك باسم <b>' + esc(acctName() || 'صديق') + '</b> (نفس اسم حسابك)</div><button class="btn" onclick="spStart()">' + (S.booting ? '⏳ جاري التجهيز...' : '🚀 ابدأ') + '</button>'
+      : '<div class="sp-sm">سجّل دخولك بحسابك الأول.</div>') + '</div>';
 }
 
 /* ================== الرندر الرئيسي ================== */
@@ -2483,12 +2474,10 @@ function syncSent() {
   });
 }
 window.spStart = function () {
-  var n = ($('spNameIn').value || '').trim(); if (!n) { msg('اكتب اسمك الأول ✏️'); return; }
-  LS.setItem('sp_name', n.slice(0, 20)); S.name = n.slice(0, 20);
-  /* مفيش حساب = مفيش هوية: ما نعملش حساب مجهول جديد كل مرة، نطلب الدخول بجوجل الأول */
+  /* مفيش اسم ولا حساب تاني هنا: الهوية هي حساب التطبيق، والاسم اتكتب في شاشة البداية */
   mainUser().then(function (mu) {
-    if (!mu) { msg('سجّل دخول بحساب جوجل الأول عشان هويتك تتثبّت 🔐'); try { if (typeof handleGoogleLogin === 'function') handleGoogleLogin(); } catch (e) { } return; }
-    init().then(function () { render(true); }); render(true);
+    if (!mu) { msg('سجّل دخولك بحسابك الأول 🔐'); return; }
+    window.spActivate(); render(true);
   });
 };
 window.spHide = function () { LS.setItem('sp_hide', LS.getItem('sp_hide') === '1' ? '0' : '1'); push(true); render(true); };

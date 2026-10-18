@@ -33,20 +33,22 @@ window.__isDesk=function(){return d.classList.contains('dev-desktop')};})();</sc
    وهنا بنحوّل أي طلب فيه proxy.N (fetch أو WebSocket) لرابط البوابة. مفتاح المستخدم الشخصي بيروح لـ Google مباشرة زي ما هو. */
 (function () {
     var GW = 'https://sanjiz-gemini.abdo-k99999.workers.dev'; /* ← غيّر السطر ده لرابط الـ Worker بعد ما ترفعه (من غير / في الآخر) */
-    var G = 'generativelanguage.googleapis.com', PH = /^proxy\.(\d{1,2})$/;
+    var UKW = 'https://REPLACE-WITH-KEYS-WORKER.workers.dev'; /* ← رابط Worker المفاتيح الشخصية (الحساب الجديد على Cloudflare) — من غير / في الآخر */
+    var ukReady = UKW.indexOf('REPLACE') < 0 && /^https:\/\/[a-z0-9.-]+$/i.test(UKW);
+    var G = 'generativelanguage.googleapis.com', PH = /^proxy\.(\d{1,2})$/, PM = /^mine\.(\d{1,2})$/; /* mine.N = مفتاح شخصي رقم N مخزّن على السيرفر مربوط بحساب المستخدم */
     var ready = GW.indexOf('REPLACE') < 0 && /^https:\/\/[a-z0-9.-]+$/i.test(GW);
     var warned = false;
     function warn() { if (warned) return; warned = true; try { console.error('AI gateway URL not set in index.html (aiGatewayShim)'); } catch (e) {} try { if (typeof showToast === 'function') showToast('⚠️ بوابة الذكاء الاصطناعي لسه ما اتضبطتش'); } catch (e) {} }
     /* توكن تسجيل الدخول (لو المستخدم داخل) بيتبعت للبوابة: تحسب الحدود على حسابه، وتقدر تشترط الدخول. الضيف بيكمّل عادي من غير توكن.
        بنحتفظ بآخر توكن في cachedTok عشان الـ WebSocket (الصوت) ما يقدرش يستنى. onIdTokenChanged بيجدده تلقائي كل ساعة. */
-    var cachedTok = '', hooked = false;
+    var cachedTok = '', hooked = false, uk = [], ukLoading = null; /* uk = المفاتيح الشخصية في الذاكرة بس (مش في أي تخزين) */
     function hookAuth() {
         if (hooked) return true;
         try {
             var a = window.firebase && window.firebase.auth && window.firebase.auth();
             if (!a) return false;
             hooked = true;
-            a.onIdTokenChanged(function (u) { if (!u) { cachedTok = ''; return; } u.getIdToken().then(function (t) { cachedTok = t || ''; }, function () { }); });
+            a.onIdTokenChanged(function (u) { if (!u) { cachedTok = ''; uk = []; return; } u.getIdToken().then(function (t) { cachedTok = t || ''; }, function () { }); });
             return true;
         } catch (e) { return false; }
     }
@@ -58,13 +60,45 @@ window.__isDesk=function(){return d.classList.contains('dev-desktop')};})();</sc
             return u ? u.getIdToken().then(function (t) { cachedTok = t || ''; return cachedTok; }, function () { return cachedTok; }) : (cachedTok = '', Promise.resolve(''));
         } catch (e) { return Promise.resolve(''); }
     }
+    window.__aiGW = ready ? GW : ''; window.__aiUKW = ukReady ? UKW : ''; window.__aiIdToken = idToken;
     var _fetch = window.fetch;
+    /* بنجيب المفاتيح الشخصية كاملة من Worker المفاتيح مرة واحدة في الجلسة، ونحطها في الذاكرة بس، وبعدها كل طلب بيروح لجوجل مباشرة
+       (من غير ما يعدّي على Cloudflare). بتتمسح من الذاكرة لما المستخدم يسجّل خروج أو يقفل التطبيق. */
+    function loadUk() {
+        if (!ukReady) return Promise.resolve({ ok: false, code: 'nogw' });
+        if (ukLoading) return ukLoading;
+        ukLoading = idToken().then(function (t) {
+            if (!t) return { ok: false, code: 'noauth' };
+            return _fetch.call(window, UKW + '/user-keys/reveal', { headers: { Authorization: 'Bearer ' + t }, cache: 'no-store' }).then(function (res) {
+                return res.json().then(function (d) {
+                    if (res.status !== 200 || !d || !Array.isArray(d.keys)) return { ok: false, status: res.status };
+                    uk = d.keys.map(function (k) { return String(k.key || ''); });
+                    var meta = d.keys.map(function (k, i) { return { id: k.id, label: k.label || '', last4: k.last4, at: k.at, n: i }; });
+                    try { if (typeof window.aiUkSetMeta === 'function') window.aiUkSetMeta(meta); } catch (e) {}
+                    return { ok: true, count: uk.length };
+                });
+            });
+        }).catch(function () { return { ok: false, code: 'net' }; }).then(function (r) { ukLoading = null; return r; });
+        return ukLoading;
+    }
+    window.__aiUkLoad = loadUk; window.__aiUk = { clear: function () { uk = []; } };
     window.fetch = function (input, init) {
         try {
             if (typeof input === 'string' && input.indexOf('https://' + G + '/') === 0) {
                 var u = new URL(input), h = init && init.headers, hk = '';
                 if (h) { if (typeof h.get === 'function') hk = h.get('x-goog-api-key') || ''; else { for (var k in h) { if (String(k).toLowerCase() === 'x-goog-api-key') hk = String(h[k]); } } }
-                var m = PH.exec(u.searchParams.get('key') || hk);
+                var kv0 = u.searchParams.get('key') || hk, m = PH.exec(kv0), um = m ? null : PM.exec(kv0);
+                if (um) {
+                    var uidx = parseInt(um[1], 10), viaQ = u.searchParams.has('key'), selfM = this;
+                    var sendMine = function (secret) {
+                        var uu = new URL(input), hh = new Headers(h || {});
+                        if (viaQ) uu.searchParams.set('key', secret); else hh.set('x-goog-api-key', secret);
+                        var nj = {}; for (var q in init) nj[q] = init[q]; nj.headers = hh;
+                        return _fetch.call(selfM, uu.toString(), nj);
+                    };
+                    if (uk[uidx]) return sendMine(uk[uidx]);
+                    return loadUk().then(function () { return uk[uidx] ? sendMine(uk[uidx]) : Promise.reject(new TypeError('personal key not available')); });
+                }
                 if (m) {
                     if (!ready) { warn(); return Promise.reject(new TypeError('AI gateway not configured')); }
                     u.searchParams.delete('key');
@@ -82,15 +116,19 @@ window.__isDesk=function(){return d.classList.contains('dev-desktop')};})();</sc
         var PW = function (url, protocols) {
             try {
                 if (typeof url === 'string' && url.indexOf('wss://' + G + '/') === 0) {
-                    var u = new URL(url), m = PH.exec(u.searchParams.get('key') || '');
-                    if (m) {
+                    var u = new URL(url), kv1 = u.searchParams.get('key') || '', m = PH.exec(kv1), mm = m ? null : PM.exec(kv1);
+                    if (mm) {
+                        var sk = uk[parseInt(mm[1], 10)];
+                        if (!sk) { loadUk(); throw new TypeError('personal key not loaded yet'); }
+                        u.searchParams.set('key', sk); url = u.toString();
+                    } else if (m) {
                         if (!ready) { warn(); throw new TypeError('AI gateway not configured'); }
                         u.searchParams.delete('key'); u.searchParams.set('k', m[1]);
                         if (cachedTok) u.searchParams.set('t', cachedTok);
                         url = 'wss://' + GW.slice(8) + u.pathname + u.search;
                     }
                 }
-            } catch (e) { if (e instanceof TypeError && /gateway/.test(String(e.message))) throw e; }
+            } catch (e) { if (e instanceof TypeError && /gateway|personal key/.test(String(e.message))) throw e; }
             return protocols === undefined ? new _WS(url) : new _WS(url, protocols);
         };
         PW.prototype = _WS.prototype;
@@ -2953,6 +2991,103 @@ window.__isDesk=function(){return d.classList.contains('dev-desktop')};})();</sc
         .cat-prog-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-gold)); border-radius: 10px; width: 0%; transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);}
     </style>
 
+
+    <!-- تنسيقات تبويبات التقارير الجديدة -->
+    <style>
+        .rp-tabs { display:flex; gap:8px; overflow-x:auto; padding:2px 0 4px; scrollbar-width:none; }
+        .rp-tabs::-webkit-scrollbar { display:none; }
+        .rp-tab { flex:1 0 auto; background:var(--card-bg); border:1px solid var(--card-border); color:var(--text-secondary); padding:9px 14px; border-radius:999px; font-size:0.78rem; font-weight:800; cursor:pointer; white-space:nowrap; font-family:inherit; transition:all .2s; }
+        .rp-tab.active { background:var(--accent); color:#fff; border-color:var(--accent); box-shadow:0 4px 14px var(--accent-glow); }
+        .rp-pane { display:none; flex-direction:column; gap:16px; }
+        .rp-pane.active { display:flex; animation:fadeIn .3s ease-out; }
+        .rp-goal { display:flex; align-items:center; gap:16px; }
+        .rp-ring { --p:0; width:84px; height:84px; flex:0 0 84px; border-radius:50%; background:conic-gradient(var(--accent) calc(var(--p) * 1%), var(--input-bg) 0); display:flex; align-items:center; justify-content:center; position:relative; }
+        .rp-ring::before { content:''; position:absolute; inset:9px; border-radius:50%; background:var(--card-bg); }
+        .rp-ring span { position:relative; font-weight:900; font-size:1rem; color:var(--accent); }
+        .rp-goal-title { font-size:0.95rem; font-weight:800; color:var(--text-primary); }
+        .rp-goal-sub { font-size:0.78rem; color:var(--text-secondary); margin-top:4px; line-height:1.6; }
+        .rp-insights { display:flex; flex-direction:column; gap:8px; }
+        .rp-insight { background:var(--input-bg); border:1px solid var(--card-border); border-radius:12px; padding:10px 12px; font-size:0.78rem; font-weight:700; color:var(--text-primary); display:flex; gap:8px; align-items:center; line-height:1.5; }
+        .rp-pill { font-size:0.68rem; font-weight:800; background:var(--accent-glow); color:var(--accent); border-radius:999px; padding:3px 10px; }
+        .analytics-header-card { flex-wrap:wrap; }
+        .rp-tour-row { flex:0 0 100%; display:flex; justify-content:flex-start; margin-bottom:12px; }
+        .rp-tour-btn { position:relative; display:inline-flex; align-items:center; gap:8px; padding:6px 16px 6px 8px; border-radius:999px; border:1.5px solid var(--accent); background:var(--accent-glow); color:var(--accent); font-family:inherit; font-size:.8rem; font-weight:800; cursor:pointer; transition:transform .15s, box-shadow .2s, background .2s; }
+        .rp-tour-btn .rp-tour-ic { display:inline-grid; place-items:center; width:24px; height:24px; border-radius:50%; background:var(--accent); color:#1b1300; font-size:.85rem; line-height:1; }
+        .rp-tour-btn:hover { transform:translateY(-1px); box-shadow:0 6px 16px var(--accent-glow); }
+        .rp-tour-btn:active { transform:none; }
+        .rp-tour-btn.new::after { content:""; position:absolute; top:-3px; right:-3px; width:10px; height:10px; border-radius:50%; background:#ef4444; border:2px solid var(--card-bg); animation:rptDot 1.8s ease-out infinite; }
+        @keyframes rptDot { 0% { box-shadow:0 0 0 0 rgba(239,68,68,.55); } 70%,100% { box-shadow:0 0 0 8px rgba(239,68,68,0); } }
+        html.dev-desktop .rp-tour-btn { border-radius:4px; border-color:var(--d-brass); color:var(--d-brass); background:transparent; }
+        html.dev-desktop .rp-tour-btn .rp-tour-ic { border-radius:3px; background:var(--d-brass); color:var(--d-glaze-ink); }
+        #rpTour { position:fixed; inset:0; z-index:2147483000; touch-action:none; }
+        .rpt-dim { position:fixed; left:0; top:0; width:100%; height:100%; pointer-events:none; }
+        .rpt-dim path { fill:rgba(8,10,16,.74); fill-rule:evenodd; }
+        .rpt-spot { position:fixed; left:0; top:0; width:0; height:0; box-sizing:border-box; border:3px solid var(--accent); border-radius:14px; pointer-events:none; animation:rptPulse 1.4s ease-in-out infinite; }
+        .rpt-spot.empty { display:none; }
+        @keyframes rptPulse { 0%,100% { opacity:1; } 50% { opacity:.5; } }
+        .rpt-hand { position:fixed; left:0; top:0; width:40px; height:40px; font-size:40px; line-height:1; pointer-events:none; z-index:2; will-change:transform; }
+        .rpt-hand-i { display:block; transform-origin:35% 10%; filter:drop-shadow(0 4px 6px rgba(0,0,0,.55)); }
+        .rpt-hand-i.tap { animation:rptTap .24s ease; }
+        @keyframes rptTap { 0%,100% { transform:scale(1); } 45% { transform:scale(.72) translateY(5px); } }
+        .rpt-rip { position:fixed; width:22px; height:22px; margin:-11px 0 0 -11px; border-radius:50%; border:3px solid var(--accent); animation:rptRip .6s ease-out forwards; pointer-events:none; z-index:2; }
+        @keyframes rptRip { from { transform:scale(.4); opacity:1; } to { transform:scale(3.4); opacity:0; } }
+        .rpt-bub { position:fixed; left:0; top:0; background:var(--card-bg); color:var(--text-primary); border:1px solid var(--card-border); border-radius:18px; box-shadow:0 18px 50px rgba(0,0,0,.5); z-index:3; font-size:.88rem; line-height:1.85; visibility:hidden; opacity:0; pointer-events:none; }
+        .rpt-bub.on { visibility:visible; opacity:1; pointer-events:auto; animation:rptPop .22s ease; }
+        @keyframes rptPop { from { transform:translateY(6px) scale(.98); opacity:0; } to { transform:none; opacity:1; } }
+        .rpt-in { padding:14px 14px 12px; max-height:calc(100vh - 28px); overflow-y:auto; overscroll-behavior:contain; border-radius:inherit; }
+        .rpt-arr { position:absolute; width:14px; height:14px; margin-left:-7px; background:var(--card-bg); border:1px solid var(--card-border); transform:rotate(45deg); display:none; }
+        .rpt-arr.top { display:block; top:-8px; border-right-color:transparent; border-bottom-color:transparent; }
+        .rpt-arr.bot { display:block; bottom:-8px; border-left-color:transparent; border-top-color:transparent; }
+        .rpt-top { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; }
+        .rpt-cnt { font-size:.7rem; font-weight:800; color:var(--accent); background:var(--accent-glow); border-radius:999px; padding:1px 10px; white-space:nowrap; }
+        .rpt-dots { display:flex; gap:4px; align-items:center; }
+        .rpt-dots i { width:6px; height:6px; border-radius:50%; background:var(--card-border); transition:all .2s; }
+        .rpt-dots i.done { background:var(--accent); opacity:.45; }
+        .rpt-dots i.on { background:var(--accent); width:16px; border-radius:5px; }
+        .rpt-btns { display:flex; gap:8px; margin-top:12px; }
+        .rpt-btns .btn { padding:10px 14px; font-size:.82rem; }
+        .rpt-btns .rpt-next { flex:1; }
+        @media (prefers-reduced-motion:reduce) { .rpt-spot, .rp-tour-btn.new::after { animation:none; } }
+        .rp-facts { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:14px; }
+        .rp-fact { background:var(--input-bg); border:1px solid var(--card-border); border-radius:12px; padding:10px 6px; text-align:center; }
+        .rp-fact b { display:block; font-size:1.05rem; color:var(--accent); font-weight:900; }
+        .rp-fact small { font-size:0.62rem; color:var(--text-secondary); font-weight:700; }
+        .rp-wd-row { display:flex; align-items:center; gap:8px; margin-bottom:9px; font-size:0.75rem; font-weight:700; color:var(--text-primary); }
+        .rp-wd-row .nm { width:56px; flex:0 0 56px; }
+        .rp-wd-row .bar { flex:1; height:10px; background:var(--input-bg); border:1px solid var(--card-border); border-radius:10px; overflow:hidden; }
+        .rp-wd-row .bar i { display:block; height:100%; background:linear-gradient(90deg,var(--accent),var(--accent-gold)); border-radius:10px; transition:width .8s cubic-bezier(.4,0,.2,1); }
+        .rp-wd-row.best .nm { color:var(--accent); }
+        .rp-wd-row .v { width:46px; flex:0 0 46px; text-align:left; color:var(--text-secondary); font-size:0.68rem; }
+        .rp-trend { display:flex; align-items:flex-end; gap:4px; height:110px; }
+        .rp-trend-col { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; min-width:0; }
+        .rp-trend-col i { display:block; width:70%; max-width:20px; background:var(--success); border-radius:6px 6px 2px 2px; min-height:3px; transition:height .6s; }
+        .rp-trend-col.today i { background:var(--accent); }
+        .rp-trend-col em { font-style:normal; font-size:0.58rem; color:var(--text-secondary); margin-top:4px; font-weight:700; }
+        .rp-trend-col b { font-size:0.6rem; color:var(--text-primary); margin-bottom:2px; }
+        .rp-empty { text-align:center; padding:18px; color:var(--text-secondary); font-size:0.82rem; }
+        .rp-rings { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; width:100%; }
+        .rp-ringcol { text-align:center; } .rp-ringcol .rp-ring { width:70px; height:70px; flex:none; margin:0 auto 6px; } .rp-ringcol .rp-ring span { font-size:.85rem; }
+        .rp-ringcol b { display:block; font-size:.74rem; color:var(--text-primary); } .rp-ringcol small { font-size:.62rem; color:var(--text-secondary); font-weight:700; }
+        .rp-goal-line { position:absolute; left:0; right:0; border-top:2px dashed var(--warning); z-index:2; } .rp-goal-line span { position:absolute; left:0; top:-17px; font-size:.58rem; color:var(--warning); font-weight:800; }
+        .bar-chart-bar.hit { background:var(--success); } .rp-bar-val { font-size:.58rem; font-weight:800; color:var(--text-primary); margin-bottom:3px; white-space:nowrap; }
+        .day-prog { width:100%; height:5px; background:var(--card-border); border-radius:5px; overflow:hidden; } .day-prog i { display:block; height:100%; background:var(--accent); } .day-prog.hit i { background:var(--success); }
+        .rp-bv2 { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:12px; }
+        .rp-bt { background:var(--input-bg); border:1px solid var(--card-border); border-radius:14px; padding:12px; }
+        .rp-bt-head { display:flex; align-items:center; gap:10px; margin-bottom:10px; } .rp-bt-ic { font-size:1.7rem; } .rp-bt-nm { font-weight:800; font-size:.85rem; color:var(--text-primary); } .rp-bt-tier { font-size:.68rem; font-weight:800; }
+        .rp-bt-bar { height:8px; background:var(--card-border); border-radius:8px; overflow:hidden; margin:6px 0; } .rp-bt-bar i { display:block; height:100%; border-radius:8px; transition:width .8s; }
+        .rp-bt-sub { font-size:.68rem; color:var(--text-secondary); font-weight:700; display:flex; justify-content:space-between; }
+        .rp-steps { display:flex; gap:4px; margin-top:8px; flex-wrap:wrap; } .rp-step { font-size:.6rem; font-weight:800; padding:2px 7px; border-radius:999px; background:var(--card-bg); border:1px solid var(--card-border); color:var(--text-secondary); } .rp-step.on { color:#fff; border-color:transparent; }
+        .rp-lvl { display:flex; align-items:center; gap:14px; } .rp-lvl-n { width:62px; height:62px; flex:0 0 62px; border-radius:50%; background:linear-gradient(135deg,var(--accent),var(--accent-gold)); color:#fff; display:flex; align-items:center; justify-content:center; font-size:1.5rem; font-weight:900; }
+        .rp-seg { display:inline-flex; background:var(--input-bg); border:1px solid var(--card-border); border-radius:999px; padding:2px; direction:rtl; }
+        .rp-seg button { border:0; background:none; color:var(--text-secondary); font:inherit; font-size:.66rem; font-weight:800; padding:4px 10px; border-radius:999px; cursor:pointer; }
+        .rp-seg button.on { background:var(--accent); color:#fff; }
+        .rp-dots { width:100%; display:block; direction:ltr; } .rp-dots text { font-family:inherit; }
+        .rpd-grid { stroke:var(--card-border); stroke-dasharray:3 3; } .rpd-lbl { fill:var(--text-secondary); font-size:9px; font-weight:700; } .rpd-val { fill:var(--text-primary); font-size:9px; font-weight:800; }
+        .rpd-line { stroke:var(--accent); stroke-width:2; fill:none; opacity:.45; } .rpd-pt { fill:var(--accent); } .rpd-hit { fill:var(--success); } .rpd-zero { fill:var(--card-bg); stroke:var(--text-secondary); stroke-width:1.5; opacity:.6; }
+        .rpd-ring { fill:none; stroke:var(--accent); stroke-width:2; opacity:.5; } .rpd-goal { stroke:var(--warning); stroke-width:1.5; stroke-dasharray:5 4; } .rpd-future { fill:none; stroke:var(--card-border); stroke-width:1.5; }
+        .rp-cat-dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-left:6px; }
+    </style>
+
     <!-- تنسيقات الميزات الجديدة: النسخ الاحتياطي، تعديل المهام، المهام الفرعية، الهدف اليومي، الخريطة الحرارية -->
     <style>
         .settings-btn { background: var(--card-bg); border: 1px solid var(--card-border); color: var(--text-primary); width: 33px; height: 33px; border-radius: 50%; cursor: pointer; font-size: 0.95rem; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
@@ -4976,103 +5111,131 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
         <!-- ==================================================== -->
         <section class="view-section" id="section-analytics">
             <div class="pro-dashboard">
-                
+
                 <div class="analytics-header-card">
+                    <div class="rp-tour-row"><button class="rp-tour-btn" id="rpTourBtn" onclick="rpTourStart()" title="جولة تعليمية في التقارير" aria-label="ابدأ الجولة التعليمية"><span class="rp-tour-ic">🧭</span><span>جولة</span></button></div>
                     <div>
-                        <div class="section-title" style="display:flex; align-items:center; gap:6px;">
-                            📊 لوحة الإنتاجية المتقدمة
-                        </div>
+                        <div class="section-title" style="display:flex; align-items:center; gap:6px;">📊 لوحة الإنتاجية المتقدمة</div>
                         <div class="section-subtitle">تحليل شامل لأدائك وإنجازاتك الحقيقية</div>
                     </div>
-                    <button class="btn" style="padding: 6px 12px; font-size: 0.75rem;" onclick="updateStatsUI()">
-                        🔄 تحديث
-                    </button>
-                </div>
-
-                <div class="pro-stats-grid">
-                    <div class="pro-stat-card">
-                        <div class="stat-icon-pro">⏱️</div>
-                        <div class="stat-value-pro" id="adv-focus">0</div>
-                        <div class="stat-label-pro">إجمالي التركيز (دقيقة)</div>
-                    </div>
-                    <div class="pro-stat-card">
-                        <div class="stat-icon-pro">✅</div>
-                        <div class="stat-value-pro" id="adv-completed">0</div>
-                        <div class="stat-label-pro">مهام مكتملة</div>
-                    </div>
-                    <div class="pro-stat-card">
-                        <div class="stat-icon-pro">📈</div>
-                        <div class="stat-value-pro" id="adv-rate">0%</div>
-                        <div class="stat-label-pro">مؤشر الإنجاز</div>
-                    </div>
-                    <div class="pro-stat-card">
-                        <div class="stat-icon-pro">🔥</div>
-                        <div class="stat-value-pro" id="adv-streak">0</div>
-                        <div class="stat-label-pro">أيام الالتزام</div>
+                    <div style="display:flex; gap:6px;">
+                        <button class="btn btn-secondary" style="padding:6px 10px; font-size:0.72rem;" onclick="exportProductivityReport(7)" title="تصدير تقرير آخر 7 أيام">📥 تصدير</button>
+                        <button class="btn" style="padding:6px 10px; font-size:0.72rem;" onclick="updateStatsUI()">🔄 تحديث</button>
                     </div>
                 </div>
 
-                <div id="smartInsightContainer" class="smart-insight-box">
-                    <div class="smart-insight-icon" id="smartInsightIcon">💡</div>
-                    <div class="smart-insight-text" id="smartInsightText">
-                        جاري تحليل بياناتك...
-                    </div>
+                <div class="rp-tabs" id="rpTabs">
+                    <button class="rp-tab" data-rp="overview" onclick="rpSwitchTab('overview')">🏠 نظرة عامة</button>
+                    <button class="rp-tab" data-rp="focus" onclick="rpSwitchTab('focus')">⏱️ التركيز</button>
+                    <button class="rp-tab" data-rp="tasks" onclick="rpSwitchTab('tasks')">✅ المهام</button>
+                    <button class="rp-tab" data-rp="quran" onclick="rpSwitchTab('quran')">📖 القرآن</button>
+                    <button class="rp-tab" data-rp="achv" onclick="rpSwitchTab('achv')">🏅 الإنجازات</button>
                 </div>
 
-                <div class="chart-box">
-                    <div class="chart-header">📊 توزيع وقت التركيز</div>
-                    <div class="bar-chart-total" id="barChartTotal">إجمالي وقت التركيز: 0 دقيقة</div>
-                    <div class="bar-chart-wrap">
-                        <div class="bar-chart-grid" id="barChartGrid"></div>
-                        <div class="bar-chart-bars" id="barChartBars"></div>
+                <!-- ===== تبويب: نظرة عامة ===== -->
+                <div class="rp-pane" data-rp-pane="overview">
+                    <div class="pro-stats-grid">
+                        <div class="pro-stat-card"><div class="stat-icon-pro">⏱️</div><div class="stat-value-pro" id="adv-focus">0</div><div class="stat-label-pro">إجمالي التركيز (دقيقة)</div></div>
+                        <div class="pro-stat-card"><div class="stat-icon-pro">✅</div><div class="stat-value-pro" id="adv-completed">0</div><div class="stat-label-pro">مهام مكتملة</div></div>
+                        <div class="pro-stat-card"><div class="stat-icon-pro">📈</div><div class="stat-value-pro" id="adv-rate">0%</div><div class="stat-label-pro">مؤشر الإنجاز</div></div>
+                        <div class="pro-stat-card"><div class="stat-icon-pro">🔥</div><div class="stat-value-pro" id="adv-streak">0</div><div class="stat-label-pro">أيام الالتزام</div></div>
                     </div>
+
+                    <div class="chart-box rp-goal" id="rpGoalCard"></div>
+
+                    <div id="smartInsightContainer" class="smart-insight-box">
+                        <div class="smart-insight-icon" id="smartInsightIcon">💡</div>
+                        <div class="smart-insight-text" id="smartInsightText">جاري تحليل بياناتك...</div>
+                    </div>
+                    <div class="rp-insights" id="rpInsights"></div>
+
+                    <div class="chart-box" id="periodSummaryBox">
+                        <div class="chart-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                            <span>📆 ملخص الفترة</span>
+                            <div id="periodChips" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
+                        </div>
+                        <div id="periodSummaryBody"></div>
+                    </div>
+
+                    <div class="chart-box" id="friendsReportBox" style="display:none;"></div>
                 </div>
 
-                <div class="chart-box" id="weeklyStatsBox">
-                    <div class="chart-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-                        <span>🗓️ مسار الأسبوع</span>
-                        <div style="display:flex; align-items:center; gap:8px;">
-                            <button class="icon-btn" title="الأسبوع السابق" onclick="changeWeek(-1)">◀</button>
-                            <span id="weekRangeLabel" style="font-size:0.72rem; color:var(--text-secondary); white-space:nowrap;"></span>
-                            <button class="icon-btn" id="weekNextBtn" title="الأسبوع التالي" onclick="changeWeek(1)">▶</button>
+                <!-- ===== تبويب: التركيز ===== -->
+                <div class="rp-pane" data-rp-pane="focus">
+                    <div class="chart-box">
+                        <div class="chart-header" style="justify-content:space-between;"><span>📊 توزيع وقت التركيز</span><span class="rp-seg-slot" data-chart="focus"></span></div>
+                        <div class="bar-chart-total" id="barChartTotal">إجمالي وقت التركيز: 0 دقيقة</div>
+                        <div class="bar-chart-wrap">
+                            <div class="bar-chart-grid" id="barChartGrid"></div>
+                            <div class="bar-chart-bars" id="barChartBars"></div>
+                        </div>
+                        <div id="rpFocusDots"></div>
+                    </div>
+
+                    <div class="chart-box" id="weeklyStatsBox">
+                        <div class="chart-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                            <span>🗓️ مسار الأسبوع</span>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <button class="icon-btn" title="الأسبوع السابق" onclick="changeWeek(-1)">◀</button>
+                                <span id="weekRangeLabel" style="font-size:0.72rem; color:var(--text-secondary); white-space:nowrap;"></span>
+                                <button class="icon-btn" id="weekNextBtn" title="الأسبوع التالي" onclick="changeWeek(1)">▶</button>
+                            </div>
+                        </div>
+                        <div class="week-path-container" id="weekPathContainer"></div>
+                        <div class="week-compare-box" id="weekCompareBox"></div>
+                    </div>
+
+                    <div class="chart-box">
+                        <div class="chart-header">📅 أنهي يوم في الأسبوع بتركز فيه أكتر؟</div>
+                        <div id="rpWeekdayBox"></div>
+                    </div>
+
+                    <div class="chart-box">
+                        <div class="chart-header">🗓️ خريطة التركيز الحرارية بالأشهر</div>
+                        <div class="heatmap-months-wrap" id="yearHeatmapGrid"></div>
+                        <div class="heatmap-legend">
+                            <span>مفيش تركيز</span>
+                            <div class="heatmap-cell" style="background:var(--input-bg);"></div>
+                            <div class="heatmap-cell" style="background:#38bdf8;"></div>
+                            <div class="heatmap-cell" style="background:#22c55e;"></div>
+                            <div class="heatmap-cell" style="background:#eab308;"></div>
+                            <div class="heatmap-cell" style="background:#f97316;"></div>
+                            <div class="heatmap-cell" style="background:#ef4444;"></div>
+                            <span>أعلى تركيز</span>
                         </div>
                     </div>
-                    <div class="week-path-container" id="weekPathContainer"></div>
-                    <div class="week-compare-box" id="weekCompareBox"></div>
                 </div>
 
-                <div class="chart-box" id="periodSummaryBox">
-                    <div class="chart-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-                        <span>📆 ملخص الفترة</span>
-                        <div id="periodChips" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
+                <!-- ===== تبويب: المهام ===== -->
+                <div class="rp-pane" data-rp-pane="tasks">
+                    <div class="chart-box">
+                        <div class="chart-header">✅ حالة المهام</div>
+                        <div id="rpTaskSummary"></div>
                     </div>
-                    <div id="periodSummaryBody"></div>
+                    <div class="chart-box">
+                        <div class="chart-header" style="justify-content:space-between;"><span>📈 المهام المنجزة (آخر 14 يوم)</span><span class="rp-seg-slot" data-chart="tasks"></span></div>
+                        <div id="rpTrendBox"></div>
+                    </div>
+                    <div class="chart-box">
+                        <div class="chart-header">📋 تحليل الإنجاز حسب التصنيف</div>
+                        <div id="categoryAnalysisContainer"></div>
+                    </div>
                 </div>
 
-                <div class="chart-box" id="friendsReportBox" style="display:none;"></div>
-
-                <div class="chart-box">
-                    <div class="chart-header">🏅 الشارات والإنجازات</div>
-                    <div class="badges-grid" id="badgesGrid"></div>
+                <!-- ===== تبويب: القرآن ===== -->
+                <div class="rp-pane" data-rp-pane="quran">
+                    <div id="rpQSub"></div>
+                    <div class="chart-box" id="rpQuranMain"></div>
+                    <div class="chart-box"><div class="chart-header" style="justify-content:space-between;"><span>📈 آيات القراءة (آخر 14 يوم)</span><span class="rp-seg-slot" data-chart="quran"></span></div><div id="rpQuranTrend"></div></div>
+                    <div id="rpQuranExtra"></div>
                 </div>
 
-                <div class="chart-box">
-                    <div class="chart-header">📋 تحليل الإنجاز حسب التصنيف</div>
-                    <div id="categoryAnalysisContainer"></div>
-                </div>
-
-                <div class="chart-box">
-                    <div class="chart-header">🗓️ خريطة التركيز الحرارية بالأشهر</div>
-                    <div class="heatmap-months-wrap" id="yearHeatmapGrid"></div>
-                    <div class="heatmap-legend">
-                        <span>مفيش تركيز</span>
-                        <div class="heatmap-cell" style="background:var(--input-bg);"></div>
-                        <div class="heatmap-cell" style="background:#38bdf8;"></div>
-                        <div class="heatmap-cell" style="background:#22c55e;"></div>
-                        <div class="heatmap-cell" style="background:#eab308;"></div>
-                        <div class="heatmap-cell" style="background:#f97316;"></div>
-                        <div class="heatmap-cell" style="background:#ef4444;"></div>
-                        <span>أعلى تركيز</span>
+                <!-- ===== تبويب: الإنجازات ===== -->
+                <div class="rp-pane" data-rp-pane="achv">
+                    <div class="chart-box" id="rpLevelBox"></div>
+                    <div class="chart-box">
+                        <div class="chart-header" style="justify-content:space-between;"><span>🏅 الشارات والإنجازات</span><span id="rpBadgeCount" class="rp-pill"></span></div>
+                        <div class="badges-grid" id="badgesGrid"></div>
                     </div>
                 </div>
 
@@ -5666,9 +5829,9 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
             <div id="aiNoKeyBox" class="chart-box" style="display:none;">
                 <div class="chart-header">🔑 محتاج مفتاح Gemini API الأول</div>
                 <div class="settings-section-desc" style="margin-bottom:10px;">
-                    المساعد بيشتغل بمفتاح Gemini API بتاعك الشخصي وبيتخزن على جهازك بس. سجّله مرة واحدة من الإعدادات.
+                    المساعد محتاج مفتاح Gemini API. سجّل دخول بحسابك وضيف مفتاحك من الإعدادات، وهيتحفظ على حسابك بأمان.
                 </div>
-                <button class="btn" style="width:100%;" onclick="closeSectionOpenSettings()">⚙️ فتح الإعدادات وتسجيل المفتاح</button>
+                <button class="btn" style="width:100%;" onclick="closeSectionOpenSettings()">⚙️ فتح الإعدادات وإضافة مفتاح</button>
             </div>
 
             <!-- حالة: فيه مفتاح مسجّل ومحتاج نوصل للحد الأقصى -->
@@ -6484,17 +6647,17 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
                 </div>
                 <div class="settings-section settings-collapsible">
                     <div class="settings-section-desc">
-                        المساعد بيستخدم مفتاح Gemini API بتاعك الشخصي، وبيتخزن على جهازك بس ومبيتبعتش لأي سيرفر غير جوجل مباشرة. لو حسيت إن مفتاحك اتكشف لأي حد، الغيه (Revoke) من Google AI Studio واطلع واحد جديد فورًا.
+                        تقدر تضيف مفتاح Gemini API شخصي واحد أو أكتر (لحد 10). المفاتيح بتتحفظ على حسابك في السيرفر مشفّرة، ومش بتتكتب على الجهاز ولا في النسخ الاحتياطية. التطبيق بيجيبها من حسابك لما تفتحه ويحطها في الذاكرة بس، وبتتمسح لما تسجّل خروج أو تقفل التطبيق (بيظهر لك آخر 4 حروف بس). لو ضفت أكتر من مفتاح، المساعد بيدور عليهم طلب طلب وبيتخطّى اللي يخلص حصته، زي المفاتيح الافتراضية بالظبط.
                     </div>
-                    <input type="password" id="aiApiKeyInput" placeholder="الصق مفتاح Gemini API هنا" autocomplete="off" style="width:100%;">
+                    <div id="aiKeysList"></div>
+                    <textarea id="aiApiKeyInput" rows="2" placeholder="الصق مفتاح Gemini API هنا (تقدر تلصق كذا مفتاح، كل واحد في سطر)" autocomplete="off" autocapitalize="off" spellcheck="false" style="width:100%;margin-top:10px;resize:vertical;-webkit-text-security:disc;font-family:inherit;"></textarea>
                     <div style="display:flex; gap:8px; margin-top:8px;">
-                        <button class="btn" style="flex:1;" onclick="saveAIApiKey()">💾 حفظ المفتاح</button>
-                        <button class="btn btn-secondary" style="flex:1;" onclick="clearAIApiKey()">🗑️ مسح المفتاح</button>
+                        <button class="btn" id="aiApiKeyAddBtn" style="flex:1;" onclick="saveAIApiKey()">➕ إضافة للحساب</button>
                     </div>
                     <div class="settings-section-desc" id="aiApiKeyStatus" style="margin-top:8px;"></div>
                     <div class="settings-section-desc" id="aiActiveKeyLabel" style="margin-top:4px;"></div>
                     <div class="settings-section-desc" style="margin-top:6px;">عدد الطلبات المستخدمة على المفتاح الشغال حاليًا: <b id="aiUsageCountLabel">0</b> / 1500 &nbsp; <span id="aiUsageResetLink" style="color:var(--accent); cursor:pointer; text-decoration:underline;" onclick="resetAIUsageCounter()">تصفير العداد</span></div>
-                    <div class="settings-section-desc" style="margin-top:6px;">🎨 توليد الصور، 📎 تحليل الصور، 🎙️ الإدخال الصوتي، و🧠 تحليل البوصلة الذكية كلهم شغالين بنفس المفتاح ده من داخل التطبيق.</div>
+                    <div class="settings-section-desc" style="margin-top:6px;">🎨 توليد الصور، 📎 تحليل الصور، 🎙️ الإدخال الصوتي، و🧠 تحليل البوصلة الذكية كلهم شغالين بنفس المفاتيح دي من داخل التطبيق.</div>
                 </div>
 
                 <div class="settings-list-item" onclick="toggleSettingsItem(this)">
@@ -7613,23 +7776,38 @@ let categories = JSON.parse(localStorage.getItem('app_categories')) || ['📚 د
     // ما يقرب أصلاً من الحد اليومي (RPD). المفتاح اللي خلص حصته اليومية بس بيتخطى تلقائيًا.
     /* المفاتيح الافتراضية بقت على السيرفر (بوابة Gemini على Cloudflare) — هنا بس عدد المفاتيح (10) عشان دوران الطلبات وعدّاد الاستهلاك يفضلوا شغالين.
        القيم مش مفاتيح: التطبيق بيحط مكانها proxy.N والبوابة بتحط المفتاح الحقيقي. لو غيّرت عدد المفاتيح على السيرفر غيّر العدد هنا. */
+    const AI_GW_DEFAULT_COUNT = 10;
     const AI_DEFAULT_KEYS_B64 = ['gw', 'gw', 'gw', 'gw', 'gw', 'gw', 'gw', 'gw', 'gw', 'gw'];
+    /* لو المستخدم ضاف مفاتيح شخصية (متخزنة على السيرفر)، الدوران بيشتغل عليها هي بدل الافتراضية، بنفس القواعد بالظبط
+       (دوران طلب طلب + تخطي المفتاح اللي يخلص حصته). المفتاح نفسه بيتجاب من السيرفر مرة في الجلسة ويفضل في الذاكرة بس (shim الـ head)، وبس معلومات (آخر 4 حروف) بتتخزن في sp_ai_uk_meta */
+    let aiUserPoolOn = false;
+    function aiUserKeyMeta() { try { const a = JSON.parse(localStorage.getItem('sp_ai_uk_meta') || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+    function aiApplyKeyPool() {
+        const n = aiUserKeyMeta().length;
+        aiUserPoolOn = n > 0;
+        const want = n > 0 ? n : AI_GW_DEFAULT_COUNT;
+        AI_DEFAULT_KEYS_B64.length = 0;
+        for (let i = 0; i < want; i++) AI_DEFAULT_KEYS_B64.push('gw');
+    }
+    function aiUkSfx() { return aiUserPoolOn ? 'uk_' : ''; }
+    function aiUsageKeyName(i) { return aiUserPoolOn ? 'app_ai_usage_uk_' + i : 'app_ai_usage_count_' + i; }
+    aiApplyKeyPool();
 
     function decodeDefaultAIKey(i) {
-        return (i >= 0 && i < AI_DEFAULT_KEYS_B64.length) ? 'proxy.' + i : ''; /* مفتاح وهمي: shim البوابة (aiGatewayShim في الـ head) بيحوّله للسيرفر */
+        return (i >= 0 && i < AI_DEFAULT_KEYS_B64.length) ? (aiUserPoolOn ? 'mine.' : 'proxy.') + i : ''; /* مفتاح وهمي: shim البوابة (aiGatewayShim في الـ head) بيحوّله للسيرفر */
     }
 
     function getDefaultAIKeyUsage(i) {
-        return parseInt(localStorage.getItem('app_ai_usage_count_' + i)) || 0;
+        return parseInt(localStorage.getItem(aiUsageKeyName(i))) || 0;
     }
 
     // لو يوم UTC جديد، بنصفّر عداد المفتاح ده وأي علامة "خلص حصته" اتحطتله بالأمس تلقائيًا
     function ensureDailyResetForKey(i) {
         const today = new Date().toISOString().slice(0, 10);
-        const resetDateKey = 'app_ai_usage_reset_date_' + i;
+        const resetDateKey = 'app_ai_usage_reset_date_' + aiUkSfx() + i;
         if (localStorage.getItem(resetDateKey) !== today) {
-            localStorage.setItem('app_ai_usage_count_' + i, '0');
-            localStorage.removeItem('app_ai_key_exhausted_' + i);
+            localStorage.setItem(aiUsageKeyName(i), '0');
+            localStorage.removeItem('app_ai_key_exhausted_' + aiUkSfx() + i);
             localStorage.setItem(resetDateKey, today);
         }
     }
@@ -7638,20 +7816,20 @@ let categories = JSON.parse(localStorage.getItem('app_categories')) || ['📚 د
         ensureDailyResetForKey(i);
         if (getDefaultAIKeyUsage(i) >= AI_REQUEST_LIMIT) return true;
         // بتتحط لما جوجل نفسها ترجع 429 من نوع "خلصت حصتك اليومية" فعليًا (مش حد الدقيقة)
-        return localStorage.getItem('app_ai_key_exhausted_' + i) === '1';
+        return localStorage.getItem('app_ai_key_exhausted_' + aiUkSfx() + i) === '1';
     }
 
     // بتتنادى لما نتأكد إن سبب الـ 429 هو الحد اليومي فعليًا (مش حد الدقيقة) — عشان نستبعد
     // المفتاح ده من الدوران لحد آخر اليوم من غير ما نستنى نوصل لعداد الـ 1500 المحلي بالظبط
     function markDefaultKeyExhaustedToday(i) {
         ensureDailyResetForKey(i);
-        localStorage.setItem('app_ai_key_exhausted_' + i, '1');
+        localStorage.setItem('app_ai_key_exhausted_' + aiUkSfx() + i, '1');
     }
 
     // بيرجع فهرس أول مفتاح افتراضي متاح بداية من مؤشر الدوران الحالي، من غير ما يحرك المؤشر —
     // للعرض بس (صفحة الإعدادات) أو لفحص "فيه مفتاح متاح ولا لأ" قبل ما نبعت طلب فعلي
     function peekNextDefaultAIKeyIndex() {
-        let ptr = parseInt(localStorage.getItem('app_ai_default_key_pointer'));
+        let ptr = parseInt(localStorage.getItem('app_ai_default_key_pointer' + (aiUserPoolOn ? '_uk' : '')));
         if (isNaN(ptr) || ptr < 0 || ptr >= AI_DEFAULT_KEYS_B64.length) ptr = 0;
         for (let step = 0; step < AI_DEFAULT_KEYS_B64.length; step++) {
             const idx = (ptr + step) % AI_DEFAULT_KEYS_B64.length;
@@ -7665,26 +7843,26 @@ let categories = JSON.parse(localStorage.getItem('app_categories')) || ['📚 د
     function consumeNextDefaultAIKeyIndex() {
         const idx = peekNextDefaultAIKeyIndex();
         if (idx === null) return null;
-        localStorage.setItem('app_ai_default_key_pointer', String((idx + 1) % AI_DEFAULT_KEYS_B64.length));
+        localStorage.setItem('app_ai_default_key_pointer' + (aiUserPoolOn ? '_uk' : ''), String((idx + 1) % AI_DEFAULT_KEYS_B64.length));
         return idx;
     }
 
     // نسخة "بص بس من غير ما تحرك الدور" — لصفحة الإعدادات وفحوصات ما قبل الإرسال
     function peekActiveAIKeyContext() {
-        const userKey = localStorage.getItem('app_gemini_api_key');
+        const userKey = aiUserPoolOn ? '' : localStorage.getItem('app_gemini_api_key');
         if (userKey) return { key: userKey, storageKey: 'app_ai_usage_count', isDefault: false, index: -1 };
         const idx = peekNextDefaultAIKeyIndex();
         if (idx === null) return { key: '', storageKey: null, isDefault: true, index: -1 };
-        return { key: decodeDefaultAIKey(idx), storageKey: 'app_ai_usage_count_' + idx, isDefault: true, index: idx };
+        return { key: decodeDefaultAIKey(idx), storageKey: aiUsageKeyName(idx), isDefault: true, index: idx };
     }
 
     // نسخة "استهلك وحرّك الدور" — تتنادى مرة واحدة بس لكل طلب فعلي هيتبعت لـ Gemini
     function consumeActiveAIKeyContext() {
-        const userKey = localStorage.getItem('app_gemini_api_key');
+        const userKey = aiUserPoolOn ? '' : localStorage.getItem('app_gemini_api_key');
         if (userKey) return { key: userKey, storageKey: 'app_ai_usage_count', isDefault: false, index: -1 };
         const idx = consumeNextDefaultAIKeyIndex();
         if (idx === null) return { key: '', storageKey: null, isDefault: true, index: -1 };
-        return { key: decodeDefaultAIKey(idx), storageKey: 'app_ai_usage_count_' + idx, isDefault: true, index: idx };
+        return { key: decodeDefaultAIKey(idx), storageKey: aiUsageKeyName(idx), isDefault: true, index: idx };
     }
 
     function getEffectiveAIApiKey() {
@@ -12071,6 +12249,7 @@ function restoreTimerState() {
     }
 
     function renderBadges() {
+        try { if (rpRenderBadgesV2()) return; } catch (e) { }
         const wrap = document.getElementById('badgesGrid');
         if (!wrap) return;
         const earned = JSON.parse(localStorage.getItem('app_badges') || '[]');
@@ -12422,46 +12601,8 @@ function restoreTimerState() {
             insightText.innerHTML = tier.text(completedTasks, completionRate);
         }
 
-        // تحليل التصنيفات
-        const catContainer = document.getElementById('categoryAnalysisContainer');
-        if (catContainer) {
-            catContainer.innerHTML = '';
-            let catStats = {};
-            
-            tasks.forEach(t => {
-                let cat = t.category || 'عام'; 
-                if (!catStats[cat]) catStats[cat] = { total: 0, comp: 0 };
-                catStats[cat].total++;
-                if (t.completed === true) catStats[cat].comp++;
-            });
-
-            let hasData = false;
-            for (let cat in catStats) {
-                if (catStats[cat].total > 0) {
-                    hasData = true;
-                    let percent = Math.round((catStats[cat].comp / catStats[cat].total) * 100);
-                    
-                    catContainer.innerHTML += `
-                        <div class="category-progress-item" style="cursor:pointer;" onclick="goToCategoryTasks('${escapeHtml(cat)}')" title="عرض مهام ${escapeHtml(cat)}">
-                            <div class="cat-prog-header">
-                                <span>${cat}</span>
-                                <span style="color:var(--accent);">${percent}% (${catStats[cat].comp}/${catStats[cat].total})</span>
-                            </div>
-                            <div class="cat-prog-bar-bg">
-                                <div class="cat-prog-bar-fill" id="prog-${cat}" style="width: 0%;"></div>
-                            </div>
-                        </div>
-                    `;
-                    setTimeout(() => {
-                        const bar = document.getElementById(`prog-${cat}`);
-                        if(bar) bar.style.width = percent + '%';
-                    }, 100);
-                }
-            }
-            if (!hasData) {
-                catContainer.innerHTML = '<div style="text-align:center; padding: 20px; color:var(--text-secondary); font-size:0.85rem;">لا توجد مهام لتحليلها حالياً.</div>';
-            }
-        }
+        // تحليل التصنيفات (دالة منظمة جديدة)
+        try { rpRenderCategories(); } catch (e) { }
 
         // رسم مسار الأسبوع
         const days = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
@@ -12509,24 +12650,950 @@ function restoreTimerState() {
         }
 
         if (weekContainer) {
-            weekContainer.innerHTML = '';
-            weekData.forEach(item => {
-                let statusClass = item.isFuture ? 'status-future' : (item.isToday ? 'status-today' : 'status-past');
-                let statusText = item.isFuture ? '🔒 قادم' : (item.isToday ? '📍 اليوم' : '✅ مكتمل');
-                weekContainer.innerHTML += `
-                    <div class="day-card ${item.isToday ? 'active' : ''}">
-                        <span class="day-name">${item.day}</span>
-                        <span class="day-mins">${item.mins} د</span>
-                        <span class="day-status ${statusClass}">${statusText}</span>
-                    </div>
-                `;
-            });
+            const gl = Math.max(1, dailyGoalMinutes || 60);
+            weekContainer.innerHTML = weekData.map(item => {
+                const pct = Math.min(100, Math.round(item.mins / gl * 100)), hit = item.mins >= gl;
+                let cls = 'status-past', txt = '— لا تركيز';
+                if (item.isFuture) { cls = 'status-future'; txt = '🔒 قادم'; }
+                else if (hit) { cls = 'status-past'; txt = '🏆 حققت الهدف'; }
+                else if (item.mins > 0) { cls = 'status-today'; txt = '⏳ ' + pct + '% من الهدف'; }
+                else if (item.isToday) { cls = 'status-today'; txt = '📍 ابدأ دلوقتي'; }
+                return `<div class="day-card ${item.isToday ? 'active' : ''}"><span class="day-name">${item.day}</span><span class="day-mins">${item.isFuture ? '—' : rpFmt(item.mins)}</span><div class="day-prog ${hit ? 'hit' : ''}"><i style="width:${item.isFuture ? 0 : pct}%"></i></div><span class="day-status ${cls}">${txt}</span></div>`;
+            }).join('');
         }
 
         // رسم بياني: توزيع وقت التركيز (أعمدة أسبوعية زي التصميم المطلوب)
         renderWeeklyBarChart(weekData);
         renderWeeklyComparison();
         renderBadges();
+        try { rpRender(); } catch (e) { }
+    }
+
+    // =====================================================
+    // تطوير قسم التقارير: تبويبات + رؤى + تحليلات إضافية
+    // =====================================================
+    const RP_WD = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+    const RP_COLORS = ['#38bdf8', '#22c55e', '#eab308', '#f97316', '#a855f7', '#ec4899', '#14b8a6', '#ef4444'];
+    function rpFmt(m) { m = Math.round(m || 0); return m >= 60 ? Math.floor(m / 60) + 'س ' + (m % 60) + 'د' : m + 'د'; }
+    function rpSecOf(key, todayKey) { return key === todayKey ? (todayFocusSeconds || 0) : (dailyFocusHistory[key] || 0); }
+
+    function rpSwitchTab(name) {
+        const valid = ['overview', 'focus', 'tasks', 'quran', 'achv'];
+        if (valid.indexOf(name) === -1) name = 'overview';
+        window.__rpTab = name;
+        try { localStorage.setItem('rp_tab', name); } catch (e) { }
+        document.querySelectorAll('#rpTabs .rp-tab').forEach(b => b.classList.toggle('active', b.getAttribute('data-rp') === name));
+        document.querySelectorAll('#section-analytics .rp-pane').forEach(p => p.classList.toggle('active', p.getAttribute('data-rp-pane') === name));
+        if (name === 'focus') { try { renderYearHeatmap(); } catch (e) { } }
+        if (name === 'quran') { try { rpRenderQuran(); } catch (e) { } try { rpCalIntro(); } catch (e) { } }
+    }
+    function rpCalIntro() {
+        if (rpCalAvg() || window.__rpCalAsked || document.getElementById('rpCalIntro')) return;
+        try { if ((rpT && rpT.ov) || !rpTourDone()) return; } catch (e) { }      // الجولة الأول، وبعدها النافذة دي
+        window.__rpCalAsked = true;
+        const ov = document.createElement('div'); ov.id = 'rpCalIntro';
+        ov.style.cssText = 'position:fixed;inset:0;z-index:2147481900;background:rgba(8,10,16,.8);display:flex;align-items:center;justify-content:center;padding:14px;';
+        ov.innerHTML = '<div style="background:var(--card-bg);color:var(--text-primary);border:1px solid var(--card-border);border-radius:18px;padding:18px;width:100%;max-width:420px;text-align:center;box-shadow:0 18px 50px rgba(0,0,0,.5);"><div style="font-size:2rem">⏱️</div><div style="font-weight:900;font-size:1.05rem;margin:6px 0;">احسب سرعة قراءتك</div><div style="font-size:.8rem;line-height:1.9;color:var(--text-secondary);margin-bottom:14px;">اقرأ 4 آيات بصوتك الداخلي (حوالي دقيقة)، وبعدها تقدمك في القرآن بيتحسب أوتوماتيك على سرعتك.</div><div style="display:flex;gap:8px;"><button class="btn btn-secondary" style="flex:1" onclick="document.getElementById(\'rpCalIntro\').remove()">لاحقًا</button><button class="btn" style="flex:1" onclick="document.getElementById(\'rpCalIntro\').remove();rpCalOpen()">▶ ابدأ القياس</button></div></div>';
+        document.body.appendChild(ov);
+    }
+
+    // كل الأيام اللي فيها تركيز (مع اليوم الحالي)
+    function rpActiveKeys() {
+        const todayKey = getDateKey(new Date());
+        const set = new Set();
+        Object.keys(dailyFocusHistory).forEach(k => { if ((dailyFocusHistory[k] || 0) > 0) set.add(k); });
+        if ((todayFocusSeconds || 0) > 0) set.add(todayKey);
+        return Array.from(set).sort();
+    }
+    function rpLongestStreak(keys) {
+        let best = 0, run = 0, prev = null;
+        keys.forEach(k => {
+            const d = new Date(k + 'T00:00:00');
+            run = (prev && Math.round((d - prev) / 86400000) === 1) ? run + 1 : 1;
+            if (run > best) best = run;
+            prev = d;
+        });
+        return best;
+    }
+
+    const RP_TASK_GOAL = 3; let RP_AYAH_GOAL = (function () { try { const v = parseInt(localStorage.getItem('rp_ayah_goal')); return v >= 1 && v <= 500 ? v : 10; } catch (e) { return 10; } })();   // أهداف يومية افتراضية للمهام والقرآن (غيّرهم براحتك)
+    // ===== سجل القراءة الدقيق (v2): وقت كل آية بحسب كلماتها + توزيع الوقت على الآيات الظاهرة بالترتيب =====
+    let RPL = null, RPL_T = 0;
+    const RP_QURAN_WORDS = 77430;   // عدد كلمات المصحف تقريبًا (للنسبة بالكلمات)
+    const RP_SPEEDS = { slow: ['بطيئة', 1.6], mid: ['متوسطة', 2.5], fast: ['سريعة', 3.6] };   // كلمة / ثانية
+    function rpSpeedKey() { try { const k = localStorage.getItem('rp_read_speed'); if (RP_SPEEDS[k]) return k; if (k === 'cal' && rpCalList().length) return 'cal'; } catch (e) { } return 'mid'; }
+    function rpSetSpeed(k) {
+        if (!RP_SPEEDS[k] && !(k === 'cal' && rpCalList().length)) return;
+        try { localStorage.setItem('rp_read_speed', k); } catch (e) { }
+        RPR.st.clear(); showToast('سرعة القراءة: ' + (k === 'cal' ? 'سرعتك المقاسة' : RP_SPEEDS[k][0]));
+        try { rpRenderQuran(); } catch (e) { }
+    }
+    // ===== سرعة القراءة المقاسة (معايرة بآية حقيقية) =====
+    function rpCalList() { try { const a = JSON.parse(localStorage.getItem('rp_read_cal2') || '[]'); return Array.isArray(a) ? a.filter(x => x > 2 && x < 40).slice(-3) : []; } catch (e) { return []; } }
+    function rpCalAvg() { const l = rpCalList(); return l.length ? l.reduce((a, b) => a + b, 0) / l.length : 0; }
+    function rpSpeedVal() { return rpCalAvg(); }
+    // وزن الآية للوقت: حروفها + المدود (المد بياخد وقت أكتر من حرف عادي)
+    function rpEff(txt) { const t = String(txt || ''); return (t.match(/[\u0621-\u064A\u0671-\u06D3]/g) || []).length + 2 * (t.match(/\u0653/g) || []).length; }
+    function rpCalPick() {
+        const B = { s: [], m: [], d: [], l: [] };
+        for (let sr = 1; sr <= 114; sr++) { const sd = QURAN_OFFLINE_DATA[String(sr)]; if (!sd || !sd.verses) continue; sd.verses.forEach((t, i) => { const n = rpWords(t), md = (t.match(/\u0653/g) || []).length; const it = { s: sr, a: i + 1, n: n, e: rpEff(t), t: t };
+            if (n >= 7 && n <= 11) B.s.push(it); if (n >= 14 && n <= 20) B.m.push(it); if (n >= 28 && n <= 45) B.l.push(it); if (n >= 12 && n <= 26 && md >= 4) B.d.push(it); }); }
+        const pk = x => x.length ? x[Math.floor(Math.random() * x.length)] : null;
+        return [pk(B.s), pk(B.d), pk(B.m), pk(B.l)].filter(Boolean);
+    }
+    let RPC = null;
+    function rpCalClose() { if (RPC) { clearInterval(RPC.iv); document.removeEventListener('keydown', RPC.key, true); if (RPC.ov) RPC.ov.remove(); RPC = null; } }
+    function rpCalOpen() {
+        rpQMenuClose(); rpCalClose();
+        let items = []; try { items = rpCalPick(); } catch (e) { }
+        if (!items.length) { showToast('بيانات المصحف مش متاحة'); return; }
+        const ov = document.createElement('div'); ov.id = 'rpCal';
+        ov.style.cssText = 'position:fixed;inset:0;z-index:2147482000;background:rgba(8,10,16,.8);display:flex;align-items:center;justify-content:center;padding:14px;';
+        RPC = { ov: ov, iv: 0, t0: 0, items: items, i: 0, res: [], key: e => { if (e.key === 'Escape') rpCalClose(); } };
+        document.addEventListener('keydown', RPC.key, true);
+        ov.innerHTML = `<div style="background:var(--card-bg);color:var(--text-primary);border:1px solid var(--card-border);border-radius:18px;padding:16px;width:100%;max-width:440px;max-height:calc(100vh - 28px);overflow:auto;box-shadow:0 18px 50px rgba(0,0,0,.5);text-align:center;">
+            <div id="rpCalTitle" style="font-weight:900;font-size:1rem;margin-bottom:4px;"></div>
+            <div id="rpCalHint" style="font-size:.76rem;color:var(--text-secondary);line-height:1.8;margin-bottom:12px;"></div>
+            <div id="rpCalText" class="quran-ayah-text" style="font-size:1.45rem;line-height:2.3;padding:12px;border-radius:12px;background:var(--input-bg);filter:blur(9px);transition:filter .2s;user-select:none;"></div>
+            <div id="rpCalTime" style="font-size:1.6rem;font-weight:900;margin:10px 0 2px;color:var(--accent);min-height:2.2rem;"></div>
+            <div id="rpCalRes" style="font-size:.8rem;line-height:1.8;margin-bottom:6px;"></div>
+            <div id="rpCalBtns" style="display:flex;gap:8px;margin-top:8px;"></div></div>`;
+        document.body.appendChild(ov);
+        rpCalShow(0);
+    }
+    function rpCalBtns(arr) { const b = document.getElementById('rpCalBtns'); if (!b) return; b.innerHTML = arr.map(x => `<button class="btn ${x[2] || ''}" style="flex:1;padding:11px;font-size:.84rem;" onclick="${x[1]}">${x[0]}</button>`).join(''); }
+    function rpCalShow(i) {
+        if (!RPC) return; RPC.i = i; RPC.t0 = 0; clearInterval(RPC.iv); const it = RPC.items[i], N = RPC.items.length;
+        document.getElementById('rpCalTitle').textContent = '⏱️ حساب متوسط سرعة قراءتك · آية ' + (i + 1) + ' من ' + N;
+        document.getElementById('rpCalHint').innerHTML = 'دوس <b>ابدأ</b> واقرأ الآية بصوتك الداخلي بسرعتك العادية، وبعدين دوس <b>خلصت</b>.';
+        const t = document.getElementById('rpCalText'); t.textContent = it.t; t.style.filter = 'blur(9px)';
+        document.getElementById('rpCalTime').textContent = ''; document.getElementById('rpCalRes').innerHTML = '';
+        rpCalBtns([['إلغاء', 'rpCalClose()', 'btn-secondary'], ['▶ ابدأ', 'rpCalStart()']]);
+    }
+    function rpCalStart() {
+        if (!RPC) return; const t = document.getElementById('rpCalText'); if (t) t.style.filter = 'none';
+        document.getElementById('rpCalRes').innerHTML = '';
+        RPC.t0 = performance.now(); const tm = document.getElementById('rpCalTime');
+        clearInterval(RPC.iv); RPC.iv = setInterval(() => { if (tm) tm.textContent = ((performance.now() - RPC.t0) / 1000).toFixed(1) + ' ث'; }, 100);
+        rpCalBtns([['إلغاء', 'rpCalClose()', 'btn-secondary'], ['✅ خلصت', 'rpCalStop()']]);
+    }
+    function rpCalStop() {
+        if (!RPC || !RPC.t0) return;
+        clearInterval(RPC.iv); const it = RPC.items[RPC.i], words = it.n, sec = (performance.now() - RPC.t0) / 1000, spd = words / sec, res = document.getElementById('rpCalRes'), tm = document.getElementById('rpCalTime');
+        if (tm) tm.textContent = sec.toFixed(1) + ' ث'; RPC.t0 = 0;
+        const again = [['إلغاء', 'rpCalClose()', 'btn-secondary'], ['🔁 أعد الآية', 'rpCalShow(' + RPC.i + ')']];
+        if (spd > 6.5) { res.innerHTML = '⚠️ ده سريع جدًا، غالبًا ما قريتش الآية كاملة. جرّب تاني بهدوء.'; rpCalBtns(again); return; }
+        if (spd < 0.5) { res.innerHTML = '⚠️ الوقت طويل أوي، شكلك اتشتتت. جرّب تاني.'; rpCalBtns(again); return; }
+        RPC.res[RPC.i] = { w: words, e: it.e, s: sec };
+        res.innerHTML = `${words} كلمة في ${sec.toFixed(1)} ثانية = <b>${spd.toFixed(2)}</b> كلمة/ثانية`;
+        if (RPC.i + 1 < RPC.items.length) { rpCalBtns([['إلغاء', 'rpCalClose()', 'btn-secondary'], ['الآية التالية ◀', 'rpCalShow(' + (RPC.i + 1) + ')']]); return; }
+        const W = RPC.res.reduce((a, r) => a + r.w, 0), S = RPC.res.reduce((a, r) => a + r.s, 0), E = RPC.res.reduce((a, r) => a + r.e, 0); RPC.spd = E / S; RPC.spdW = W / S;
+        res.innerHTML += `<hr style="border:0;border-top:1px solid var(--card-border);margin:10px 0;">قريت <b>${W}</b> كلمة في <b>${S.toFixed(1)}</b> ثانية<br>متوسط سرعتك: <b style="color:var(--accent);font-size:1.05rem">${RPC.spdW.toFixed(2)}</b> كلمة/ثانية`;
+        rpCalBtns([['🔁 أعد القياس', 'rpCalOpen()', 'btn-secondary'], ['💾 احفظ واعتمد', 'rpCalSave()']]);
+    }
+    function rpCalSave() {
+        if (!RPC || !RPC.spd) return; const v = RPC.spd;
+        try { localStorage.setItem('rp_read_cal2', JSON.stringify([v])); localStorage.setItem('rp_read_calw', String(RPC.spdW)); localStorage.setItem('rp_read_speed', 'cal'); } catch (e) { }
+        rpCalClose(); RPR.st.clear(); showToast('اتعتمد متوسط سرعتك');
+        try { rpRenderQuran(); } catch (e) { }
+    }
+    // ===== حساب التقدم القديم من علامة العين =====
+    function rpBaseDone() { try { return localStorage.getItem('rp_q_baseline') === '1'; } catch (e) { return true; } }
+    function rpBaseSet() { try { localStorage.setItem('rp_q_baseline', '1'); } catch (e) { } }
+    function rpBaseCount(fs, fa) {
+        let n = 0; const lr = quranLastRead; if (!lr) return 0;
+        for (let s = fs; s <= lr.surah; s++) { const sd = QURAN_OFFLINE_DATA[String(s)]; if (!sd) continue; const a0 = (s === fs ? fa : 1), a1 = (s === lr.surah ? lr.ayahNumberInSurah : (sd.verses || []).length); n += Math.max(0, a1 - a0 + 1); }
+        return n;
+    }
+    function rpBaseApply(fs, fa) {
+        const lr = quranLastRead; if (!lr) return;
+        fs = Number(fs) || 1; fa = Number(fa) || 1;
+        if (fs > lr.surah || (fs === lr.surah && fa > lr.ayahNumberInSurah)) { showToast('نقطة البداية لازم تكون قبل علامة العين'); return; }
+        const L = rpQLoad(); let added = 0, w = 0;
+        for (let s = fs; s <= lr.surah; s++) {
+            const sd = QURAN_OFFLINE_DATA[String(s)]; if (!sd) continue; const v = sd.verses || [], a0 = (s === fs ? fa : 1), a1 = (s === lr.surah ? lr.ayahNumberInSurah : v.length);
+            const arr = L.seen[s] || (L.seen[s] = []), have = new Set(arr);
+            for (let a = a0; a <= a1 && a <= v.length; a++) { if (have.has(a)) continue; arr.push(a); added++; w += rpWords(v[a - 1]); }
+        }
+        L.w = (L.w || 0) + w; rpQFlush(); rpBaseSet();
+        [rpRenderQuran, rpRenderBadgesV2, rpRenderGoal].forEach(f => { try { f(); } catch (e) { } });
+        showToast(added ? 'اتحسب ' + added + ' آية من تقدمك القديم' : 'كل الآيات دي متسجلة قبل كده');
+    }
+    function rpBaseEditToggle2() { try { localStorage.removeItem('rp_q_baseline'); } catch (e) { } const q = rpQuranStats(); if (q.total > 0) { rpBaseApplyAsk(); return; } rpRenderQuran(); }
+    function rpBaseApplyAsk() { if (confirm('هنحسب كل الآيات من أول المصحف لحد علامة العين (اللي مسجلة قبل كده مش هتتكرر). نكمل؟')) rpBaseApply(1, 1); else rpBaseSet(); }
+    function rpBaseSkip() { rpBaseSet(); try { rpRenderQuran(); } catch (e) { } }
+    function rpBaseEditToggle() { const f = document.getElementById('rpBaseForm'); if (f) f.style.display = f.style.display === 'none' ? 'flex' : 'none'; }
+    function rpBaseFromForm() { rpBaseApply(document.getElementById('rpBaseS').value, document.getElementById('rpBaseA').value); }
+    function rpBaseBanner(q) {
+        if (rpBaseDone() || q.total > 0 || !quranLastRead) return '';
+        const lr = quranLastRead, n = rpBaseCount(1, 1), nm = escapeHtml(rpSurahName(lr.surah));
+        let opts = ''; for (let s = 1; s <= 114; s++) { const sd = QURAN_OFFLINE_DATA[String(s)]; if (sd) opts += `<option value="${s}">${s} · ${escapeHtml(sd.name)}</option>`; }
+        return `<div style="background:var(--accent-glow);border:1px solid var(--accent);border-radius:12px;padding:12px;margin:0 0 12px;font-size:.78rem;line-height:1.9;">
+            👁️ علامة العين عندك على <b>${nm} · آية ${lr.ayahNumberInSurah}</b>.<br>تحب نحسب كل اللي قبلها (حوالي <b>${n}</b> آية من أول المصحف) على إنك قريته، عشان تقدمك يبدأ من مكانك مش من الصفر؟
+            <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;"><button class="btn" style="flex:1;font-size:.74rem;padding:8px;" onclick="rpBaseApply(1,1)">✅ احسب من البداية</button><button class="btn btn-secondary" style="flex:1;font-size:.74rem;padding:8px;" onclick="rpBaseEditToggle()">✏️ من سورة تانية</button><button class="btn btn-secondary" style="flex:1;font-size:.74rem;padding:8px;" onclick="rpBaseSkip()">لأ، من الصفر</button></div>
+            <div id="rpBaseForm" style="display:none;gap:6px;margin-top:8px;align-items:center;"><select id="rpBaseS" style="flex:2;padding:8px;border-radius:8px;border:1px solid var(--card-border);background:var(--input-bg);color:var(--text-primary);font-family:inherit;">${opts}</select><input id="rpBaseA" type="number" min="1" value="1" style="flex:1;width:60px;padding:8px;border-radius:8px;border:1px solid var(--card-border);background:var(--input-bg);color:var(--text-primary);" aria-label="رقم الآية"><button class="btn" style="font-size:.74rem;padding:8px 12px;" onclick="rpBaseFromForm()">احسب</button></div></div>`;
+    }
+    function rpQLoad() {
+        if (RPL) return RPL;
+        try { RPL = JSON.parse(localStorage.getItem('app_quran_read_log') || 'null'); } catch (e) { }
+        if (!RPL || !RPL.seen) RPL = { seen: {}, days: {}, tk: '', ts: {} };
+        if (!RPL.wd) RPL.wd = {}; if (!RPL.sd) RPL.sd = {}; if (!RPL.w) RPL.w = 0; RPL.v = 2;
+        return RPL;
+    }
+    // دمج سجلين قراءة (من جهازين أو من نسخة احتياطية): الآيات اتحاد، والأعداد بالأكبر
+    function rpMergeReadLog(a, b) {
+        if (!a || !a.seen) return b; if (!b || !b.seen) return a;
+        const o = Object.assign({}, a, b, { seen: {}, days: {}, wd: {}, sd: {}, gh: {}, ts: {}, v: 2 });
+        [a, b].forEach(x => {
+            Object.keys(x.seen || {}).forEach(k => { const st = new Set(o.seen[k] || []); (x.seen[k] || []).forEach(n => st.add(n)); o.seen[k] = Array.from(st).sort((p, q) => p - q); });
+            ['days', 'wd', 'sd'].forEach(f => Object.keys(x[f] || {}).forEach(k => { o[f][k] = Math.max(o[f][k] || 0, Number(x[f][k]) || 0); }));
+            Object.keys(x.gh || {}).forEach(k => { o.gh[k] = 1; });
+        });
+        o.w = Math.max(Number(a.w) || 0, Number(b.w) || 0); o.tk = String(a.tk || '') > String(b.tk || '') ? a.tk : b.tk;
+        [a, b].forEach(x => { if (x.tk === o.tk) Object.assign(o.ts, x.ts || {}); });
+        return o;
+    }
+    window.rpMergeReadLog = rpMergeReadLog;
+    window.rpQDrop = function () { RPL = null; clearTimeout(RPL_T); RPL_T = 0; };
+    window.rpQReload = function () { RPL = null; try { RPR.st.clear(); } catch (e) { } try { rpRenderQuran(); } catch (e) { } try { rpAfterQ(); } catch (e) { } try { if (typeof rpRenderBadgesV2 === 'function') rpRenderBadgesV2(); } catch (e) { } };
+    function rpQFlush() { clearTimeout(RPL_T); RPL_T = 0; if (RPL) { try { localStorage.setItem('app_quran_read_log', JSON.stringify(RPL)); } catch (e) { } } }
+    function rpQSchedule() { if (!RPL_T) RPL_T = setTimeout(rpQFlush, 3000); }
+    window.addEventListener('pagehide', rpQFlush);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) rpQFlush(); });
+    // آية اتقرت: unique في seen (التقدم الكلي)، ومرة واحدة في اليوم في days (آيات النهاردة)
+    function rpQuranAdd(sr, a, words) {
+        if (!sr || !a) return;
+        const L = rpQLoad(), tk = getDateKey(new Date());
+        if (L.tk !== tk) { L.tk = tk; L.ts = {}; }
+        const arr = L.seen[sr] || (L.seen[sr] = []), k = sr + ':' + a, w = Math.max(0, Math.round(words || 0));
+        if (arr.indexOf(a) === -1) { arr.push(a); L.w = (L.w || 0) + w; }
+        if (!L.ts[k]) { L.ts[k] = 1; L.days[tk] = (L.days[tk] || 0) + 1; L.wd[tk] = (L.wd[tk] || 0) + w; rpAutoEye(sr, a); try { if ((L.days[tk] || 0) >= rpGoalNow()) (L.gh || (L.gh = {}))[tk] = 1; } catch (e) { } }
+        rpQSchedule();
+    }
+    // آخر آية خلصها فعلًا: علامة العين تتحرك لها لوحدها (done = خلّصها، فـ"أكمل" يروح للّي بعدها)
+    function rpAutoEye(sr, a) {
+        try {
+            const c = quranLastRead;
+            if (c && c.surah === sr && a < c.ayahNumberInSurah && Date.now() - (c.readAt || 0) < 600000) return;
+            quranLastRead = { surah: sr, ayahNumberInSurah: a, readAt: Date.now(), done: true }; saveQuranLastRead();
+            document.querySelectorAll('.quran-last-read-badge').forEach(x => x.remove());
+            if (quranCurrentSurah && quranCurrentSurah.number === sr) { const el = quranVGetCard(a); if (el) { const bd = document.createElement('div'); bd.className = 'quran-last-read-badge'; bd.title = 'آخر آية قرأتها'; bd.textContent = '👁️'; el.appendChild(bd); } }
+        } catch (e) { }
+    }
+    function rpContTarget() {
+        const lr = quranLastRead; if (!lr || !lr.surah) return null;
+        let s = lr.surah, a = lr.ayahNumberInSurah || 1;
+        if (lr.done) { let n = 0; try { n = (QURAN_OFFLINE_DATA[String(s)].verses || []).length; } catch (e) { } if (n && a >= n) { if (s < 114) { s++; a = 1; } } else a++; }
+        return { s: s, a: a };
+    }
+    function rpResetQuranLog() {
+        if (!confirm('هتمسح سجل القراءة كله (الآيات والكلمات والوقت) وتبدأ العدّ من الصفر.\nالعلامات والملاحظات وآخر قراءة مش هتتمسح. تكمل؟')) return;
+        RPL = { seen: {}, days: {}, tk: '', ts: {}, wd: {}, sd: {}, w: 0, v: 2 }; RPR.st.clear(); rpQFlush();
+        [rpRenderQuran, rpRenderBadgesV2, rpRenderGoal].forEach(f => { try { f(); } catch (e) { } });
+        showToast('اتصفّر سجل القراءة');
+    }
+
+    const RPR = { io: null, vis: new Set(), st: new Map(), t: 0, last: Date.now(), act: Date.now(), wrap: null };
+    ['scroll', 'touchstart', 'touchmove', 'pointerdown', 'pointermove', 'keydown', 'wheel', 'click'].forEach(ev =>
+        window.addEventListener(ev, () => { RPR.act = Date.now(); }, { passive: true, capture: true }));
+    // كلمات حقيقية بس (أي رمز وقف أو علامة مالوش حروف مش بيتعد)
+    function rpWords(txt) { let n = 0; String(txt || '').split(/\s+/).forEach(w => { if (/[\u0621-\u064A\u0671-\u06D3A-Za-z\u00C0-\u024F]/.test(w)) n++; }); return n; }
+    function rpTextEl(row) { return row.querySelector('.quran-ayah-text:not(.quran-ayah-text-small)') || row.querySelector('.quran-ayah-text') || row.firstElementChild; }
+    // بيقسّم الآية لشرايح طولية ويفحص كل شريحة ظاهرة فعلًا (مش مغطيها قايمة / نافذة / شريط) باستخدام elementFromPoint
+    function rpProbe(el, row) {
+        const r = el.getBoundingClientRect(), vh = window.innerHeight;
+        if (r.height < 4 || r.width < 4) return null;
+        const top = Math.max(r.top, 0), bot = Math.min(r.bottom, vh);
+        if (bot - top < 4) return null;
+        const sc = el.scrollTop || 0, full = Math.max(el.scrollHeight || 0, r.height), ch = Math.max(el.clientHeight || 0, Math.min(r.height, full));
+        const sh = Math.max(36, full / 24), n = Math.max(1, Math.ceil(full / sh)), x = r.left + r.width / 2;
+        const hit = new Set(), step = Math.max(8, sh / 3);
+        for (let y = top + 2; y < bot; y += step) {
+            const e = document.elementFromPoint(x, y);
+            if (e && row.contains(e)) { const i = Math.min(n - 1, Math.max(0, Math.floor((y - r.top + sc) / sh))); hit.add(i); }
+        }
+        // أقل عدد شرايح لازم يبان عشان نعتبر الآية "مقروءة دلوقتي": 80% منها، أو (للآية الأطول من الشاشة) حوالي نص الشاشة
+        const req = Math.max(1, Math.min(Math.ceil(n * 0.8), Math.ceil(vh * 0.45 / sh), Math.ceil(ch / sh * 0.8)));
+        return { n: n, hit: hit, readable: hit.size >= req };
+    }
+    function rpReadTick() {
+        const now = Date.now(), dt = Math.min(0.6, (now - RPR.last) / 1000); RPR.last = now;
+        const w = RPR.wrap;
+        if (document.hidden || !w || !w.isConnected || w.offsetParent === null || !quranCurrentSurah) return;
+        if (now - RPR.act > 75000 || dt <= 0) return;      // سايب الشاشة من غير أي لمس أو تمرير
+        const sr = quranCurrentSurah.number, L = rpQLoad(), tk = getDateKey(new Date()), spd = rpSpeedVal(); if (!spd) return;      // من غير قياس السرعة التتبع مش بيشتغل
+        
+        if (L.tk !== tk) { L.tk = tk; L.ts = {}; }
+        const everSeen = L.seen[sr] || [], cand = [];
+        Array.from(RPR.vis).filter(r => r.isConnected && r.dataset.m === '1')
+            .sort((p, q) => Number(p.dataset.n) - Number(q.dataset.n)).forEach(row => {
+                const n = Number(row.dataset.n), el = rpTextEl(row); if (!el) return;
+                const p = rpProbe(el, row); if (!p || !p.readable) return;
+                const key = sr + ':' + n;
+                let st = RPR.st.get(key);
+                if (!st || st.n !== p.n || now - st.last > 45000) { st = { n: p.n, cov: new Array(p.n).fill(0), acc: 0, last: now }; RPR.st.set(key, st); }
+                st.last = now; p.hit.forEach(i => { st.cov[i] = 1; });
+                if (L.ts[key]) return;                      // اتقرت النهاردة خلاص
+                const words = rpWords(el.textContent); st.words = words; st.need = Math.min(60, Math.max(1.2, rpEff(el.textContent) / spd * 0.75));
+                cand.push({ n: n, key: key, st: st, words: words, need: st.need, isNew: everSeen.indexOf(n) === -1 });
+            });
+        // آيات عدّى عليها وطلعت فوق من الشاشة بعد ما قعد عليها وقت معقول: تتحسب (لأنه كمّل لحد اللي بعدها)
+        let minVis = Infinity; RPR.vis.forEach(r => { if (r.isConnected && r.dataset.m === '1') minVis = Math.min(minVis, Number(r.dataset.n)); });
+        if (minVis !== Infinity) {
+            const past = []; RPR.st.forEach((v, key) => { if (key.indexOf(sr + ':') !== 0 || !v.need || L.ts[key]) return; const n = Number(key.split(':')[1]); if (n < minVis && v.acc >= v.need * 0.3 && v.cov.reduce((x, y) => x + y, 0) >= Math.ceil(v.n * 0.5)) past.push([n, key, v]); });
+            past.sort((x, y) => x[0] - y[0]).forEach(x => { rpQuranAdd(sr, x[0], x[2].words); RPR.st.delete(x[1]); });
+        }
+        if (!cand.length) { if (RPR.st.size > 300) RPR.st.forEach((v, k) => { if (now - v.last > 120000) RPR.st.delete(k); }); return; }
+        // القارئ بيقرأ آية واحدة في المرة: الوقت كله يتحسب للآية الأولى (من فوق) اللي لسه ما خلصتش، وبنفضّل الآيات الجديدة على اللي اتقرت قبل كده
+        const c = cand.find(x => x.isNew) || cand[0];
+        c.st.acc += dt; L.sd[tk] = (L.sd[tk] || 0) + dt; rpQSchedule();
+        const covered = c.st.cov.reduce((s, v) => s + v, 0);
+        if (c.st.acc >= c.need && covered >= Math.ceil(c.st.n * 0.7)) { rpQuranAdd(sr, c.n, c.words); RPR.st.delete(c.key); }
+    }
+    function rpReadTrack(wrap) {
+        try { if (RPR.io) RPR.io.disconnect(); } catch (e) { }
+        RPR.vis.clear(); RPR.wrap = wrap || null;
+        if (RPR.t) { clearInterval(RPR.t); RPR.t = 0; }
+        if (!('IntersectionObserver' in window) || !wrap) return;
+        RPR.io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) RPR.vis.add(e.target); else RPR.vis.delete(e.target); }), { threshold: [0] });
+        wrap.querySelectorAll('.quran-ayah-row').forEach(r => RPR.io.observe(r));
+        RPR.last = Date.now(); RPR.t = setInterval(rpReadTick, 300);
+    }
+    function rpQuranStats() {
+        const L = rpQLoad();
+        let total = 0, surahs = 0, full = null;
+        let list = null; try { list = quranSurahList; } catch (e) { }
+        if (list && list.length) full = 0;
+        Object.keys(L.seen).forEach(k => {
+            const n = (L.seen[k] || []).length; total += n; if (n) surahs++;
+            if (full !== null) { const m = list.find(x => x.number === Number(k)); if (m && m.numberOfAyahs && n >= m.numberOfAyahs) full++; }
+        });
+        const tk = getDateKey(new Date()); let w7 = 0;
+        for (let i = 0; i < 7; i++) { const d = new Date(); d.setDate(d.getDate() - i); w7 += L.days[getDateKey(d)] || 0; }
+        let sec7 = 0; for (let i = 0; i < 7; i++) { const d = new Date(); d.setDate(d.getDate() - i); sec7 += (L.sd || {})[getDateKey(d)] || 0; }
+        let bm = 0, nt = 0; try { bm = quranBookmarks.length; nt = Object.keys(quranNotes).length; } catch (e) { }
+        let last = null; try { last = quranLastRead; } catch (e) { }
+        return { words: L.w || 0, wToday: L.tk === tk ? ((L.wd || {})[tk] || 0) : 0, secToday: (L.sd || {})[tk] || 0, sec7: sec7, total: total, surahs: surahs, full: full, today: L.tk === tk ? (L.days[tk] || 0) : 0, w7: w7, days: L.days, bm: bm, nt: nt, marks: bm + nt, last: last };
+    }
+    // زراير التقارير كانت بتشتغل جوه قسم القرآن وهو مخفي، فلازم نروح للقسم الأول
+    // ===== مركز القرآن: خطة الختمة، الهدف الذكي، الأجزاء، خريطة السور، تقارير وتحفيز =====
+    const RP_JUZ = [[1,1],[2,142],[2,253],[3,93],[4,24],[4,148],[5,82],[6,111],[7,88],[8,41],[9,93],[11,6],[12,53],[15,1],[17,1],[18,75],[21,1],[23,1],[25,21],[27,56],[29,46],[33,31],[36,28],[39,32],[41,47],[46,1],[51,31],[58,1],[67,1],[78,1]];
+    function rpJuzOf(s, a) { let j = 0; for (let i = 0; i < 30; i++) { const x = RP_JUZ[i]; if (s > x[0] || (s === x[0] && a >= x[1])) j = i; else break; } return j; }
+    function rpJuzStats() {
+        if (!rpJuzStats.t) { const t = new Array(30).fill(0); for (let s = 1; s <= 114; s++) { const sd = QURAN_OFFLINE_DATA[String(s)], n = sd && sd.verses ? sd.verses.length : 0; for (let a = 1; a <= n; a++) t[rpJuzOf(s, a)]++; } rpJuzStats.t = t; }
+        const L = rpQLoad(), rd = new Array(30).fill(0); Object.keys(L.seen).forEach(k => (L.seen[k] || []).forEach(a => { rd[rpJuzOf(Number(k), a)]++; }));
+        return { tot: rpJuzStats.t, rd: rd };
+    }
+    function rpManualGoal() { try { const v = parseInt(localStorage.getItem('rp_ayah_goal')); return v >= 1 && v <= 500 ? v : 10; } catch (e) { return 10; } }
+    function rpPlan() { try { const p = JSON.parse(localStorage.getItem('rp_khatma') || 'null'); return p && p.days > 0 ? p : null; } catch (e) { return null; } }
+    function rpPlanJuzMode(p) { return p.days === 30 && !p.base; }
+    function rpPlanBound(p, d) {
+        if (d >= p.days) return 6236;
+        if (rpPlanJuzMode(p)) { const t = rpJuzStats().tot; let c = 0; for (let i = 0; i < d; i++) c += t[i]; return c; }
+        return Math.min(6236, p.base + Math.ceil((6236 - p.base) * d / p.days));
+    }
+    function rpPlanInfo(q) {
+        const p = rpPlan(); if (!p) return null;
+        const t0 = new Date(p.start); t0.setHours(0, 0, 0, 0); const t = new Date(); t.setHours(0, 0, 0, 0);
+        const el = Math.round((t - t0) / 86400000) + 1, left = Math.max(1, p.days - el + 1), over = el > p.days;
+        const before = Math.max(0, q.total - q.today), remStart = Math.max(0, 6236 - before);
+        const bnd = rpPlanBound(p, Math.min(el, p.days)), prev = rpPlanBound(p, Math.min(el, p.days) - 1 < 0 ? 0 : Math.min(el, p.days) - 1);
+        let goal = Math.max(1, Math.ceil(remStart / left));
+        if (rpPlanJuzMode(p) && !over && before >= prev) goal = Math.max(1, bnd - before);   // 30 يوم: آيات الجزء الفعلية
+        const per = Math.ceil((6236 - p.base) / p.days);
+        return { p: p, el: el, left: left, goal: goal, per: per, diff: q.total - bnd, over: over, rem: 6236 - q.total, juz: rpPlanJuzMode(p) };
+    }
+    function rpGoalNow() { const q = rpQuranStats(), pi = rpPlanInfo(q); return pi && !pi.over && pi.rem > 0 ? pi.goal : rpManualGoal(); }
+    function rpAfterQ() { [rpRenderQuran, rpRenderGoal, rpRenderBadgesV2].forEach(f => { try { f(); } catch (e) { } }); }
+    function rpSetAyahGoal() {
+        const q = rpQuranStats(), pi = rpPlanInfo(q); if (pi && !pi.over && pi.rem > 0) { showToast('هدفك اليومي بيتحدد من خطة الختمة. الغي الخطة لو عاوز هدف ثابت'); return; }
+        const v = parseInt(prompt('هدفك اليومي من الآيات (من 1 لـ 500):', rpManualGoal())); if (!(v >= 1 && v <= 500)) return;
+        try { localStorage.setItem('rp_ayah_goal', String(v)); } catch (e) { } rpAfterQ(); showToast('هدفك اليومي: ' + v + ' آية');
+    }
+    function rpPlanSet(days) {
+        if (!days) { days = parseInt(prompt('تخلص الختمة في كام يوم؟ (من 1 لـ 365)', '30')); if (!(days >= 1 && days <= 365)) return; }
+        const q = rpQuranStats(), st = new Date(); st.setHours(0, 0, 0, 0);
+        try { localStorage.setItem('rp_khatma', JSON.stringify({ days: days, start: st.getTime(), base: Math.max(0, q.total - q.today) })); } catch (e) { }
+        rpAfterQ(); showToast('اتحددت ختمتك في ' + days + ' يوم');
+    }
+    function rpPlanClear() { if (!confirm('تلغي خطة الختمة؟')) return; try { localStorage.removeItem('rp_khatma'); } catch (e) { } rpAfterQ(); }
+    function rpStreakOf(days) { let n = 0; for (let i = 0; i < 400; i++) { const d = new Date(); d.setDate(d.getDate() - i); if ((days[getDateKey(d)] || 0) > 0) n++; else if (i === 0) continue; else break; } return n; }
+    function rpOpenSurah(n, a) { switchTab('quran'); try { quranBackToHome(); } catch (e) { } try { openSurah(n, a || undefined, false); } catch (e) { showToast('تعذّر فتح السورة'); } }
+    function rpSurahClose() { const m = document.getElementById('rpSurahModal'); if (m) m.remove(); }
+    function rpSurahInfo(n) {
+        const L = rpQLoad(), sd = QURAN_OFFLINE_DATA[String(n)]; if (!sd) return; rpSurahClose();
+        const tot = (sd.verses || []).length, seen = new Set(L.seen[n] || []), c = seen.size, p = tot ? Math.round(c / tot * 10000) / 100 : 0; let first = 1; while (first <= tot && seen.has(first)) first++;
+        const ov = document.createElement('div'); ov.id = 'rpSurahModal'; ov.style.cssText = 'position:fixed;inset:0;z-index:2147481800;background:rgba(8,10,16,.75);display:flex;align-items:center;justify-content:center;padding:14px;'; ov.onclick = e => { if (e.target === ov) rpSurahClose(); };
+        ov.innerHTML = '<div style="background:var(--card-bg);color:var(--text-primary);border:1px solid var(--card-border);border-radius:18px;padding:18px;width:100%;max-width:380px;text-align:center;box-shadow:0 18px 50px rgba(0,0,0,.5);"><div style="font-weight:900;font-size:1.1rem;">' + escapeHtml(sd.name) + '</div><div style="font-size:.7rem;color:var(--text-secondary);margin-bottom:10px;">سورة رقم ' + n + ' · ' + tot + ' آية</div><div class="rp-ring" style="--p:' + Math.min(100, p) + ';margin:0 auto 10px;"><span>' + p.toFixed(2) + '%</span></div><div style="font-size:.82rem;line-height:2;">قرأت <b>' + c + '</b> آية · فاضل <b>' + (tot - c) + '</b>' + (c >= tot ? '<br>✅ سورة مكتملة' : '') + '</div><div style="display:flex;gap:6px;margin-top:12px;"><button class="btn btn-secondary" style="flex:1;font-size:.74rem;padding:9px;" onclick="rpSurahClose()">إغلاق</button><button class="btn btn-secondary" style="flex:1;font-size:.74rem;padding:9px;" onclick="rpSurahClose();rpOpenSurah(' + n + ',1)">📖 فتح السورة</button>' + (c < tot && c > 0 ? '<button class="btn" style="flex:1;font-size:.74rem;padding:9px;" onclick="rpSurahClose();rpOpenSurah(' + n + ',' + first + ')">▶ كمّل من ' + first + '</button>' : '') + '</div></div>';
+        document.body.appendChild(ov);
+    }
+    function rpDailyMsg(q, goal, streak) {
+        const h = new Date().getHours();
+        if (q.today >= goal) return '✅ ممتاز! حققت هدف النهاردة' + (q.today >= goal * 2 ? ' وضاعفته 🔥' : '');
+        if (q.today > 0) return '👏 كمّل، فاضل <b>' + (goal - q.today) + '</b> آية وتحقق هدفك';
+        if (streak > 0) return '⚠️ لسه ما قرأتش النهاردة، وسلسلتك (' + streak + ' يوم) هتتقطع ' + (h >= 20 ? 'الليلة' : 'لو عدّى اليوم') + '. اقرأ ولو آية.';
+        return (h >= 20 ? '😔 إنتاجك في القرآن النهاردة صفر. ' : '') + 'ابدأ بآية النهاردة وارجع لمسارك.';
+    }
+    const RP_QSUB = [['progress', '📖', 'تقدمك'], ['goal', '🎯', 'الهدف والختمة'], ['reports', '📊', 'التقارير'], ['map', '🗺️', 'الأجزاء والسور']];
+    function rpQSubKey() { try { const k = localStorage.getItem('rp_qsub'); return RP_QSUB.some(x => x[0] === k) ? k : 'progress'; } catch (e) { return 'progress'; } }
+    function rpQSub(k) { try { localStorage.setItem('rp_qsub', k); } catch (e) { } rpQSubRender(); }
+    // أسهم من تبويب "القرآن" لكل قسم (زي الخريطة الذهنية)، والقسم الشغال ملوّن والباقي خافت
+    function rpQSubArrows() {
+        const el = document.getElementById('rpQSub'); if (!el || !el.offsetWidth) return;
+        const svg = el.querySelector('svg'), tab = document.querySelector('#rpTabs [data-rp="quran"]'); if (!svg || !tab) return;
+        const c = el.getBoundingClientRect(), t = tab.getBoundingClientRect(), k = rpQSubKey(), top = 30;
+        const tx = t.left + t.width / 2 - c.left, ty = t.bottom - c.top - 2; let h = '';
+        el.querySelectorAll('[data-qb]').forEach(b => {
+            const r = b.getBoundingClientRect(), bx = r.left + r.width / 2 - c.left, on = b.dataset.qb === k, mid = ty + (top - ty) * 0.55, col = on ? 'var(--accent)' : 'var(--text-secondary)', op = on ? 1 : 0.35;
+            h += '<path d="M' + tx + ' ' + ty + ' C' + tx + ' ' + mid + ',' + bx + ' ' + mid + ',' + bx + ' ' + (top - 5) + '" fill="none" stroke="' + col + '" stroke-width="' + (on ? 2.2 : 1.5) + '" stroke-linecap="round" opacity="' + op + '"/><path d="M' + (bx - 5) + ' ' + (top - 8) + ' L' + bx + ' ' + (top - 1) + ' L' + (bx + 5) + ' ' + (top - 8) + ' Z" fill="' + col + '" opacity="' + op + '"/>';
+        });
+        h += '<circle cx="' + tx + '" cy="' + ty + '" r="3.5" fill="var(--accent)"/>';
+        svg.innerHTML = h;
+    }
+    function rpQSubRender() {
+        const el = document.getElementById('rpQSub'); if (!el) return; const k = rpQSubKey();
+        el.style.cssText = 'position:relative;padding-top:30px;margin:0 0 14px;';
+        el.innerHTML = '<svg style="position:absolute;left:0;top:0;width:100%;height:100%;overflow:visible;pointer-events:none;"></svg><div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;position:relative;">' + RP_QSUB.map(x => { const on = x[0] === k; return '<button data-qb="' + x[0] + '" class="btn ' + (on ? '' : 'btn-secondary') + '" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px 2px;min-height:64px;border-radius:14px;font-size:.64rem;font-weight:800;line-height:1.3;text-align:center;transition:all .2s;' + (on ? 'box-shadow:0 4px 14px var(--accent-glow);' : 'opacity:.55;') + '" onclick="rpQSub(\'' + x[0] + '\')"><span style="font-size:1.25rem;line-height:1;">' + x[1] + '</span><span>' + x[2] + '</span></button>'; }).join('') + '</div>';
+        if (!el._ro && window.ResizeObserver) { el._ro = new ResizeObserver(() => rpQSubArrows()); el._ro.observe(el); }
+        const m = document.getElementById('rpQuranMain'); if (m) m.dataset.qs = 'progress'; const tr = document.getElementById('rpQuranTrend'); if (tr && tr.parentElement) tr.parentElement.dataset.qs = 'progress';
+        document.querySelectorAll('[data-rp-pane="quran"] [data-qs]').forEach(c => { c.style.display = c.dataset.qs === k ? '' : 'none'; });
+        rpQSubArrows(); requestAnimationFrame(rpQSubArrows); setTimeout(rpQSubArrows, 250);
+    }
+    window.addEventListener('resize', () => { try { rpQSubArrows(); } catch (e) { } });
+    let RP_QWO = 0;
+    function rpQWeek(d) { RP_QWO = Math.max(-104, Math.min(0, RP_QWO + d)); try { rpRenderQuranExtra(rpQuranStats()); } catch (e) { } }
+    function rpRangeText(s, a, cnt) {
+        if (cnt <= 0) return ''; let es = s, ea = a, left = cnt - 1;
+        while (left > 0) { const n = (QURAN_OFFLINE_DATA[String(es)].verses || []).length, room = n - ea; if (left <= room) { ea += left; left = 0; } else { left -= room + 1; if (es >= 114) { ea = n; break; } es++; ea = 1; } }
+        return 'من ' + rpSurahName(s) + ' آية ' + a + ' إلى ' + rpSurahName(es) + ' آية ' + ea;
+    }
+    function rpRenderQuranExtra(q) {
+        try { rpQSubRender(); } catch (e) { }
+        const box = document.getElementById('rpQuranExtra'); if (!box) return;
+        const L = rpQLoad(), goal = RP_AYAH_GOAL, pi = rpPlanInfo(q), streak = rpStreakOf(q.days), card = (h, b, k) => '<div class="chart-box" data-qs="' + k + '"><div class="chart-header">' + h + '</div>' + b + '</div>';
+        const bt = 'margin-top:8px;font-size:.72rem;padding:8px;';
+        // 1) الهدف والختمة
+        let g = '<div style="font-size:.8rem;line-height:1.9;margin-bottom:8px;">' + rpDailyMsg(q, goal, streak) + '</div><div class="rp-bt-bar"><i style="width:' + Math.min(100, q.today / goal * 100) + '%;background:var(--accent)"></i></div><div class="rp-bt-sub"><span>النهاردة ' + q.today + ' آية</span><span>الهدف ' + goal + ' آية</span></div>';
+        { const rem = Math.max(0, goal - q.today); if (rem > 0) { const t = rpContTarget() || { s: 1, a: 1 }; g += '<div style="margin-top:8px;font-size:.74rem;line-height:1.9;">📍 المطلوب النهاردة (' + rem + ' آية): <b>' + rpRangeText(t.s, t.a, rem) + '</b></div>'; } }
+        if (pi && pi.rem <= 0) g += '<div style="margin-top:10px;font-size:.8rem;">🎉 ختمت المصحف! تقدر تبدأ ختمة جديدة.</div><button class="btn" style="width:100%;' + bt + '" onclick="rpPlanClear()">بدء ختمة جديدة</button>';
+        else if (pi) {
+            const rate = Math.max(0.01, (q.total - pi.p.base) / Math.max(1, pi.el)), need = Math.ceil(pi.rem / rate);
+            g += '<div style="margin-top:10px;padding:10px 12px;border-radius:12px;background:var(--input-bg);font-size:.74rem;line-height:2;">📅 ختمة في <b>' + pi.p.days + '</b> يوم' + (pi.juz ? ' (جزء كل يوم)' : '') + ' · أنت في اليوم <b>' + Math.min(pi.el, pi.p.days) + '</b>' + (pi.over ? ' (المدة خلصت)' : ' · فاضل <b>' + pi.left + '</b> يوم') + '<br>' +
+                (pi.diff >= 0 ? '✅ أنت ' + (pi.diff > 0 ? 'متقدم بـ <b>' + pi.diff + '</b> آية' : 'على المسار بالظبط') : '⚠️ أنت متأخر <b>' + (-pi.diff) + '</b> آية عن الخطة، هدف النهاردة اتعدّل لـ <b>' + goal + '</b>') + '<br>' +
+                (pi.over ? 'فاضل لك <b>' + pi.rem + '</b> آية، حدد خطة جديدة تكمل بيها.' : (need <= pi.left ? '🎯 بالتقدم ده هتخلص في موعدك (حوالي ' + need + ' يوم)' : '⏳ بالتقدم ده هتخلص بعد حوالي <b>' + need + '</b> يوم يعني ' + (need - pi.left) + ' يوم زيادة عن الخطة')) + '</div><button class="btn btn-secondary" style="width:100%;' + bt + '" onclick="rpPlanClear()">إلغاء الخطة</button>';
+        } else {
+            g += '<div style="margin-top:12px;font-size:.74rem;font-weight:800;">📅 عاوز تخلص ختمة؟ حدد المدة وأنا أحسب هدفك كل يوم:</div><div style="display:flex;gap:6px;flex-wrap:wrap;"><button class="btn btn-secondary" style="flex:1;' + bt + '" onclick="rpPlanSet(30)">30 يوم</button><button class="btn btn-secondary" style="flex:1;' + bt + '" onclick="rpPlanSet(60)">60 يوم</button><button class="btn btn-secondary" style="flex:1;' + bt + '" onclick="rpPlanSet(90)">90 يوم</button><button class="btn" style="flex:1;' + bt + '" onclick="rpPlanSet()">مدة تانية</button></div><button class="btn btn-secondary" style="width:100%;' + bt + '" onclick="rpSetAyahGoal()">🎯 أو غيّر هدفك اليومي الثابت</button>';
+        }
+        let h = card('🎯 هدفك وختمتك', g, 'goal');
+        // 2) تقرير الأسبوع
+        let w0 = 0, w1 = 0, s0 = 0, s1 = 0, best = 0, bd = null;
+        for (let i = 0; i < 14; i++) { const d = new Date(); d.setDate(d.getDate() - i); const k = getDateKey(d), v = q.days[k] || 0, sc = (L.sd || {})[k] || 0; if (i < 7) { w0 += v; s0 += sc; if (v > best) { best = v; bd = d; } } else { w1 += v; s1 += sc; } }
+        const ch = w1 > 0 ? Math.round((w0 - w1) / w1 * 100) : null;
+        h += card('📊 تقرير الأسبوع', '<div class="rp-facts"><div class="rp-fact"><b>' + w0 + '</b><small>آيات آخر 7 أيام</small></div><div class="rp-fact"><b>' + w1 + '</b><small>الأسبوع اللي قبله</small></div><div class="rp-fact"><b>' + (ch === null ? '—' : (ch > 0 ? '+' : '') + ch + '%') + '</b><small>' + (ch === null ? 'مفيش مقارنة لسه' : ch >= 0 ? 'تحسّن 📈' : 'نزول 📉') + '</small></div></div><div style="font-size:.72rem;line-height:2;margin-top:8px;">⏱️ وقت القراءة: <b>' + rpFmtSec(s0 / 60) + '</b> (قبله ' + rpFmtSec(s1 / 60) + ')<br>🏆 أحسن يوم: ' + (bd ? '<b>' + RP_WD[bd.getDay()] + '</b> (' + best + ' آية)' : '—') + ' · المتوسط <b>' + (w0 / 7).toFixed(1) + '</b> آية/يوم</div>', 'reports');
+        // 3) نشاط الأسبوع (نفس شكل "مسار الأسبوع" في التركيز)
+        const WDN = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'], t0 = new Date(); t0.setHours(0, 0, 0, 0);
+        const wst = new Date(t0); wst.setDate(wst.getDate() - t0.getDay() + RP_QWO * 7); const wen = new Date(wst); wen.setDate(wen.getDate() + 6);
+        const fm = d => String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0'), gl = Math.max(1, goal); let wTot = 0, wHit = 0, wc = '';
+        for (let i = 0; i < 7; i++) {
+            const d = new Date(wst); d.setDate(d.getDate() + i); const v = q.days[getDateKey(d)] || 0, fut = d > t0, td = d.getTime() === t0.getTime(), hit = !fut && v >= gl, pct = Math.min(100, Math.round(v / gl * 100));
+            if (!fut) { wTot += v; if (hit) wHit++; }
+            let cls = 'status-past', txt = '— ما قرأتش';
+            if (fut) { cls = 'status-future'; txt = '🔒 قادم'; } else if (hit) txt = '🏆 حققت الهدف'; else if (v > 0) { cls = 'status-today'; txt = '⏳ ' + pct + '% من الهدف'; } else if (td) { cls = 'status-today'; txt = '📍 ابدأ دلوقتي'; }
+            wc += '<div class="day-card ' + (td ? 'active' : '') + '"><span class="day-name">' + WDN[i] + '</span><span class="day-mins">' + (fut ? '—' : v + ' آية') + '</span><div class="day-prog ' + (hit ? 'hit' : '') + '"><i style="width:' + (fut ? 0 : pct) + '%"></i></div><span class="day-status ' + cls + '">' + txt + '</span></div>';
+        }
+        h += card('<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;width:100%;"><span>🗓️ نشاط الأسبوع</span><div style="display:flex;align-items:center;gap:8px;"><button class="icon-btn" title="الأسبوع السابق" onclick="rpQWeek(-1)">◀</button><span style="font-size:.72rem;color:var(--text-secondary);white-space:nowrap;">' + (RP_QWO === 0 ? 'الأسبوع الحالي (' : '') + fm(wst) + ' - ' + fm(wen) + (RP_QWO === 0 ? ')' : '') + '</span><button class="icon-btn" title="الأسبوع التالي" onclick="rpQWeek(1)" ' + (RP_QWO >= 0 ? 'disabled style="opacity:.4;cursor:not-allowed;"' : '') + '>▶</button></div></div>',
+            '<div class="week-path-container">' + wc + '</div><div style="font-size:.72rem;color:var(--text-secondary);margin-top:4px;">الأسبوع ده: <b style="color:var(--text-primary)">' + wTot + '</b> آية · حققت الهدف في <b style="color:var(--text-primary)">' + wHit + '</b> يوم · أطول سلسلة ليك <b style="color:var(--text-primary)">' + rpLongestStreak(Object.keys(q.days).filter(k => q.days[k] > 0).sort()) + '</b> يوم</div>', 'reports');
+        // 4) الأجزاء
+        const js = rpJuzStats(); let jc = '', jd = 0; js.rd.forEach((r, i) => { const p = Math.round(r / js.tot[i] * 100); if (r >= js.tot[i]) jd++; jc += '<div title="الجزء ' + (i + 1) + ': ' + r + '/' + js.tot[i] + ' (' + p + '%)" style="height:34px;border-radius:8px;border:1px solid var(--card-border);display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:.62rem;font-weight:800;background:linear-gradient(to top,var(--accent) ' + p + '%,var(--input-bg) ' + p + '%);color:' + (p >= 60 ? "#fff" : "var(--text-primary)") + '"><span>' + (i + 1) + '</span><span style="font-size:.52rem;opacity:.85">' + p + '%</span></div>'; });
+        h += card('📚 الأجزاء الـ30 <span class="rp-pill">' + jd + ' / 30</span>', '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(46px,1fr));gap:5px;">' + jc + '</div>', 'map');
+        // 5) خريطة السور التفاعلية
+        let sc = '', sdn = 0; for (let n = 1; n <= 114; n++) { const sd = QURAN_OFFLINE_DATA[String(n)], tot = sd && sd.verses ? sd.verses.length : 0, c = (L.seen[n] || []).length, p = tot ? Math.min(100, Math.round(c / tot * 100)) : 0; if (p >= 100) sdn++; sc += '<div onclick="rpSurahInfo(' + n + ')" title="' + (sd ? sd.name : n) + ': ' + c + '/' + tot + '" style="cursor:pointer;height:30px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:.58rem;font-weight:800;border:1px solid var(--card-border);background:linear-gradient(to top,var(--accent) ' + p + '%,var(--input-bg) ' + p + '%);color:' + (p >= 60 ? '#fff' : 'var(--text-secondary)') + '">' + n + '</div>'; }
+        h += card('🗺️ خريطة السور <span class="rp-pill">' + sdn + ' مكتملة</span>', '<div style="font-size:.68rem;color:var(--text-secondary);margin-bottom:8px;">اضغط على أي سورة تشوف قرأت منها كام وفاضل كام، وتفتحها.</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(32px,1fr));gap:4px;">' + sc + '</div>', 'map');
+        // 6) وقت ومحطات
+        const wps = parseFloat(localStorage.getItem('rp_read_calw')) || 0, remW = Math.max(0, RP_QURAN_WORDS - q.words), hrs = wps ? remW / wps / 3600 : 0, totSec = Object.keys(L.sd || {}).reduce((a, k) => a + (L.sd[k] || 0), 0), act = Object.keys(q.days).filter(k => q.days[k] > 0).length;
+        const MS = [100, 500, 1000, 2000, 3000, 4000, 5000, 6236], nx = MS.find(x => x > q.total);
+        h += card('⏳ وقتك ومحطاتك', '<div style="font-size:.74rem;line-height:2.1;">⏱️ إجمالي وقت قراءتك الفعلي: <b>' + rpFmtSec(totSec / 60) + '</b>' + (act ? ' · متوسط اليوم النشط <b>' + rpFmtSec(totSec / act / 60) + '</b>' : '') + '<br>' + (wps && remW ? '🕌 باقي لختمة كاملة حوالي <b>' + Math.floor(hrs) + ' ساعة و ' + Math.round((hrs % 1) * 60) + ' دقيقة</b> قراءة صافية على سرعتك<br>' : '') + (nx ? '🏁 فاضل <b>' + (nx - q.total) + '</b> آية على محطة <b>' + nx + '</b> آية' : '🏁 وصلت لآخر محطة، ختمت المصحف') + '<br>🔥 سلسلتك الحالية: <b>' + streak + '</b> يوم</div>', 'reports');
+        box.innerHTML = h; try { rpQSubRender(); } catch (e) { }
+    }
+    function rpGoQuran(kind) {
+        switchTab('quran');
+        const go = () => {
+            try {
+                quranBackToHome();
+                if (kind === 'continue' && quranLastRead) { const t = rpContTarget(); if (t) openSurah(t.s, t.a, false); else quranContinueReading(); }
+                else { quranOpenMushaf(); window.scrollTo({ top: 0, behavior: 'auto' }); }
+            } catch (e) { showToast('تعذّر فتح المصحف'); }
+        };
+        go();
+        if (kind !== 'continue') setTimeout(() => { try { const lv = document.getElementById('quranListView'); if (lv && lv.style.display !== 'block') go(); window.scrollTo({ top: 0, behavior: 'auto' }); } catch (e) { } }, 160);
+    }
+    function rpUniqueDone() {
+        const set = new Set();
+        completedHistory.forEach(e => { if (e) set.add(String(e.taskId != null ? e.taskId : (e.title || e.id))); });
+        tasks.forEach(t => { if (t.completed === true) set.add(String(t.id)); });
+        return set.size;
+    }
+    function rpSurahName(n) { try { const o = QURAN_OFFLINE_DATA[String(n)]; if (o && o.name) return o.name; } catch (e) { } try { const f = quranSurahList && quranSurahList.find(x => x.number === n); if (f) return f.name; } catch (e) { } return 'سورة رقم ' + n; }
+
+    function rpRing(pct, title, sub) { return `<div class="rp-ringcol"><div class="rp-ring" style="--p:${Math.min(100, pct)}"><span>${Math.min(100, pct)}%</span></div><b>${title}</b><small>${sub}</small></div>`; }
+    function rpRenderGoal() {
+        const box = document.getElementById('rpGoalCard'); if (!box) return; try { RP_AYAH_GOAL = rpGoalNow(); } catch (e) { }
+        const goal = Math.max(1, dailyGoalMinutes || 60), mins = Math.round((todayFocusSeconds || 0) / 60), tk = getDateKey(new Date());
+        let td = 0; const seen = new Set();
+        completedHistory.forEach(e => { if (e && e.date && getDateKey(new Date(e.date)) === tk) { const u = (e.taskId != null ? e.taskId : (e.title || e.id)); if (!seen.has(u)) { seen.add(u); td++; } } });
+        const q = rpQuranStats();
+        box.className = 'chart-box';
+        box.innerHTML = `<div class="chart-header">🎯 حلقات اليوم</div><div class="rp-rings">` +
+            rpRing(Math.round(mins / goal * 100), 'التركيز', rpFmt(mins) + ' / ' + rpFmt(goal)) +
+            rpRing(Math.round(td / RP_TASK_GOAL * 100), 'المهام', td + ' / ' + RP_TASK_GOAL) +
+            rpRing(Math.round(q.today / RP_AYAH_GOAL * 100), 'القرآن', q.today + ' / ' + RP_AYAH_GOAL + ' آية') + `</div>`;
+    }
+
+    function rpRenderWeekdays() {
+        const box = document.getElementById('rpWeekdayBox'); if (!box) return;
+        const keys = rpActiveKeys(), todayKey = getDateKey(new Date());
+        if (!keys.length) { box.innerHTML = '<div class="rp-empty">ابدأ جلسة تركيز واحدة وهتظهر تحليلاتك هنا 🚀</div>'; return; }
+        const goal = Math.max(1, dailyGoalMinutes || 60), tot = [0, 0, 0, 0, 0, 0, 0], cnt = [0, 0, 0, 0, 0, 0, 0], hit = [0, 0, 0, 0, 0, 0, 0];
+        const t0 = new Date(); t0.setHours(0, 0, 0, 0);
+        // بنحسب كل الأيام من أول نشاط لحد النهاردة (بما فيها الأيام اللي مفيهاش تركيز) عشان المتوسط يبقى عادل
+        for (let d = new Date(keys[0] + 'T00:00:00'); d <= t0; d.setDate(d.getDate() + 1)) {
+            const sec = rpSecOf(getDateKey(d), todayKey), w = d.getDay(); tot[w] += sec; cnt[w]++; if (sec / 60 >= goal) hit[w]++;
+        }
+        const avg = tot.map((t, i) => cnt[i] ? t / 60 / cnt[i] : 0), seenW = avg.map((v, i) => i).filter(i => cnt[i] > 0);
+        const max = Math.max.apply(null, avg), bi = avg.indexOf(max);
+        const low = seenW.length > 1 ? seenW.reduce((a, b) => avg[b] < avg[a] ? b : a, seenW[0]) : -1;
+        const all = tot.reduce((a, b) => a + b, 0), days = cnt.reduce((a, b) => a + b, 0), hits = hit.reduce((a, b) => a + b, 0), longest = rpLongestStreak(keys);
+        let html = `<div class="rp-facts"><div class="rp-fact"><b>${longest}</b><small>أطول سلسلة (يوم)</small></div><div class="rp-fact"><b>${keys.length}/${days}</b><small>أيام نشطة</small></div><div class="rp-fact"><b>${Math.round(hits / days * 100)}%</b><small>أيام حققت فيها الهدف</small></div></div>`;
+        RP_WD.forEach((n, i) => {
+            const w = max > 0 ? Math.round(avg[i] / max * 100) : 0;
+            html += `<div class="rp-wd-row ${i === bi && max > 0 ? 'best' : ''}"><span class="nm">${i === bi && max > 0 ? '🥇 ' : ''}${n}</span><div class="bar"><i style="width:${w}%"></i></div><span class="v">${rpFmt(avg[i])}</span></div>`;
+        });
+        html += `<div style="font-size:.66rem;color:var(--text-secondary);margin-top:8px;">المتوسط محسوب على كل مرة جه فيها اليوم ده من أول نشاط ليك، يعني الأيام اللي فاتت من غير تركيز بتتحسب صفر.</div>`;
+        box.innerHTML = html;
+        window.__rpBest = { wd: bi, avg: max, low: low, lowAvg: low >= 0 ? avg[low] : 0, longest: longest, active: keys.length, rate: Math.round(hits / days * 100), total: all };
+    }
+
+    function rpRenderInsights() {
+        const box = document.getElementById('rpInsights'); if (!box) return;
+        const items = [], b = window.__rpBest, q = rpQuranStats();
+        if (b && b.avg > 0) items.push(['⭐', `أقوى يوم عندك <b>${RP_WD[b.wd]}</b> (متوسط ${rpFmt(b.avg)})` + (b.low >= 0 && b.low !== b.wd ? `، وأضعف يوم <b>${RP_WD[b.low]}</b> (${rpFmt(b.lowAvg)})` : '')]);
+        if (b) items.push(['🔥', `سلسلتك الحالية <b>${currentStreak || 0}</b> يوم، وأطول سلسلة <b>${b.longest}</b> يوم، وبتحقق هدفك في <b>${b.rate}%</b> من الأيام`]);
+        const stat = {}; completedHistory.forEach(e => { if (e) { const c = e.category || 'عام'; stat[c] = (stat[c] || 0) + 1; } });
+        const top = Object.keys(stat).sort((x, y) => stat[y] - stat[x])[0];
+        if (top) items.push(['🏷️', `أكتر تصنيف بتنجز فيه: <b>${escapeHtml(top)}</b> (${stat[top]} مهمة)`]);
+        if (q.total > 0) items.push(['📖', `قرأت <b>${q.w7}</b> آية آخر 7 أيام، وإجمالي <b>${q.total}</b> آية (${(q.total / 62.36).toFixed(2)}% من المصحف)`]);
+        else items.push(['📖', 'لسه ما سجلتش قراءة في القرآن، حدد "آخر قراءة" وهتتحسب هنا']);
+        box.innerHTML = items.map(x => `<div class="rp-insight"><span style="font-size:1.1rem">${x[0]}</span><span>${x[1]}</span></div>`).join('');
+    }
+
+    // ===== قايمة الثلاث نقاط في كارت القرآن =====
+    function rpQMenuClose() { const m = document.getElementById('rpQMenu'); if (m) m.style.display = 'none'; }
+    function rpQMenuOpen() { const m = document.getElementById('rpQMenu'); if (m) m.style.display = 'block'; }
+    function rpQMenuToggle(ev) { if (ev) ev.stopPropagation(); const m = document.getElementById('rpQMenu'); if (m) m.style.display = m.style.display === 'block' ? 'none' : 'block'; }
+    document.addEventListener('click', e => { const w = document.getElementById('rpQuranMenuWrap'); if (w && !w.contains(e.target)) rpQMenuClose(); });
+
+    // ===== جولة تعليمية في التقارير: إيد بتضغط وتشرح (محرك تتبع حيّ: بيمشي مع السكرول والريسايز) =====
+    const RP_TOUR = [
+        { sel: '#rpTabs [data-rp="overview"]', act: () => rpSwitchTab('overview'), msg: '🏠 <b>نظرة عامة</b><br>كل حاجة مهمة في مكان واحد: حلقات يومك وتحليل أسبوعك.' },
+        { sel: '#rpGoalCard', pre: () => rpSwitchTab('overview'), msg: '🎯 <b>حلقات اليوم</b><br>التركيز والمهام والقرآن. كل حلقة بتتملي لما توصل لهدفك النهاردة.' },
+        { sel: '#rpTabs [data-rp="focus"]', act: () => rpSwitchTab('focus'), msg: '⏱️ <b>التركيز</b><br>توزيع وقتك، ومسار أسبوعك، وأنهي يوم بتركز فيه أكتر.' },
+        { sel: '#section-analytics [data-rp-pane="focus"] .rp-seg-slot', pre: () => rpSwitchTab('focus'), msg: '● <b>نقاط / ▮ أعمدة</b><br>من هنا بتبدّل شكل الرسم. النقاط هي الأدق وهي الافتراضية.' },
+        { sel: '#rpTabs [data-rp="tasks"]', act: () => rpSwitchTab('tasks'), msg: '✅ <b>المهام</b><br>اللي أنجزته، والتصنيفات، ومعدل إنجازك.' },
+        { sel: '#rpTabs [data-rp="quran"]', act: () => rpSwitchTab('quran'), msg: '📖 <b>القرآن</b><br>تقدمك في المصحف بيتحسب لوحده وإنت بتقرأ: آيات، كلمات، ووقت قراءة فعلي.' },
+        { sel: '#rpQSub', pre: () => { rpSwitchTab('quran'); rpQSub('progress'); }, msg: '🕌 <b>أقسام القرآن</b><br>من كلمة القرآن بتطلع 4 أسهم لـ4 أقسام: تقدمك، الهدف والختمة، التقارير، الأجزاء والسور. القسم الشغال ملوّن والباقي خافت، وكل زرار بيفتح قسمه.' },
+        { sel: '#rpCalBtnMain', pre: () => { rpSwitchTab('quran'); rpQSub('progress'); }, msg: '⏱️ <b>حساب متوسط سرعة قراءتك</b><br>بتقرا 4 آيات مختلفة (قصيرة وطويلة وفيها مد) وبيطلع متوسط سرعتك الحقيقية، وعلى أساسه بيتحدد وقت كل آية. لازم تحسبها مرة قبل ما التتبع يشتغل، وتقدر تعيدها في أي وقت من ⋮.' },
+        { sel: '#rpTabs [data-rp="achv"]', act: () => rpSwitchTab('achv'), msg: '🏅 <b>الإنجازات</b><br>شارات متدرجة (برونزي لحد أسطوري) ومستوى عام بيترقى كل ما تنجز أكتر.' },
+        { msg: '🚀 <b>كده عرفت كل حاجة!</b><br>تقدر تعيد الجولة أي وقت من زرار 🧭 جولة فوق.' }
+    ];
+    const rpT = { ov: null, tok: 0, i: 0, raf: 0, sel: null, el: null, r: null, cur: null, from: null, t0: 0, dur: 1, hCur: null, hFrom: null, hT0: 0, hDur: 1, tip: null, rad: 12, safe: { t: 12, b: 12 }, key: '', bubOn: false, scrollId: 0, sb: null };
+    const rptVW = () => (window.visualViewport ? visualViewport.width : document.documentElement.clientWidth);
+    const rptOX = () => (window.visualViewport ? visualViewport.offsetLeft : 0);
+    const rptVH = () => (window.visualViewport ? visualViewport.height : window.innerHeight);
+    const rpSleep = ms => new Promise(r => setTimeout(r, ms));
+    const rptClamp = (v, a, b) => Math.max(a, Math.min(b, v));
+    const rptEase = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    const rptVis = el => !!(el && el.isConnected && el.getClientRects().length);
+    function rpTourDone() { try { return localStorage.getItem('rp_tour_done2') === '1'; } catch (e) { return true; } }
+    function rpTourMaybe() {
+        if (rpTourDone() || rpT.ov) return;
+        setTimeout(() => { const s = document.getElementById('section-analytics'); if (s && s.classList.contains('active') && !rpT.ov && !rpTourDone()) rpTourStart(); }, 700);
+    }
+    // مساحة الشاشة الآمنة (بعيد عن أي شريط ثابت فوق أو تحت)
+    function rptInsets() {
+        const vw = rptVW(), vh = rptVH(); let t = 12, b = 12;
+        const probe = y => {
+            let best = null;
+            try {
+                document.elementsFromPoint(vw / 2, y).forEach(n => {
+                    if (rpT.ov && rpT.ov.contains(n)) return;
+                    for (let p = n; p && p !== document.documentElement && p !== document.body; p = p.parentElement) {
+                        const cs = getComputedStyle(p);
+                        if (cs.position === 'fixed' || cs.position === 'sticky') { const r = p.getBoundingClientRect(); if (r.width > vw * .5 && r.height < vh * .4) best = r; break; }
+                    }
+                });
+            } catch (e) { }
+            return best;
+        };
+        const top = probe(2), bot = probe(vh - 2);
+        if (top && top.top <= 2) t = Math.max(t, top.bottom + 8);
+        if (bot && bot.bottom >= vh - 2) b = Math.max(b, vh - bot.top + 8);
+        return { t: t, b: b };
+    }
+    function rptScrollParent(el, axis) {
+        for (let p = el.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement) {
+            const cs = getComputedStyle(p), ov = axis === 'y' ? cs.overflowY : cs.overflowX;
+            if (/(auto|scroll)/.test(ov) && (axis === 'y' ? p.scrollHeight > p.clientHeight + 1 : p.scrollWidth > p.clientWidth + 1)) return p;
+        }
+        return axis === 'y' ? (document.scrollingElement || document.documentElement) : null;
+    }
+    function rptInFixed(el) { for (let p = el; p && p !== document.documentElement; p = p.parentElement) { if (getComputedStyle(p).position === 'fixed') return true; } return false; }
+    function rptAnimScroll(sy, dy, sx, dx, dur) {
+        const T = rpT, id = ++T.scrollId;
+        return new Promise(res => {
+            const t0 = performance.now(), y0 = sy ? sy.scrollTop : 0, x0 = sx ? sx.scrollLeft : 0;
+            (function f(now) {
+                if (id !== T.scrollId || !T.ov) return res();
+                const p = Math.min(1, (now - t0) / dur), e = rptEase(p);
+                if (sy && dy) sy.scrollTop = y0 + dy * e;
+                if (sx && dx) sx.scrollLeft = x0 + dx * e;
+                if (p < 1) requestAnimationFrame(f); else res();
+            })(t0);
+        });
+    }
+    // يحرّك الصفحة لحد ما العنصر + الفقاعة يبقوا ظاهرين كاملين
+    function rptReveal(el, bub) {
+        const T = rpT; T.safe = rptInsets();
+        const vh = rptVH(), st = T.safe.t, sb = vh - T.safe.b, uh = sb - st, gap = 16, bh = bub.offsetHeight;
+        const r = el.getBoundingClientRect(); let dy = 0, dx = 0;
+        if (!rptInFixed(el)) {
+            const total = r.height + gap + bh;
+            if (total <= uh - 8) {
+                const below = r.top >= st + 4 && r.bottom + gap + bh <= sb - 4, above = r.top - gap - bh >= st + 4 && r.bottom <= sb - 4;
+                if (!below && !above) dy = r.top - (st + (uh - total) / 2);
+            } else if (Math.abs(r.top - (st + 8)) > 6) dy = r.top - (st + 8);
+        }
+        const sx = rptScrollParent(el, 'x');
+        if (sx) { const pr = sx.getBoundingClientRect(); if (r.left < pr.left + 8 || r.right > pr.right - 8) dx = (r.left + r.width / 2) - (pr.left + pr.width / 2); }
+        const sy = dy ? rptScrollParent(el, 'y') : null;
+        if (!dy && !dx) return Promise.resolve();
+        return rptAnimScroll(sy, dy, sx, dx, Math.min(380, 160 + Math.abs(dy) * .25));
+    }
+    function rptFocus(sel, dur, hdur) {
+        const T = rpT, now = performance.now();
+        T.sel = sel || null; T.el = sel ? document.querySelector(sel) : null; if (!sel) T.r = null;
+        T.rad = T.el ? (parseFloat(getComputedStyle(T.el).borderTopLeftRadius) || 0) : 0;
+        T.from = T.cur ? { x: T.cur.x, y: T.cur.y, w: T.cur.w, h: T.cur.h } : null; T.t0 = now; T.dur = dur;
+        T.hFrom = T.hCur ? { x: T.hCur.x, y: T.hCur.y } : null; T.hT0 = now; T.hDur = hdur;
+        T.ov.querySelector('.rpt-spot').classList.toggle('empty', !sel);
+    }
+    // مكان الفقاعة: تحت العنصر، أو فوقه، أو فوق/تحت الشاشة لو العنصر كبير
+    function rptPlace(r, force) {
+        const T = rpT; if (!T.ov) return;
+        const bub = T.ov.querySelector('.rpt-bub'), arr = bub.querySelector('.rpt-arr'), vw = rptVW(), vh = rptVH();
+        const bw = Math.min(400, vw - 24), bh = bub.offsetHeight;
+        const key = [r ? Math.round(r.left) + ',' + Math.round(r.top) + ',' + Math.round(r.width) + ',' + Math.round(r.height) : 'x', vw, vh, bh, T.safe.t, T.safe.b].join('|');
+        if (!force && key === T.key) return; T.key = key;
+        const gap = 16, st = T.safe.t, sb = vh - T.safe.b; let top, left, mode = '', ax = 0;
+        bub.style.width = bw + 'px';
+        if (!r) { top = Math.max(st, (vh - bh) / 2); left = rptOX() + (vw - bw) / 2; }
+        else {
+            const ox = rptOX(), cx = r.left + r.width / 2; left = rptClamp(cx - bw / 2, ox + 12, ox + vw - bw - 12); ax = rptClamp(cx - left, 26, bw - 26);
+            if (r.bottom + gap + bh <= sb) { top = r.bottom + gap; mode = 'top'; }
+            else if (r.top - gap - bh >= st) { top = r.top - gap - bh; mode = 'bot'; }
+            else top = (r.top + r.height / 2 < vh / 2) ? sb - bh - 8 : st + 8;
+        }
+        bub.style.left = Math.round(left) + 'px'; bub.style.top = Math.round(top) + 'px';
+        arr.className = 'rpt-arr' + (mode ? ' ' + mode : ''); arr.style.left = Math.round(ax) + 'px';
+    }
+    function rptShow() {
+        const T = rpT; if (!T.ov) return;
+        T.bubOn = true; T.key = '';
+        rptPlace(T.sel && rptVis(T.el) ? T.el.getBoundingClientRect() : null, true);
+        T.ov.querySelector('.rpt-bub').classList.add('on');
+    }
+    function rptBuild(i, s) {
+        const T = rpT, bub = T.ov.querySelector('.rpt-bub'), n = RP_TOUR.length, last = i === n - 1;
+        bub.style.width = Math.min(400, rptVW() - 24) + 'px';
+        bub.innerHTML = '<i class="rpt-arr"></i><div class="rpt-in"><div class="rpt-top"><span class="rpt-cnt" dir="ltr">' + (i + 1) + ' / ' + n + '</span><div class="rpt-dots">' +
+            RP_TOUR.map((_, k) => '<i class="' + (k === i ? 'on' : k < i ? 'done' : '') + '"></i>').join('') + '</div></div><div class="rpt-msg">' + s.msg + '</div><div class="rpt-btns">' +
+            (last ? '' : '<button class="btn btn-secondary rpt-skip" data-rpt="skip">تخطي</button>') +
+            (i > 0 ? '<button class="btn btn-secondary rpt-prev" data-rpt="prev" aria-label="السابق">▶</button>' : '') +
+            '<button class="btn rpt-next" data-rpt="next">' + (last ? 'يلا نبدأ 🚀' : 'التالي ◀') + '</button></div></div>';
+        T.key = '';
+    }
+    // الحلقة الرئيسية: كل فريم بنقرا مكان العنصر الحقيقي ونحرّك العلامة واليد والفقاعة عليه
+    function rptTick(now) {
+        const T = rpT, ov = T.ov; if (!ov) return;
+        T.raf = requestAnimationFrame(rptTick);
+        const vw = rptVW(), vh = rptVH(), sp = ov.querySelector('.rpt-spot'), dim = ov.querySelector('.rpt-dim path'), hd = ov.querySelector('.rpt-hand');
+        if (T.sel && (!T.el || !T.el.isConnected)) T.el = document.querySelector(T.sel);
+        let r = null;
+        if (T.sel) {
+            if (T.el && T.el.getClientRects().length) { const b = T.el.getBoundingClientRect(); r = T.r = { left: b.left, top: b.top, right: b.right, bottom: b.bottom, width: b.width, height: b.height }; }
+            else r = T.r;
+        }
+        const pd = 4; let g;
+        if (r) { const ox = rptOX(), x0 = Math.max(ox + 4, r.left - pd), y0 = Math.max(4, r.top - pd), x1 = Math.min(ox + vw - 4, r.right + pd), y1 = Math.min(vh - 4, r.bottom + pd); g = { x: x0, y: y0, w: Math.max(0, x1 - x0), h: Math.max(0, y1 - y0) }; }
+        else g = { x: rptOX() + vw / 2, y: vh * .42, w: 0, h: 0 };
+        if (!T.cur) { T.cur = { x: g.x, y: g.y, w: g.w, h: g.h }; T.from = { x: g.x, y: g.y, w: g.w, h: g.h }; }
+        const c = T.cur, f = T.from || g, e = rptEase(Math.min(1, (now - T.t0) / T.dur));
+        c.x = f.x + (g.x - f.x) * e; c.y = f.y + (g.y - f.y) * e; c.w = f.w + (g.w - f.w) * e; c.h = f.h + (g.h - f.h) * e;
+        const sk = c.x.toFixed(1) + ',' + c.y.toFixed(1) + ',' + c.w.toFixed(1) + ',' + c.h.toFixed(1) + ',' + ov.clientWidth + ',' + ov.clientHeight;
+        if (sk !== T.sk) {
+            T.sk = sk;
+            const W = ov.clientWidth, H = ov.clientHeight, rr = Math.max(0, Math.min(T.rad + pd, c.h / 2, c.w / 2)), x = c.x, y = c.y, w = c.w, h = c.h;
+            const hole = 'M' + (x + rr) + ' ' + y + 'H' + (x + w - rr) + 'A' + rr + ' ' + rr + ' 0 0 1 ' + (x + w) + ' ' + (y + rr) + 'V' + (y + h - rr) + 'A' + rr + ' ' + rr + ' 0 0 1 ' + (x + w - rr) + ' ' + (y + h) + 'H' + (x + rr) + 'A' + rr + ' ' + rr + ' 0 0 1 ' + x + ' ' + (y + h - rr) + 'V' + (y + rr) + 'A' + rr + ' ' + rr + ' 0 0 1 ' + (x + rr) + ' ' + y + 'Z';
+            dim.setAttribute('d', 'M0 0H' + W + 'V' + H + 'H0Z' + hole);
+            sp.style.left = (x - 3) + 'px'; sp.style.top = (y - 3) + 'px'; sp.style.width = (w + 6) + 'px'; sp.style.height = (h + 6) + 'px'; sp.style.borderRadius = (rr + 3) + 'px';
+        }
+        // اليد
+        let hx = vw / 2, hy = vh + 70;
+        if (r) {
+            hx = rptClamp(r.left + r.width / 2, rptOX() + 20, rptOX() + vw - 20);
+            hy = r.height <= 90 ? r.top + r.height * .72 : r.top + Math.min(r.height * .5, 70);
+            hy = rptClamp(hy, T.safe.t, vh - 44);
+        }
+        if (!T.hCur) { T.hCur = { x: vw / 2, y: vh + 70 }; T.hFrom = { x: T.hCur.x, y: T.hCur.y }; }
+        const hf = T.hFrom || T.hCur, he = rptEase(Math.min(1, (now - T.hT0) / T.hDur));
+        T.hCur.x = hf.x + (hx - hf.x) * he; T.hCur.y = hf.y + (hy - hf.y) * he; T.tip = { x: hx, y: hy };
+        hd.style.transform = 'translate3d(' + (T.hCur.x - 14).toFixed(1) + 'px,' + (T.hCur.y - 4).toFixed(1) + 'px,0)';
+        if (T.bubOn) rptPlace(r, false);
+    }
+    function rptRipple(x, y) { const T = rpT; if (!T.ov) return; const d = document.createElement('div'); d.className = 'rpt-rip'; d.style.left = x + 'px'; d.style.top = y + 'px'; T.ov.appendChild(d); setTimeout(() => d.remove(), 650); }
+    function rptBlock(e) { if (!e.target.closest || !e.target.closest('.rpt-in')) e.preventDefault(); }
+    function rptClick(e) {
+        const b = e.target.closest && e.target.closest('[data-rpt]'); if (!b) return;
+        const a = b.getAttribute('data-rpt');
+        if (a === 'next') rpTourGo(rpT.i + 1, 1); else if (a === 'prev') rpTourGo(rpT.i - 1, -1); else rpTourEnd(true);
+    }
+    function rptKey(e) {
+        if (!rpT.ov) return;
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); rpTourEnd(true); }
+        else if (e.key === 'ArrowLeft') { e.preventDefault(); rpTourGo(rpT.i + 1, 1); }
+        else if (e.key === 'ArrowRight') { e.preventDefault(); rpTourGo(rpT.i - 1, -1); }
+    }
+    function rpTourStart() {
+        const T = rpT; if (T.ov) return;
+        try { const ci = document.getElementById('rpCalIntro'); if (ci) ci.remove(); const cc = document.getElementById('rpCal'); if (cc) rpCalClose(); } catch (e) { }
+        const ov = document.createElement('div'); ov.id = 'rpTour';
+        ov.innerHTML = '<svg class="rpt-dim"><path d=""></path></svg><div class="rpt-spot empty"></div><div class="rpt-hand"><span class="rpt-hand-i">👆</span></div><div class="rpt-bub" role="dialog" aria-live="polite"></div>';
+        document.body.appendChild(ov);
+        T.ov = ov; T.tok++; T.sel = T.el = T.r = T.cur = T.from = T.hCur = T.hFrom = null; T.bubOn = false; T.key = ''; T.sk = null; T.t0 = T.hT0 = performance.now(); T.dur = T.hDur = 1;
+        T.sb = [document.documentElement.style.scrollBehavior, document.body.style.scrollBehavior];
+        document.documentElement.style.scrollBehavior = 'auto'; document.body.style.scrollBehavior = 'auto';
+        ov.addEventListener('click', rptClick);
+        ov.addEventListener('wheel', rptBlock, { passive: false });
+        ov.addEventListener('touchmove', rptBlock, { passive: false });
+        document.addEventListener('keydown', rptKey, true);
+        T.raf = requestAnimationFrame(rptTick);
+        rpTourGo(0, 1);
+    }
+    function rpTourEnd(done) {
+        const T = rpT; T.tok++; T.scrollId++; cancelAnimationFrame(T.raf);
+        if (T.ov) { T.ov.remove(); T.ov = null; }
+        document.removeEventListener('keydown', rptKey, true);
+        if (T.sb) { document.documentElement.style.scrollBehavior = T.sb[0]; document.body.style.scrollBehavior = T.sb[1]; T.sb = null; }
+        T.sel = T.el = T.r = T.cur = T.from = T.hCur = T.hFrom = null; T.bubOn = false;
+        try { rpQMenuClose(); } catch (e) { }
+        if (done) { try { localStorage.setItem('rp_tour_done2', '1'); } catch (e) { } const b = document.getElementById('rpTourBtn'); if (b) b.classList.remove('new'); }
+        try { rpSwitchTab('overview'); window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) { }
+        if (done && !rpCalAvg()) setTimeout(() => { try { window.__rpCalAsked = false; rpSwitchTab('quran'); } catch (e) { } }, 400);
+    }
+    async function rpTourGo(i, dir) {
+        const T = rpT, ov = T.ov; if (!ov) return;
+        dir = dir || 1; const tok = ++T.tok;
+        if (i < 0) i = 0;
+        const s = RP_TOUR[i]; if (!s) return rpTourEnd(true);
+        T.i = i; T.bubOn = false;
+        const bub = ov.querySelector('.rpt-bub'), hi = ov.querySelector('.rpt-hand-i');
+        bub.classList.remove('on'); hi.classList.remove('tap'); try { rpQMenuClose(); } catch (e) { }
+        if (s.pre) { try { s.pre(); } catch (e) { } await rpSleep(60); if (tok !== T.tok) return; }
+        rptBuild(i, s);
+        if (!s.sel) { rptFocus(null, 450, 450); await rpSleep(150); if (tok !== T.tok) return; rptShow(); return; }
+        const el = document.querySelector(s.sel);
+        if (!rptVis(el)) { if (i + dir < 0) return rpTourGo(i + 1, 1); return rpTourGo(i + dir, dir); }
+        rptFocus(s.sel, 430, 560);
+        await Promise.all([rptReveal(el, bub), rpSleep(580)]); if (tok !== T.tok) return;
+        hi.classList.add('tap'); if (T.tip) rptRipple(T.tip.x, T.tip.y);
+        await rpSleep(240); if (tok !== T.tok) return; hi.classList.remove('tap');
+        if (s.act) { try { s.act(); } catch (e) { } await rpSleep(260); if (tok !== T.tok) return; }
+        if (s.sel2) { rptFocus(s.sel2, 380, 380); await rpSleep(120); if (tok !== T.tok) return; }
+        rptShow();
+    }
+    (function () { const f = () => { try { const b = document.getElementById('rpTourBtn'); if (b && !rpTourDone()) b.classList.add('new'); } catch (e) { } }; if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', f); else f(); })();
+    // أول ما يفتح قسم التقارير لأول مرة، الجولة تبدأ لوحدها
+    (function () { const __o = switchTab; switchTab = function (tabId) { const r = __o.apply(this, arguments); try { if (tabId === 'analytics') rpTourMaybe(); } catch (e) { } return r; }; })();
+
+    // بعد التحديث: أول ما التطبيق يفتح يوديه على التقارير والجولة تبدأ لوحدها (وفيها تخطي)
+    (function () { const go = () => setTimeout(() => { try { if (!rpTourDone()) switchTab('analytics'); } catch (e) { } }, 1200); if (document.readyState === 'complete') go(); else window.addEventListener('load', go); })();
+
+    // ===== مبدّل الرسم (نقاط / أعمدة) =====
+    function rpMode(id) { try { return localStorage.getItem('rp_mode_' + id) === 'bars' ? 'bars' : 'dots'; } catch (e) { return 'dots'; } }
+    function rpToggleMode(id, m) {
+        try { localStorage.setItem('rp_mode_' + id, m); } catch (e) { }
+        if (id === 'focus' && window.__rpWeek) renderWeeklyBarChart(window.__rpWeek); else if (id === 'tasks') rpRenderTasks(); else rpRenderQuran();
+        rpSyncToggles();
+    }
+    function rpSyncToggles() {
+        document.querySelectorAll('.rp-seg-slot').forEach(el => {
+            const id = el.getAttribute('data-chart'), m = rpMode(id);
+            el.innerHTML = `<span class="rp-seg"><button class="${m === 'dots' ? 'on' : ''}" onclick="rpToggleMode('${id}','dots')">● نقاط</button><button class="${m === 'bars' ? 'on' : ''}" onclick="rpToggleMode('${id}','bars')">▮ أعمدة</button></span>`;
+        });
+    }
+    function rpFmtSec(min) {
+        const t = Math.round((min || 0) * 60), h = Math.floor(t / 3600), m = Math.floor(t % 3600 / 60), s = t % 60;
+        return (h ? h + 'س ' : '') + (m ? m + 'د ' : '') + ((s || (!h && !m)) ? s + 'ث' : '');
+    }
+    function rpScale(items, o) {
+        const need = Math.max.apply(null, items.map(i => i.v).concat([o.goal, 1])) / 4, last = o.steps[o.steps.length - 1];
+        const step = o.steps.find(x => x >= need) || Math.ceil(need / last) * last;
+        return { step: step, max: step * 4 };
+    }
+    function rpBarParts(items, o) {
+        const sc = rpScale(items, o); let g = '';
+        for (let i = 0; i <= 4; i++) { const b = i * 25; g += `<div class="bar-chart-grid-line" style="bottom:${b}%;"></div><div class="bar-chart-grid-label" style="bottom:${b}%;">${o.lbl(sc.step * i)}</div>`; }
+        g += `<div class="rp-goal-line" style="bottom:${Math.min(100, o.goal / sc.max * 100)}%;"><span>الهدف ${o.goalTxt}</span></div>`;
+        const bars = items.map(d => `<div class="bar-chart-col" title="${d.tip}">${d.v > 0 && !d.future ? `<div class="rp-bar-val">${d.s}</div>` : ''}<div class="bar-chart-bar ${d.today ? 'today' : ''} ${d.hit ? 'hit' : ''}" style="height:${Math.min(d.v / sc.max * 100, 100)}%;"></div><span class="bar-chart-day-label">${d.l}</span></div>`).join('');
+        return { grid: g, bars: bars };
+    }
+    function rpDotSVG(items, o) {
+        const sc = rpScale(items, o), W = 340, H = 205, pr = 36, pt = 24, pb = 26, ih = H - pt - pb, n = items.length, span = W - pr - 24;
+        const X = i => W - pr - 10 - (n === 1 ? span / 2 : i * (span - 10) / (n - 1)), Y = v => pt + ih - Math.min(v, sc.max) / sc.max * ih;
+        let h = `<svg class="rp-dots" viewBox="0 0 ${W} ${H}" role="img">`;
+        for (let i = 0; i <= 4; i++) { const y = Y(sc.step * i); h += `<line class="rpd-grid" x1="6" x2="${W - pr}" y1="${y}" y2="${y}"/><text class="rpd-lbl" x="${W - pr + 5}" y="${y + 3}">${o.lbl(sc.step * i)}</text>`; }
+        const gy = Y(o.goal); h += `<line class="rpd-goal" x1="6" x2="${W - pr}" y1="${gy}" y2="${gy}"/><text class="rpd-lbl" x="8" y="${gy - 4}" style="fill:var(--warning)">الهدف ${o.goalTxt}</text>`;
+        const pts = items.map((d, i) => d.future ? null : X(i) + ',' + Y(d.v)).filter(Boolean);
+        if (pts.length > 1) h += `<polyline class="rpd-line" points="${pts.join(' ')}"/>`;
+        items.forEach((d, i) => {
+            const x = X(i), y = Y(d.v);
+            h += `<g><title>${d.tip}</title>`;
+            if (d.future) h += `<circle class="rpd-future" cx="${x}" cy="${Y(0)}" r="3.5"/>`;
+            else if (d.v <= 0) h += `<circle class="rpd-zero" cx="${x}" cy="${y}" r="3.5"/>`;
+            else { if (d.today) h += `<circle class="rpd-ring" cx="${x}" cy="${y}" r="9"/>`; h += `<circle class="${d.hit ? 'rpd-hit' : 'rpd-pt'}" cx="${x}" cy="${y}" r="5.5"/><text class="rpd-val" x="${x}" y="${y - 11}" text-anchor="middle">${d.s}</text>`; }
+            h += `<text class="rpd-lbl" x="${x}" y="${H - 8}" text-anchor="middle">${d.l}</text></g>`;
+        });
+        return h + '</svg>';
+    }
+
+    function rpRenderQuran() {
+        const box = document.getElementById('rpQuranMain'), tr = document.getElementById('rpQuranTrend'); if (!box) return; try { RP_AYAH_GOAL = rpGoalNow(); } catch (e) { }
+        const q = rpQuranStats(), pct = Math.round(q.total / 6236 * 10000) / 100, wpct = Math.round(q.words / RP_QURAN_WORDS * 10000) / 100, sk = rpSpeedKey();
+        const l = q.last && q.last.surah ? `${rpSurahName(q.last.surah)} · آية ${q.last.ayahNumberInSurah || q.last.ayah || ''}` : '—';
+        const has = !!(q.last && q.last.surah); let ct = null;
+        const menuRows = Object.keys(RP_SPEEDS).map(k => `<button onclick="rpSetSpeed('${k}')" style="display:flex;justify-content:space-between;align-items:center;width:100%;gap:10px;padding:10px 12px;border:0;border-radius:8px;background:${k === sk ? 'var(--input-bg)' : 'transparent'};color:var(--text-primary);font-size:.78rem;font-weight:${k === sk ? 900 : 700};text-align:right;cursor:pointer;"><span>${RP_SPEEDS[k][0]} · ${RP_SPEEDS[k][1]} كلمة/ثانية</span><span style="color:var(--accent)">${k === sk ? '✓' : ''}</span></button>`).join('');
+        const calAvg = rpCalAvg(), calRow = calAvg ? `<button onclick="rpSetSpeed('cal');rpQMenuClose()" style="display:flex;justify-content:space-between;align-items:center;width:100%;gap:10px;padding:10px 12px;border:0;border-radius:8px;background:${sk === 'cal' ? 'var(--input-bg)' : 'transparent'};color:var(--text-primary);font-size:.78rem;font-weight:${sk === 'cal' ? 900 : 700};text-align:right;cursor:pointer;"><span>📏 سرعتك المقاسة · ${calAvg.toFixed(2)} كلمة/ثانية</span><span style="color:var(--accent)">${sk === 'cal' ? '✓' : ''}</span></button>` : '';
+        const itemCss = 'display:block;width:100%;padding:10px 12px;border:0;border-radius:8px;background:transparent;color:var(--text-primary);font-size:.78rem;font-weight:800;text-align:right;cursor:pointer;';
+        const extraRows = `<button onclick="rpCalOpen()" style="${itemCss}">⏱️ حساب متوسط سرعتي (4 آيات)</button>` + (quranLastRead ? `<button onclick="rpQMenuClose();rpBaseEditToggle2()" style="${itemCss}">👁️ احسب تقدمي من علامة العين</button>` : '');
+        const menuHtml = `<div id="rpQuranMenuWrap" style="position:relative;z-index:5;display:flex;align-items:center;gap:8px;margin-bottom:12px;"><button id="rpCalBtnMain" class="btn btn-secondary" onclick="rpCalOpen()" style="padding:8px 12px;font-size:.74rem;font-weight:900;border-radius:10px;">⏱️ حساب متوسط سرعة قراءتي</button><span style="font-size:.66rem;color:var(--text-secondary);font-weight:800;">${calAvg ? 'سرعتك: ' + ((parseFloat(localStorage.getItem('rp_read_calw')) || 0).toFixed(2)) + ' كلمة/ث' : 'لسه ما اتقاسش'}</span><button id="rpQuranMenuBtn" onclick="rpQMenuToggle(event)" aria-label="خيارات القراءة" style="margin-inline-start:auto;width:34px;height:34px;border-radius:10px;border:1px solid var(--card-border);background:var(--input-bg);color:var(--text-primary);font-size:1.25rem;font-weight:900;line-height:1;cursor:pointer;">⋮</button><div id="rpQMenu" style="display:none;position:absolute;top:40px;left:0;min-width:235px;background:var(--card-bg);border:1px solid var(--card-border);border-radius:12px;padding:6px;box-shadow:0 10px 30px rgba(0,0,0,.35);"><div style="font-size:.66rem;color:var(--text-secondary);font-weight:800;padding:6px 12px 4px;">خيارات القراءة</div>${extraRows}<button onclick="rpQMenuClose();rpSetAyahGoal()" style="${itemCss}">🎯 هدفي اليومي (${RP_AYAH_GOAL} آية)</button></div></div>`;
+        box.style.position = 'relative';
+        box.innerHTML = menuHtml + (calAvg ? '' : '<div style="background:var(--accent-glow);border:1px solid var(--accent);border-radius:12px;padding:12px;margin:0 0 12px;font-size:.78rem;line-height:1.9;">⏱️ <b>احسب سرعة قراءتك</b> (دقيقة واحدة) عشان تقدمك يتحسب أوتوماتيك.<button class="btn" style="width:100%;margin-top:8px;font-size:.78rem;" onclick="rpCalOpen()">▶ ابدأ</button></div>') + rpBaseBanner(q) + `<div class="rp-goal"><div class="rp-ring" style="--p:${Math.min(100, pct)}"><span>${pct.toFixed(2)}%</span></div><div><div class="rp-goal-title">📖 تقدمك في المصحف</div><div class="rp-goal-sub">قرأت <b>${q.total}</b> آية مختلفة من 6236<br>بالكلمات: <b>${q.words.toLocaleString('en-US')}</b> من ≈${RP_QURAN_WORDS.toLocaleString('en-US')} (${wpct.toFixed(2)}%)<br>فتحت <b>${q.surahs}</b> سورة من 114${q.full !== null ? ' · أكملت <b>' + q.full + '</b>' : ''}<br>آخر قراءة: <b>${escapeHtml(l)}</b></div></div></div>
+            <div class="rp-facts" style="margin-top:14px;grid-template-columns:repeat(2,1fr)"><div class="rp-fact"><b>${q.today}</b><small>آيات النهاردة · ${q.wToday} كلمة</small></div><div class="rp-fact"><b>${rpFmtSec(q.secToday / 60)}</b><small>وقت القراءة الفعلي النهاردة</small></div><div class="rp-fact"><b>${q.w7}</b><small>آيات آخر 7 أيام · ${rpFmtSec(q.sec7 / 60)}</small></div><div class="rp-fact"><b>${q.marks}</b><small>علامات وملاحظات (${q.bm}+${q.nt})</small></div></div>
+            <div style="display:flex;gap:8px;"><button class="btn" style="flex:1" onclick="rpGoQuran('continue')">${has ? '▶️ أكمل القراءة' + ((ct = rpContTarget()) ? ' · ' + escapeHtml(rpSurahName(ct.s)) + ' ' + ct.a : '') : '📖 ابدأ القراءة'}</button><button class="btn btn-secondary" style="flex:1" onclick="rpGoQuran('mushaf')">📖 فتح المصحف</button></div>
+            <details style="margin-top:12px;font-size:.66rem;color:var(--text-secondary);line-height:1.8;"><summary style="cursor:pointer;font-weight:800;">إزاي بيتحسب التقدم؟</summary>
+            <div style="margin-top:6px;">• <b>سرعتك:</b> بتقرأ 4 آيات مختلفة مرة واحدة، والتتبع بيتظبط على سرعتك. من غير القياس ده العدّ مش بيشتغل، وتقدر تعيده من ⋮.<br>• الآية بتتحسب مقروءة لما تبان على الشاشة وتقعد عليها 75% من وقت قراءتها تقريبًا (على سرعتك)، ووقت كل آية بيتحسب من حروفها والمدود فيها مش من عدد كلماتها بس، وكل الآيات الظاهرة بتتحسب <b>واحدة ورا واحدة من فوق لتحت</b>.<br>• لو عدّيت على آية وقعدت عليها وقت معقول وكملت لللي بعدها، بتتحسب برضه.<br>• الآية اللي مغطيها حاجة (قايمة، نافذة، تفسير مفتوح) أو التطبيق في الخلفية أو الشاشة مقفولة مش بتتحسب، ولو سبت الشاشة 75 ثانية من غير لمس العدّ بيقف.<br>• <b>آخر قراءة</b> (علامة العين 👁️) بتتحرك لوحدها لآخر آية خلصتها، و"أكمل القراءة" بتفتح على الآية اللي بعدها.<br>• النسبة بخانتين عشريتين، والآيات المختلفة بس هي اللي بتزود التقدم الكلي، أما "آيات النهاردة" فبتعد أي آية قرأتها النهاردة.<br>• "وقت القراءة الفعلي" هو الوقت اللي اتحسب فعلًا على آيات لسه ما اتقرتش النهاردة.<br><button class="btn btn-secondary" style="width:100%;margin-top:10px;font-size:.68rem;" onclick="rpResetQuranLog()">🗑️ إعادة ضبط سجل القراءة </button></div></details>`;
+        try { rpRenderQuranExtra(q); } catch (e) { }
+        if (!tr) return;
+        const days = [], tk = getDateKey(new Date());
+        for (let i = 13; i >= 0; i--) { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i); days.push({ d: d, k: getDateKey(d) }); }
+        const items = days.map(x => { const v = q.days[x.k] || 0; return { l: x.d.getDate(), v: v, hit: v >= RP_AYAH_GOAL, today: x.k === tk, future: false, s: String(v), tip: `${x.d.getDate()}/${x.d.getMonth() + 1}: ${v} آية` }; });
+        const o = { goal: RP_AYAH_GOAL, steps: [5, 10, 20, 40, 80, 160, 320, 640], lbl: v => String(v), goalTxt: RP_AYAH_GOAL + ' آية' };
+        if (items.every(i => !i.v)) { tr.innerHTML = '<div class="rp-empty">لسه مفيش قراءة مسجلة في آخر أسبوعين</div>'; rpSyncToggles(); return; }
+        if (rpMode('quran') === 'dots') tr.innerHTML = rpDotSVG(items, o);
+        else { const pp = rpBarParts(items, o); tr.innerHTML = `<div class="bar-chart-wrap"><div class="bar-chart-grid">${pp.grid}</div><div class="bar-chart-bars">${pp.bars}</div></div>`; }
+        rpSyncToggles();
+    }
+
+    // ===== نظام الشارات المتدرج =====
+    const RP_TIERS = [['🥉', 'برونزي', '#cd7f32'], ['🥈', 'فضي', '#9ca3af'], ['🥇', 'ذهبي', '#eab308'], ['💎', 'ماسي', '#38bdf8'], ['👑', 'أسطوري', '#a855f7']];
+    const RP_LEVELS = ['مبتدئ', 'متحمس', 'منضبط', 'محترف', 'خبير', 'أسطورة'];
+    function rpTracks() {
+        const bs = getBadgeStats(), q = rpQuranStats(); let gd = 0, jdn = 0; try { gd = Object.keys(rpQLoad().gh || {}).length; const js = rpJuzStats(); js.rd.forEach((r, i) => { if (r >= js.tot[i]) jdn++; }); } catch (e) { }
+        return [
+            { id: 'focus', icon: '⏱️', name: 'ساعات التركيز', unit: 'ساعة', val: bs.focusHours, steps: [1, 10, 50, 100, 500] },
+            { id: 'streak', icon: '🔥', name: 'الالتزام المتتالي', unit: 'يوم', val: Math.max(bs.streak || 0, rpLongestStreak(rpActiveKeys())), steps: [3, 7, 30, 100, 365] },
+            { id: 'tasks', icon: '✅', name: 'المهام المنجزة', unit: 'مهمة', val: bs.tasksCompleted, steps: [1, 10, 50, 200, 1000] },
+            { id: 'sess', icon: '🍅', name: 'جلسات التركيز', unit: 'جلسة', val: bs.sessions, steps: [5, 20, 100, 300, 1000] },
+            { id: 'ayah', icon: '📖', name: 'قراءة القرآن', unit: 'آية', val: q.total, steps: [50, 300, 1000, 3000, 6236] },
+            { id: 'qgoal', icon: '🎯', name: 'أيام حققت فيها هدف القرآن', unit: 'يوم', val: gd, steps: [1, 7, 30, 100, 365] },
+            { id: 'juz', icon: '📚', name: 'أجزاء مكتملة', unit: 'جزء', val: jdn, steps: [1, 5, 10, 20, 30] },
+            { id: 'mark', icon: '🔖', name: 'علامات وملاحظات', unit: 'علامة', val: q.marks, steps: [1, 5, 20, 50, 100] }
+        ];
+    }
+    function rpRenderBadgesV2() {
+        const wrap = document.getElementById('badgesGrid'); if (!wrap) return false;
+        const tracks = rpTracks(); let pts = 0, seen = {}, first = false;
+        try { seen = JSON.parse(localStorage.getItem('rp_tiers_seen') || 'null'); } catch (e) { }
+        if (!seen) { seen = {}; first = true; }
+        const f = v => v >= 10 ? Math.floor(v) : (Math.round(v * 10) / 10);
+        wrap.className = 'rp-bv2';
+        wrap.innerHTML = tracks.map(t => {
+            const tier = t.steps.filter(x => t.val >= x).length; pts += tier;
+            if (!first && tier > (seen[t.id] || 0)) showToast(`🎖️ ترقية: ${t.name} → ${RP_TIERS[tier - 1][1]} ${RP_TIERS[tier - 1][0]}`);
+            seen[t.id] = tier;
+            const nxt = t.steps[tier], prv = tier ? t.steps[tier - 1] : 0, col = tier ? RP_TIERS[tier - 1][2] : 'var(--accent)';
+            const pc = nxt ? Math.min(100, Math.round((t.val - prv) / (nxt - prv) * 100)) : 100;
+            return `<div class="rp-bt"><div class="rp-bt-head"><span class="rp-bt-ic" style="${tier ? '' : 'filter:grayscale(1);opacity:.5'}">${t.icon}</span><div><div class="rp-bt-nm">${t.name}</div><div class="rp-bt-tier" style="color:${col}">${tier ? RP_TIERS[tier - 1][0] + ' ' + RP_TIERS[tier - 1][1] : '🔒 لسه ما بدأتش'}</div></div></div>
+                <div class="rp-bt-bar"><i style="width:${pc}%;background:${col}"></i></div>
+                <div class="rp-bt-sub"><span>${f(t.val)} ${t.unit}</span><span>${nxt ? 'الهدف: ' + nxt + ' (' + RP_TIERS[tier][1] + ')' : '✨ أعلى مستوى'}</span></div>
+                <div class="rp-steps">${t.steps.map((x, i) => `<span class="rp-step ${t.val >= x ? 'on' : ''}" style="${t.val >= x ? 'background:' + RP_TIERS[i][2] : ''}">${x}</span>`).join('')}</div></div>`;
+        }).join('');
+        try { localStorage.setItem('rp_tiers_seen', JSON.stringify(seen)); } catch (e) { }
+        const lv = Math.floor(pts / 4), prog = (pts % 4) * 25, box = document.getElementById('rpLevelBox'), cnt = document.getElementById('rpBadgeCount');
+        if (cnt) cnt.textContent = pts + ' / ' + tracks.length * 5;
+        if (box) box.innerHTML = `<div class="rp-lvl"><div class="rp-lvl-n">${lv + 1}</div><div style="flex:1"><div class="rp-goal-title">المستوى ${lv + 1} · ${RP_LEVELS[Math.min(lv, RP_LEVELS.length - 1)]}</div><div class="rp-bt-bar"><i style="width:${prog}%;background:var(--accent)"></i></div><div class="rp-goal-sub">${pts} نقطة من ${tracks.length * 5} · كل درجة شارة = نقطة، وكل 4 نقاط مستوى جديد</div></div></div>`;
+        return true;
+    }
+
+    function rpRenderTasks() {
+        const sum = document.getElementById('rpTaskSummary'), tr = document.getElementById('rpTrendBox');
+        const total = tasks.length, left = tasks.filter(t => t.completed !== true).length, done = rpUniqueDone();
+        const rate = total ? Math.round(done / total * 100) : 0;
+        const todayKey = getDateKey(new Date());
+        const seen = new Set(); const perDay = {};
+        completedHistory.forEach(e => {
+            if (!e || !e.date) return;
+            const k = getDateKey(new Date(e.date)), u = (e.taskId != null ? e.taskId : (e.title || e.id)) + '|' + k;
+            if (seen.has(u)) return; seen.add(u); perDay[k] = (perDay[k] || 0) + 1;
+        });
+        if (sum) sum.innerHTML = `<div class="rp-facts" style="margin-bottom:0">
+            <div class="rp-fact"><b>${left}</b><small>متبقية</small></div>
+            <div class="rp-fact"><b>${done}</b><small>منجزة (كل الوقت)</small></div>
+            <div class="rp-fact"><b>${perDay[todayKey] || 0}</b><small>أنجزت النهاردة</small></div></div>`;
+        if (!tr) return;
+        const days = [];
+        for (let i = 13; i >= 0; i--) { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i); days.push({ d: d, k: getDateKey(d) }); }
+        const vals = days.map(x => perDay[x.k] || 0);
+        if (vals.every(v => v === 0)) { tr.innerHTML = '<div class="rp-empty">لسه مفيش مهام منجزة في آخر أسبوعين</div>'; rpSyncToggles(); return; }
+        const items = days.map((x, i) => ({ l: x.d.getDate(), v: vals[i], hit: vals[i] >= RP_TASK_GOAL, today: x.k === todayKey, future: false, s: String(vals[i]), tip: `${x.d.getDate()}/${x.d.getMonth() + 1}: ${vals[i]} مهمة` }));
+        const o = { goal: RP_TASK_GOAL, steps: [2, 4, 8, 16, 32, 64, 128], lbl: v => String(v), goalTxt: RP_TASK_GOAL + ' مهام' };
+        if (rpMode('tasks') === 'dots') tr.innerHTML = rpDotSVG(items, o);
+        else { const pp = rpBarParts(items, o); tr.innerHTML = `<div class="bar-chart-wrap"><div class="bar-chart-grid">${pp.grid}</div><div class="bar-chart-bars">${pp.bars}</div></div>`; }
+        tr.innerHTML += `<div style="margin-top:10px;font-size:0.72rem;color:var(--text-secondary);">إجمالي آخر 14 يوم: <b style="color:var(--text-primary)">${vals.reduce((a, c) => a + c, 0)}</b> مهمة</div>`;
+        rpSyncToggles();
+    }
+
+    function rpRenderCategories() {
+        const box = document.getElementById('categoryAnalysisContainer'); if (!box) return;
+        const st = {};
+        tasks.forEach(t => { const c = t.category || 'عام'; (st[c] = st[c] || { total: 0, comp: 0 }).total++; if (t.completed === true) st[c].comp++; });
+        const cats = Object.keys(st).sort((a, b) => st[b].total - st[a].total);
+        if (!cats.length) { box.innerHTML = '<div class="rp-empty">لا توجد مهام لتحليلها حالياً.</div>'; return; }
+        box.innerHTML = '';
+        cats.forEach((c, i) => {
+            const pct = Math.round(st[c].comp / st[c].total * 100), col = RP_COLORS[i % RP_COLORS.length];
+            const item = document.createElement('div');
+            item.className = 'category-progress-item'; item.style.cursor = 'pointer'; item.title = 'عرض مهام ' + c;
+            item.innerHTML = `<div class="cat-prog-header"><span><i class="rp-cat-dot" style="background:${col}"></i>${escapeHtml(c)}</span><span style="color:${col};">${pct}% (${st[c].comp}/${st[c].total})</span></div><div class="cat-prog-bar-bg"><div class="cat-prog-bar-fill" style="width:0%;background:${col};"></div></div>`;
+            item.addEventListener('click', () => goToCategoryTasks(c));
+            box.appendChild(item);
+            setTimeout(() => { const f = item.querySelector('.cat-prog-bar-fill'); if (f) f.style.width = pct + '%'; }, 80);
+        });
+    }
+
+    function rpRender() {
+        [rpRenderGoal, rpRenderWeekdays, rpRenderInsights, rpRenderTasks, rpRenderQuran, rpRenderBadgesV2, rpSyncToggles].forEach(fn => { try { fn(); } catch (e) { } });
+        try { const el = document.getElementById('adv-completed'); if (el) el.innerText = rpUniqueDone(); } catch (e) { }
+        rpSwitchTab(window.__rpTab || localStorage.getItem('rp_tab') || 'overview');
     }
 
     function changeWeek(delta) {
@@ -12541,50 +13608,19 @@ function restoreTimerState() {
     }
 
     function renderWeeklyBarChart(weekData) {
-        const totalEl = document.getElementById('barChartTotal');
-        const gridEl = document.getElementById('barChartGrid');
-        const barsEl = document.getElementById('barChartBars');
+        window.__rpWeek = weekData;
+        const totalEl = document.getElementById('barChartTotal'), gridEl = document.getElementById('barChartGrid'), barsEl = document.getElementById('barChartBars'), dotsEl = document.getElementById('rpFocusDots');
         if (!totalEl || !gridEl || !barsEl) return;
-
-        // إجمالي وقت التركيز الأسبوعي لحد اليوم
-        const totalMins = weekData.reduce((sum, d) => sum + (d.isFuture ? 0 : d.mins), 0);
-        const totalH = Math.floor(totalMins / 60);
-        const totalM = totalMins % 60;
-        totalEl.innerText = totalH > 0
-            ? `إجمالي وقت التركيز: ${totalH} ساعة و ${totalM} دقيقة`
-            : `إجمالي وقت التركيز: ${totalM} دقيقة`;
-
-        // سلم المحور الرأسي بيتدرّج تلقائيًا حسب أعلى قيمة في الأسبوع (بخطوات مريحة زي 80/160/240...)
-        const maxDataVal = Math.max(...weekData.map(d => d.mins), 1);
-        const step = Math.max(20, Math.ceil(maxDataVal / 5 / 20) * 20);
-        const scaleMax = step * 5;
-
-        gridEl.innerHTML = '';
-        for (let i = 0; i <= 5; i++) {
-            const val = step * i;
-            const bottomPercent = (val / scaleMax) * 100;
-            gridEl.innerHTML += `
-                <div class="bar-chart-grid-line" style="bottom:${bottomPercent}%;"></div>
-                <div class="bar-chart-grid-label" style="bottom:${bottomPercent}%;">${val}</div>
-            `;
-        }
-
-        // أعلى يوم في الأسبوع (بتظهر عليه فقاعة القيمة زي الصورة المرجعية)
-        let peakIndex = 0;
-        weekData.forEach((d, i) => { if (d.mins > weekData[peakIndex].mins) peakIndex = i; });
-
-        barsEl.innerHTML = '';
-        weekData.forEach((d, i) => {
-            const heightPercent = Math.min((d.mins / scaleMax) * 100, 100);
-            const isPeak = d.mins > 0 && i === peakIndex;
-            barsEl.innerHTML += `
-                <div class="bar-chart-col">
-                    ${isPeak ? `<div class="bar-chart-tooltip">${d.mins} د</div>` : ''}
-                    <div class="bar-chart-bar ${d.isToday ? 'today' : ''}" style="height:${heightPercent}%;"></div>
-                    <span class="bar-chart-day-label">${shortDayName(d.day)}</span>
-                </div>
-            `;
-        });
+        const goal = Math.max(1, dailyGoalMinutes || 60), past = weekData.filter(d => !d.isFuture);
+        const totalMin = past.reduce((a, d) => a + (d.rawMins || 0), 0), hits = past.filter(d => d.mins >= goal).length;
+        totalEl.innerHTML = `الإجمالي: <b style="color:var(--text-primary)">${rpFmtSec(totalMin)}</b> · متوسط اليوم: <b style="color:var(--text-primary)">${rpFmt(past.length ? totalMin / past.length : 0)}</b> · حققت الهدف <b style="color:var(--success)">${hits}</b> من ${past.length} أيام`;
+        const items = weekData.map(d => ({ l: shortDayName(d.day), v: d.mins, hit: d.mins >= goal, today: d.isToday, future: d.isFuture, s: rpFmt(d.mins), tip: d.day + ': ' + (d.isFuture ? 'قادم' : rpFmtSec(d.rawMins)) }));
+        const o = { goal: goal, steps: [15, 30, 60, 90, 120, 180, 240, 360, 480, 720], lbl: v => v === 0 ? '0' : (v >= 60 ? (Math.round(v / 6) / 10) + 'س' : v + 'د'), goalTxt: rpFmt(goal) };
+        const mode = rpMode('focus'), pp = rpBarParts(items, o);
+        gridEl.innerHTML = pp.grid; barsEl.innerHTML = pp.bars;
+        gridEl.parentNode.style.display = mode === 'bars' ? '' : 'none';
+        if (dotsEl) { dotsEl.style.display = mode === 'dots' ? '' : 'none'; dotsEl.innerHTML = mode === 'dots' ? rpDotSVG(items, o) : ''; }
+        rpSyncToggles();
     }
 
     // =============================
@@ -15112,31 +16148,11 @@ function restoreTimerState() {
     // =============================
     function exportBackup() {
         try {
-            const backup = {
-                app: 'منصة الإنتاجية المتقدمة',
-                version: 1,
-                exportDate: new Date().toISOString(),
-                data: {
-                    app_tasks: tasks,
-                    app_categories: categories,
-                    app_history_logs: historyLogs,
-                    app_daily_history: dailyFocusHistory,
-                    app_completed_history: completedHistory,
-                    app_note_pages: notePages,
-                    app_today_sessions: sessionCount,
-                    app_today_focus: todayFocusMinutes,
-                    app_today_focus_seconds: todayFocusSeconds,
-                    app_streak: currentStreak,
-                    app_last_active_date: localStorage.getItem('app_last_active_date'),
-                    app_daily_goal_minutes: dailyGoalMinutes,
-                    app_theme_color: localStorage.getItem('app_theme_color'),
-                    app_custom_theme: JSON.parse(localStorage.getItem('app_custom_theme') || 'null'),
-                    app_theme_custom_active: localStorage.getItem('app_theme_custom_active'),
-                    app_notif_enabled: localStorage.getItem('app_notif_enabled'),
-                    app_notif_time: localStorage.getItem('app_notif_time'),
-                    app_badges: JSON.parse(localStorage.getItem('app_badges') || '[]')
-                }
-            };
+            const backup = { app: 'منصة الإنتاجية المتقدمة', version: 2, exportDate: new Date().toISOString(), data: buildDataBundle('file') };
+            try {
+                if (typeof fbAuth !== 'undefined' && fbAuth && fbAuth.currentUser && fbAuth.currentUser.email) { backup.data.app_account_email = fbAuth.currentUser.email; if (window.quietCloudPush) window.quietCloudPush(); }
+                else if (localStorage.getItem('app_lock_hash')) setTimeout(function () { showToast('ملحوظة: قفل التطبيق مش في الملف. سجّل دخول بحسابك قبل التصدير عشان يرجع على الجهاز الجديد 🔐'); }, 2600);
+            } catch (e) { }
             const jsonText = JSON.stringify(backup, null, 2);
             const fileName = `نسخة-احتياطية-${getDateKey()}.json`;
 
@@ -15300,6 +16316,7 @@ function restoreTimerState() {
         initBiometricLockSettingsUI();
         renderTemplatesList();
         renderAIKeySettingsUI();
+        try { aiUkRefresh(); } catch (e) { }
         renderHomeShortcutsSettings();
         document.getElementById('settingsModal').style.display = 'flex';
     }
@@ -17479,6 +18496,7 @@ try {
         firebase.initializeApp(firebaseConfig);
         fbAuth = firebase.auth();
         fbDb = firebase.firestore();
+        try { fbDb.enablePersistence({ synchronizeTabs: true }).catch(function () { }); } catch (e) { } /* كاش أوفلاين للمنافسة والأصدقاء (كان في حساب social المنفصل) */
         fbAuth.onAuthStateChanged(function (user) {
             updateEmailAccountUI(user);
             if (user) startCloudAutoSync(); else stopCloudAutoSync();
@@ -17655,7 +18673,7 @@ function manualCloudSyncNow() {
     ).then(function () {
         localStorage.setItem('app_cloud_last_sync', new Date().toISOString());
         updateEmailAccountUI(fbAuth.currentUser);
-        showToast('تمت المزامنة مع السحابة ✅');
+        showToast((window.__bkSkipped && window.__bkSkipped.length) ? 'تمت المزامنة ✅ (فيه بيانات كبيرة زي المحادثات ماترفعتش للسحابة، خدها بنسخة احتياطية بملف)' : 'تمت المزامنة مع السحابة ✅');
     }).catch(function () {
         showToast('تعذرت المزامنة، تحقق من الإنترنت ⚠️');
     });
@@ -17695,108 +18713,188 @@ function cloudSyncOnHide() {
 
 // -------- إعدادات المفتاح (صفحة الإعدادات) --------
 function renderAIKeySettingsUI() {
+    const box = document.getElementById('aiKeysList');
     const status = document.getElementById('aiApiKeyStatus');
     const usageLabel = document.getElementById('aiUsageCountLabel');
     const activeKeyLabel = document.getElementById('aiActiveKeyLabel');
-    const userKey = localStorage.getItem('app_gemini_api_key');
+    const logged = !!(typeof fbAuth !== 'undefined' && fbAuth && fbAuth.currentUser);
+    const meta = aiUserKeyMeta();
+    const legacy = localStorage.getItem('app_gemini_api_key');
     const ctx = peekActiveAIKeyContext();
+    if (box) {
+        box.textContent = '';
+        const mkBtn = (txt, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn btn-secondary'; b.style.cssText = 'padding:5px 10px;font-size:0.72rem;'; b.textContent = txt; b.addEventListener('click', fn); return b; };
+        meta.forEach((k, i) => {
+            let used = 0, exhausted = false;
+            if (aiUserPoolOn) { try { ensureDailyResetForKey(i); used = getDefaultAIKeyUsage(i); exhausted = isDefaultKeyExhaustedToday(i); } catch (e) {} }
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:9px 10px;margin-top:6px;border:1px solid var(--card-border);border-radius:12px;flex-wrap:wrap;';
+            const info = document.createElement('div'); info.style.cssText = 'flex:1;min-width:140px;';
+            const t1 = document.createElement('div'); t1.style.cssText = 'font-size:0.82rem;font-weight:700;';
+            t1.textContent = '🔑 ' + (k.label || ('مفتاح ' + (i + 1))) + '  ••••' + (k.last4 || '');
+            const t2 = document.createElement('div'); t2.style.cssText = 'font-size:0.72rem;opacity:.75;margin-top:2px;';
+            t2.textContent = (exhausted ? '⛔ خلص حصته النهاردة' : '✅ شغال') + ' — النهاردة: ' + used + ' / ' + AI_REQUEST_LIMIT;
+            info.appendChild(t1); info.appendChild(t2); row.appendChild(info);
+            row.appendChild(mkBtn('تجربة', () => aiUkTestKey(k.id)));
+            row.appendChild(mkBtn('🗑️', () => aiUkRemoveKey(k.id)));
+            box.appendChild(row);
+        });
+        if (legacy && !meta.length) {
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:9px 10px;margin-top:6px;border:1px dashed var(--card-border);border-radius:12px;flex-wrap:wrap;';
+            const info = document.createElement('div'); info.style.cssText = 'flex:1;min-width:140px;font-size:0.78rem;';
+            info.textContent = '🔑 مفتاح قديم على الجهاز ده — هيتنقل لحسابك تلقائيًا أول ما تسجل دخول';
+            row.appendChild(info); row.appendChild(mkBtn('🗑️', clearAIApiKey)); box.appendChild(row);
+        }
+    }
     if (status) {
-        status.textContent = userKey
-            ? '✅ فيه مفتاحك الشخصي مسجّل وبيتستخدم بدل الافتراضي. حفظ مفتاح جديد هيستبدله.'
-            : `بيتستخدم دلوقتي ${AI_DEFAULT_KEYS_B64.length} مفاتيح افتراضية متضمّنة في التطبيق، بيتم الدوران عليهم طلب طلب (مش نفس المفتاح لحد ما يخلص). حط مفتاحك الشخصي هنا لو حابب تستبدلهم كلهم.`;
+        if (meta.length) status.textContent = '✅ عندك ' + meta.length + ' مفتاح شخصي على حسابك. المساعد بيدور عليهم طلب طلب، وبيتخطّى أي مفتاح يخلص حصته. المفاتيح مخزّنة على السيرفر مشفّرة ومربوطة بحسابك، ومش بتتكتب على الجهاز ولا في النسخ الاحتياطية.';
+        else if (!logged) status.textContent = '🔒 سجّل دخول بحسابك الأول عشان تقدر تضيف مفاتيحك. لحد وقتها المساعد شغال بالمفاتيح الافتراضية.';
+        else status.textContent = 'مفيش مفاتيح شخصية على حسابك. المساعد شغال دلوقتي بالمفاتيح الافتراضية (' + AI_GW_DEFAULT_COUNT + ' مفاتيح بالدور). ضيف مفتاحك أو أكتر من فوق.';
     }
     if (usageLabel) usageLabel.textContent = ctx.storageKey ? (parseInt(localStorage.getItem(ctx.storageKey)) || 0) : AI_REQUEST_LIMIT;
     if (activeKeyLabel) {
-        if (!ctx.key) {
-            activeKeyLabel.textContent = '⚠️ كل المفاتيح الافتراضية استهلكت حدها الأقصى.';
-        } else if (ctx.isDefault) {
-            activeKeyLabel.textContent = `بيشتغل دلوقتي على المفتاح الافتراضي رقم ${ctx.index + 1} من ${AI_DEFAULT_KEYS_B64.length}.`;
-        } else {
-            activeKeyLabel.textContent = 'بيشتغل دلوقتي على مفتاحك الشخصي.';
+        if (!ctx.key) activeKeyLabel.textContent = '⚠️ كل المفاتيح المتاحة استهلكت حدها الأقصى النهاردة.';
+        else if (aiUserPoolOn) activeKeyLabel.textContent = 'بيشتغل دلوقتي على مفتاحك رقم ' + (ctx.index + 1) + ' من ' + meta.length + '.';
+        else if (ctx.isDefault) activeKeyLabel.textContent = 'بيشتغل دلوقتي على المفتاح الافتراضي رقم ' + (ctx.index + 1) + ' من ' + AI_GW_DEFAULT_COUNT + '.';
+        else activeKeyLabel.textContent = 'بيشتغل دلوقتي على مفتاحك القديم المسجّل على الجهاز.';
+    }
+}
+
+// -------- مفاتيح المستخدم الشخصية: بتتخزن مشفّرة على السيرفر مربوطة بالحساب، والتطبيق بيجيبها مرة في الجلسة ويحطها في الذاكرة بس --------
+const AI_UK_FORMAT = /^(AIza[0-9A-Za-z_-]{35}|AQ\.[0-9A-Za-z_-]{20,120})$/;
+async function aiUkApi(method, path, body) {
+    const gw = window.__aiUKW || ''; if (!gw) throw { code: 'nogw' };
+    const tok = window.__aiIdToken ? await window.__aiIdToken() : '';
+    if (!tok) throw { code: 'noauth' };
+    const headers = { Authorization: 'Bearer ' + tok }; if (body) headers['Content-Type'] = 'application/json';
+    const res = await fetch(gw + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+    let data = {}; try { data = await res.json(); } catch (e) {}
+    return { status: res.status, data };
+}
+function aiUkSetMeta(list) {
+    try { if (list && list.length) localStorage.setItem('sp_ai_uk_meta', JSON.stringify(list)); else localStorage.removeItem('sp_ai_uk_meta'); } catch (e) {}
+    aiApplyKeyPool();
+    try { renderAIKeySettingsUI(); } catch (e) {}
+    try { if (document.getElementById('section-ai-assistant')?.classList.contains('active')) renderAIAssistantView(); } catch (e) {}
+}
+async function aiUkMigrateLegacy() {
+    const old = localStorage.getItem('app_gemini_api_key'); if (!old || !AI_UK_FORMAT.test(old)) return;
+    try {
+        let r = await aiUkApi('POST', '/user-keys', { key: old });
+        if (r.status === 422 && r.data.error === 'unverified') r = await aiUkApi('POST', '/user-keys', { key: old, force: true });
+        if ((r.status === 200 && r.data.ok) || (r.status === 409 && r.data.error === 'duplicate')) {
+            localStorage.removeItem('app_gemini_api_key');
+            try { if (window.__aiUkLoad) await window.__aiUkLoad(); } catch (e) {}
+            renderAIKeySettingsUI();
+            showToast('🔐 نقلنا مفتاحك لحسابك على السيرفر');
         }
-    }
-    const input = document.getElementById('aiApiKeyInput');
-    if (input) input.value = '';
+    } catch (e) {}
 }
-
-function saveAIApiKey() {
+async function aiUkRefresh() {
+    if (!(typeof fbAuth !== 'undefined' && fbAuth && fbAuth.currentUser)) return false;
+    try {
+        const r = window.__aiUkLoad ? await window.__aiUkLoad() : { ok: false };
+        if (r && r.ok) { await aiUkMigrateLegacy(); return true; }
+    } catch (e) {}
+    return false;
+}
+function aiUkWhy(d) {
+    return d.reason === 'API_KEY_HTTP_REFERRER_BLOCKED' ? 'المفتاح مقيّد بمواقع أو تطبيق معيّن.'
+         : d.reason === 'API_KEY_IP_ADDRESS_BLOCKED' ? 'المفتاح مقيّد بعناوين معيّنة.'
+         : d.reason === 'SERVICE_DISABLED' ? 'خدمة Gemini مش مفعّلة على مشروع المفتاح ده.'
+         : 'جوجل رفض فحص المفتاح (' + (d.status || '?') + ').';
+}
+async function saveAIApiKey() {
     const input = document.getElementById('aiApiKeyInput');
-    const val = (input?.value || '').trim();
-    if (!val) { showToast('الصق المفتاح الأول ✍️'); return; }
-
-    // خطوة 1: فحص الشكل محليًا وبسرعة — مفاتيح Gemini API (Google AI Studio) يا إما بتبدأ بـ "AIza"
-    // وطولها 39 حرف (الشكل القديم)، يا إما بتبدأ بـ "AQ." (الشكل الجديد)، حروف/أرقام/underscore/hyphen بس. لو مش مطابق،
-    // يبقى أكيد مش مفتاح Gemini أصلاً (يمكن اتلصق غلط أو من خدمة تانية) فمفيش داعي نكلف
-    // نفسنا نتصل بالنت.
-    if (!/^(AIza[0-9A-Za-z_-]{35}|AQ\.[0-9A-Za-z_-]{20,120})$/.test(val)) {
-        alert('⚠️ المفتاح ده مش شكل مفتاح Gemini API الصحيح.\n\nمفتاح Gemini المفروض يبدأ بـ "AIza" (39 حرف) أو بـ "AQ." (الشكل الجديد). تأكد إنك ناسخ المفتاح صح وكامل من Google AI Studio (aistudio.google.com) — يمكن نسخت مسافة زيادة أو المفتاح ده من خدمة تانية مش جوجل.');
-        return;
-    }
-
-    // خطوة 2: تأكيد حقيقي من سيرفرات جوجل إن المفتاح ده فعّال وشغال (مش بس شكله صح)
-    showToast('بيتأكد من المفتاح مع جوجل... ⏳');
-    const saveKeyOk = () => {
-        localStorage.setItem('app_gemini_api_key', val);
-        input.value = '';
-        renderAIKeySettingsUI();
-    };
-    fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(val)}`)
-        .then(async res => {
-            if (res.ok) {
-                saveKeyOk();
-                showToast('✅ اتأكد إن المفتاح شغال واتحفظ');
-                return;
-            }
-            // نقرأ سبب الرفض الحقيقي من جوجل بدل ما نقول "غلط" على أي 400/403
-            let msg = '', reason = '';
+    const raw = (input && input.value) || '';
+    const keys = Array.from(new Set(raw.split(/[\s,;،]+/).map(x => x.trim()).filter(Boolean)));
+    if (!keys.length) { showToast('الصق المفتاح الأول ✍️'); return; }
+    if (!(typeof fbAuth !== 'undefined' && fbAuth && fbAuth.currentUser)) { alert('سجّل دخول بحسابك الأول من الإعدادات، وبعدين ضيف مفاتيحك. كده بتتحفظ مربوطة بحسابك وبأمان.'); return; }
+    const good = keys.filter(k => AI_UK_FORMAT.test(k)), badFmt = keys.length - good.length;
+    if (!good.length) { alert('⚠️ اللي لصقته مش شكل مفتاح Gemini API صحيح.\n\nالمفتاح بيبدأ بـ AIza (39 حرف) أو AQ. — انسخه كامل من Google AI Studio.'); return; }
+    const btn = document.getElementById('aiApiKeyAddBtn'); if (btn) btn.disabled = true;
+    showToast('بيتأكد من المفاتيح مع جوجل... ⏳');
+    let added = 0, dup = 0, invalid = 0, skipped = 0, other = 0, limit = false, down = false, lastKeys = null;
+    try {
+        for (const k of good) {
             try {
-                const j = await res.json();
-                msg = (j && j.error && j.error.message) || '';
-                const det = (j && j.error && j.error.details) || [];
-                for (const d of det) { if (d && d.reason) { reason = d.reason; break; } }
-            } catch (e) {}
-            const reallyInvalid = reason === 'API_KEY_INVALID' || /API key not valid|API key expired/i.test(msg);
-            if (reallyInvalid) {
-                alert('❌ جوجل بيقول إن المفتاح ده مش صالح.\n\n' + (msg ? msg + '\n\n' : '') + 'راجع إنك ناسخه كامل من Google AI Studio.');
-            } else if (res.status === 400 || res.status === 403) {
-                // المفتاح نفسه سليم غالبًا، بس جوجل رافض الطلب من المتصفح (قيود على المفتاح: HTTP referrer أو تطبيق أندرويد، أو الـ API مش مفعّل)
-                const why = reason === 'API_KEY_HTTP_REFERRER_BLOCKED' ? 'المفتاح مقيّد بمواقع/تطبيق معيّن ومش مسموح له من المتصفح ده.'
-                          : reason === 'API_KEY_ANDROID_APP_BLOCKED' ? 'المفتاح مقيّد بتطبيق أندرويد معيّن.'
-                          : reason === 'SERVICE_DISABLED' ? 'Generative Language API مش مفعّل على مشروع المفتاح ده.'
-                          : 'جوجل رفض فحص المفتاح من هنا (' + res.status + ').';
-                if (confirm('⚠️ ' + why + '\n\n' + (msg ? msg + '\n\n' : '') + 'ده مش معناه إن المفتاح غلط. تحب تحفظه وتجرّبه فعليًا في المساعد؟')) {
-                    saveKeyOk();
-                    showToast('تم الحفظ — جرّب المساعد وشوف لو شغال');
+                let r = await aiUkApi('POST', '/user-keys', { key: k });
+                if (r.status === 422 && r.data.error === 'unverified') {
+                    if (confirm('⚠️ ' + aiUkWhy(r.data) + '\n\nده مش معناه إن المفتاح غلط. تحب تحفظه برضو وتجرّبه في المساعد؟')) r = await aiUkApi('POST', '/user-keys', { key: k, force: true });
+                    else { skipped++; continue; }
                 }
-            } else {
-                alert(`⚠️ جوجل رجّع خطأ غير متوقع (${res.status}) أثناء التأكد من المفتاح. جرّب تاني كمان شوية.`);
-            }
-        })
-        .catch(() => {
-            alert('⚠️ ماقدرش أتأكد من المفتاح دلوقتي (فيه مشكلة اتصال بالنت). تأكد من الإنترنت وحاول تاني.');
-        });
+                if (r.status === 200 && r.data.ok) { added++; if (r.data.keys) lastKeys = r.data.keys; }
+                else if (r.data.error === 'duplicate') dup++;
+                else if (r.data.error === 'invalid') invalid++;
+                else if (r.data.error === 'limit') { limit = true; break; }
+                else if (r.status === 404 || r.status === 503 || r.status === 401) { down = true; break; }
+                else other++;
+            } catch (e) { if (e && (e.code === 'nogw' || e.code === 'noauth')) { down = true; break; } other++; }
+        }
+    } finally { if (btn) btn.disabled = false; }
+    if (added) { /* نعيد تحميل المفاتيح مرة واحدة (الذاكرة + القايمة بيتظبطوا مع بعض) */
+        let lr = null; try { lr = window.__aiUkLoad ? await window.__aiUkLoad() : null; } catch (e) {}
+        if (!(lr && lr.ok) && lastKeys) { try { window.__aiUk && window.__aiUk.clear(); } catch (e) {} aiUkSetMeta(lastKeys); }
+    }
+    const parts = [];
+    if (added) parts.push('✅ اتضاف ' + added + ' مفتاح');
+    if (dup) parts.push(dup + ' كان مضاف قبل كده');
+    if (invalid) parts.push('❌ ' + invalid + ' جوجل قال إنه مش صالح');
+    if (badFmt) parts.push(badFmt + ' شكله غلط');
+    if (skipped) parts.push(skipped + ' اتسابوا من غير حفظ');
+    if (limit) parts.push('وصلت للحد الأقصى (10 مفاتيح)');
+    if (other) parts.push(other + ' فشلوا، جرّب تاني');
+    if (down) parts.push('⚠️ خدمة حفظ المفاتيح مش شغالة دلوقتي، جرّب بعد شوية');
+    if (input && (added || dup)) input.value = '';
+    const total = aiUserKeyMeta().length;
+    if (added && total) parts.push('عندك دلوقتي ' + total + ' مفتاح');
+    if (added && !invalid && !limit && !down && !other && !badFmt) showToast(parts.join(' — '));
+    else alert(parts.join('\n'));
 }
-
+async function aiUkRemoveKey(id) {
+    if (!confirm('تمسح المفتاح ده من حسابك؟')) return;
+    try {
+        const r = await aiUkApi('DELETE', '/user-keys/' + encodeURIComponent(id));
+        if (r.status === 200 && r.data.ok) {
+            let lr = null; try { lr = window.__aiUkLoad ? await window.__aiUkLoad() : null; } catch (e) {}
+            if (!(lr && lr.ok)) { try { window.__aiUk && window.__aiUk.clear(); } catch (e) {} aiUkSetMeta(r.data.keys || []); }
+            showToast('تم مسح المفتاح'); return;
+        }
+        showToast('⚠️ تعذّر مسح المفتاح، جرّب تاني');
+    } catch (e) { showToast('⚠️ تعذّر مسح المفتاح، تأكد من الإنترنت'); }
+}
+async function aiUkTestKey(id) {
+    showToast('بيجرّب المفتاح... ⏳');
+    try {
+        const r = await aiUkApi('POST', '/user-keys/' + encodeURIComponent(id) + '/test');
+        if (r.status === 200 && r.data.ok) showToast('✅ المفتاح شغال');
+        else if (r.status === 200) showToast('⚠️ جوجل رفض المفتاح (' + (r.data.status || '?') + ')');
+        else showToast('⚠️ تعذّرت التجربة، جرّب تاني');
+    } catch (e) { showToast('⚠️ تعذّرت التجربة، تأكد من الإنترنت'); }
+}
+// مسح مفتاح قديم متسجّل على الجهاز نفسه (قبل النقل للحساب)
 function clearAIApiKey() {
-    if (!confirm('تمسح المفتاح المسجّل؟ هتحتاج تسجله تاني عشان تستخدم المساعد.')) return;
+    if (!confirm('تمسح المفتاح القديم المسجّل على الجهاز؟')) return;
     localStorage.removeItem('app_gemini_api_key');
     renderAIKeySettingsUI();
     showToast('تم مسح المفتاح');
 }
 
 function resetAIUsageCounter() {
-    if (!confirm('تصفير عداد الطلبات؟ (استخدمه بس لو مسجل مفتاح جديد فعلاً)')) return;
-    const userKey = localStorage.getItem('app_gemini_api_key');
-    if (userKey) {
+    if (!confirm('تصفير عداد الطلبات؟ (استخدمه بس لو ضفت مفتاح جديد فعلاً)')) return;
+    const legacy = !aiUserPoolOn && localStorage.getItem('app_gemini_api_key');
+    if (legacy) {
         localStorage.setItem('app_ai_usage_count', '0');
     } else {
-        // بنصفّر كل المفاتيح الافتراضية العشرة مع بعض، ونشيل أي علامة "خلص حصته"، ونرجّع الدور لأول مفتاح
+        // بنصفّر كل مفاتيح الدوران الحالية (الافتراضية أو الشخصية) مع بعض، ونشيل علامة "خلص حصته"، ونرجّع الدور لأول مفتاح
+        const today = new Date().toISOString().slice(0, 10);
         for (let i = 0; i < AI_DEFAULT_KEYS_B64.length; i++) {
-            localStorage.setItem('app_ai_usage_count_' + i, '0');
-            localStorage.removeItem('app_ai_key_exhausted_' + i);
-            localStorage.setItem('app_ai_usage_reset_date_' + i, new Date().toISOString().slice(0, 10));
+            localStorage.setItem(aiUsageKeyName(i), '0');
+            localStorage.removeItem('app_ai_key_exhausted_' + aiUkSfx() + i);
+            localStorage.setItem('app_ai_usage_reset_date_' + aiUkSfx() + i, today);
         }
-        localStorage.setItem('app_ai_default_key_pointer', '0');
+        localStorage.setItem('app_ai_default_key_pointer' + (aiUserPoolOn ? '_uk' : ''), '0');
     }
     aiUsageCount = loadAIUsageCount();
     renderAIKeySettingsUI();
@@ -18580,13 +19678,16 @@ async function resolveAIArchivedImages(history) {
     for (const turn of out) {
         for (const part of (turn.parts || [])) {
             if (!part?.imageRef) continue;
-            const dataUrl = await loadAIChatImageFromDB(part.imageRef);
-            if (dataUrl) {
-                const m = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
-                if (m) {
-                    delete part.imageRef;
-                    part.inlineData = { mimeType: m[1], data: m[2] };
-                }
+            let dataUrl = null;
+            try { dataUrl = await loadAIChatImageFromDB(part.imageRef); } catch (e) {}
+            const m = dataUrl && /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
+            if (m) {
+                delete part.imageRef;
+                part.inlineData = { mimeType: m[1], data: m[2] };
+            } else {
+                const nm = part.fileName;
+                delete part.imageRef;
+                part.text = nm ? ('[📎 ' + nm + ' — مش متاح على الجهاز ده]') : '[📎 المرفق ده مش متاح على الجهاز ده]';
             }
         }
     }
@@ -19909,7 +21010,7 @@ const APP_ACTIONS = {
                 }
             }
             switchTab('quran');
-            await openSurah(surahNum, requestedAyah || undefined, true);
+            await openSurah(surahNum, requestedAyah || undefined, false);
             const label = requestedAyah ? `سورة ${surahData.name} — آية ${quranToArabicNum(requestedAyah)}` : `سورة ${surahData.name}`;
             appendAIBubble('action', `📖 اتنقلنا لـ ${label}`);
             return { status: 'ok', message: `تم الانتقال إلى ${label}`, surahNumber: surahNum, ayahNumber: requestedAyah };
@@ -22977,7 +24078,7 @@ function aiPreferredKeyCtx(input) {
         const tag = it._ref.keyTag;
         if (tag && tag[0] === 'd') {
             const idx = parseInt(tag.slice(1), 10);
-            if (!isNaN(idx) && !isDefaultKeyExhaustedToday(idx)) return { key: decodeDefaultAIKey(idx), storageKey: 'app_ai_usage_count_' + idx, isDefault: true, index: idx };
+            if (!isNaN(idx) && !isDefaultKeyExhaustedToday(idx)) return { key: decodeDefaultAIKey(idx), storageKey: aiUsageKeyName(idx), isDefault: true, index: idx };
         }
         return null;
     }
@@ -24456,7 +25557,7 @@ async function hydrateAIChatHistory() {
                 delete part.mimeType;
                 aiStoredAttachmentIds.add(refId);
             } else {
-                part.text = '[📎 المرفق ده مش متاح]';
+                part.text = part.fileName ? ('[📎 ' + part.fileName + ' — مش متاح على الجهاز ده]') : '[📎 المرفق ده مش متاح على الجهاز ده]';
             }
         }
     }
@@ -27079,13 +28180,14 @@ function endAIVoiceCall() {
 
     function quranContinueReading() {
         if (!quranLastRead) return;
-        openSurah(quranLastRead.surah, quranLastRead.ayahNumberInSurah, true);
+        const t = (typeof rpContTarget === 'function') ? rpContTarget() : null;
+        if (t) openSurah(t.s, t.a, false); else openSurah(quranLastRead.surah, quranLastRead.ayahNumberInSurah, false);
     }
 
     function quranGoToLatestBookmark() {
         if (!quranBookmarks.length) return;
         const latest = [...quranBookmarks].sort((a, b) => b.addedAt - a.addedAt)[0];
-        openSurah(latest.surah, latest.ayah, true);
+        openSurah(latest.surah, latest.ayah, false);
     }
 
     // ===== صفحة "عرض الكل" لعلامات التوقف =====
@@ -27545,7 +28647,7 @@ function endAIVoiceCall() {
 
     function quranGoToBookmark(surah, ayah) {
         document.getElementById('quranBookmarksPageView').style.display = 'none';
-        openSurah(surah, ayah, true);
+        openSurah(surah, ayah, false);
     }
 
     function quranRemoveBookmarkFromPage(surah, ayah) {
@@ -27905,6 +29007,9 @@ function endAIVoiceCall() {
         QV.scrollFn = () => { if (!QV.sweepT) QV.sweepT = setTimeout(() => { QV.sweepT = 0; quranVSweep(); }, 500); };
         window.addEventListener('scroll', QV.scrollFn, { passive: true });
     }
+    // تتبّع القراءة لقسم التقارير: الآية بتتحسب مقروءة لما تفضل ظاهرة على الشاشة ثانيتين
+    const __rpOrigVSetup = quranVSetup;
+    quranVSetup = function (wrap) { __rpOrigVSetup(wrap); try { rpReadTrack(wrap); } catch (e) { } };
     function quranVMountAround(n, r) {
         r = r == null ? 3 : r;
         for (let k = n - r; k <= n + r; k++) { const row = QV.rowEl.get(k); if (row) quranVMount(row); }
@@ -36058,7 +37163,8 @@ window.registerAppTile = function (o) {
 };
 </script>
 <script>window.__socialErrs=[];window.addEventListener('error',function(e){try{if(e&&e.filename&&/social\.js/.test(e.filename))window.__socialErrs.push((e.message||'خطأ')+(e.lineno?' @'+e.lineno:''))}catch(x){}},true);</script>
-<script src="social.js?v=17" onerror="window.__socialLoadFailed=1"></script>
+<script src="onboarding.js?v=1" onerror="window.__onbLoadFailed=1"></script>
+<script src="social.js?v=18" onerror="window.__socialLoadFailed=1"></script>
 <script id="socialGuardScript">
 /* حارس تحميل المنافسة والأصدقاء: لو social.js مجاش (كاش قديم/ملف مش واصل) بيحاول يجيبه تاني، ولو فشل بيظهر زرار يشرح السبب بدل ما القسم يختفي */
 (function(){
@@ -36091,7 +37197,7 @@ function addTile(){
 async function check(){
  if(ready()||hasTile())return;
  try{
-  var r=await fetch('social.js?v=17&r='+Date.now(),{cache:'reload'});
+  var r=await fetch('social.js?v=18&r='+Date.now(),{cache:'reload'});
   if(r.ok){var code=await r.text();
    if(/^\s*</.test(code))window.__socialHttp='السيرفر رجّع صفحة HTML بدل الملف (social.js مش مرفوع)';
    else{var s=document.createElement('script');s.textContent=code;document.head.appendChild(s)}}
@@ -36215,7 +37321,9 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
     var KV_EXC = /^(app_link_|app_lock_|webauthn|app_push_|app_gemini_api_key|app_gdrive_|app_ai_default_key_pointer|app_ai_key_exhausted_|app_ai_usage_|app_battery|app_cloud_last_sync|app_last_local_backup|app_quran_downloaded_index|app_quran_dl|quranTajweedDownloadedAll|quranTajweedStruck|quranFont|quranTafsirDownloaded|quranTranslationDownloaded|quranDl|web_native_alarms|app_timer_alarm_sound|sp_|app_theme_tab|app_ai_live_voice|app_ai_mic_|app_ai_active_conv|ai_last_err|ai_rl_|ai_fb_models|ai_img_models|app_tbl_last_cell_color)/;
     var KV_THEME = /^(app_theme_color|app_theme_mode|app_theme_custom_active|app_custom_theme|app_ai_custom_theme)$/;
     var KV_PART = 300000, KV_MAXP = 12;
-    function kvOk(k) { return /^(app_|ai_|quran|homeShortcuts)/.test(k) && !KV_EXC.test(k) && !KV_ADAPTED.test(k); }
+    function kvOk(k) { return (/^(app_|ai_|quran|homeShortcuts)/.test(k) || /^rp_(khatma|ayah_goal|read_|q_baseline|tiers_seen)/.test(k)) && !KV_EXC.test(k) && !KV_ADAPTED.test(k); }
+    var SEC_RE = /^(app_lock_(hash|salt|recovery_hash|recovery_salt|email))$/;
+    function kvSyncOk(k) { return kvOk(k) || SEC_RE.test(k); }
     function kvCls() { try { return (window.__isDesk && window.__isDesk()) ? 'd' : 'm'; } catch (e) { return 'm'; } }
     function timerBusy() { try { return !!isTimerRunning; } catch (e) { return false; } }
     function scanKV(out) {
@@ -36223,7 +37331,7 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
         if (!rt.kvv) rt.kvv = {};
         for (i = 0; i < LS.length; i++) {
             key = LS.key(i);
-            if (!kvOk(key)) continue;
+            if (!kvSyncOk(key)) continue;
             g = KV_THEME.test(key) ? cls : ''; id = g ? key + '@' + g : key; seen[id] = 1;
             if (key === 'app_timer_state' && timerBusy()) continue;
             v = LS.getItem(key); if (v == null) continue;
@@ -36292,6 +37400,13 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
     ['app_theme_color', 'app_theme_mode', 'app_theme_custom_active', 'app_custom_theme'].forEach(function (k) {
         KV_SOFT[k] = function () { restoreThemeModeAttribute(); applySavedThemeColor(); updateThemeBtnLabel(); };
     });
+    ['app_quran_read_log', 'app_quran_last_read', 'rp_khatma', 'rp_ayah_goal', 'rp_read_cal2', 'rp_read_calw', 'rp_read_speed', 'rp_q_baseline', 'rp_tiers_seen'].forEach(function (k) {
+        KV_SOFT[k] = function () {
+            if (k === 'app_quran_last_read') { try { quranLastRead = JSON.parse(LS.getItem(k)) || null; } catch (e) { } }
+            if (typeof window.rpQReload === 'function') window.rpQReload();
+        };
+    });
+    KV_SOFT.app_gemini_api_key = function () { try { renderAIKeySettingsUI(); } catch (e) { } };
     function kvRefresh(KT) {
         var need = false;
         Object.keys(KT).forEach(function (k) {
@@ -36302,32 +37417,86 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
         if (need) { toast('وصلت تحديثات من جهاز تاني، هيتحدّث التطبيق دلوقتي 🔄'); scheduleReload(); }
     }
     function collectExtra(cap) {
-        var o = {}, total = 0, i, k, v;
+        var o = {}, total = 0, i, k, v; if (cap) window.__bkSkipped = [];
         for (i = 0; i < LS.length; i++) {
             k = LS.key(i); if (!kvOk(k)) continue;
             v = LS.getItem(k); if (v == null) continue;
-            if (cap && (v.length > 150000 || total + v.length > 500000)) continue;
+            if (cap && (v.length > 150000 || total + v.length > 500000)) { (window.__bkSkipped = window.__bkSkipped || []).push(k); continue; }
             total += v.length; o[k] = v;
         }
         return o;
     }
+    var SEC_KEYS = ['app_lock_hash', 'app_lock_salt', 'app_lock_recovery_hash', 'app_lock_recovery_salt', 'app_lock_email'];
+    function collectSecrets(blanks) {
+        var o = {}; SEC_KEYS.forEach(function (k) { var v = LS.getItem(k); if (v) o[k] = v; else if (blanks) o[k] = ''; }); if (blanks) o.app_gemini_api_key = ''; /* بيمسح أي نسخة قديمة من المفتاح كانت اترفعت للحساب */ return o;
+    }
+    // onlyMissing: ما يكتبش فوق حاجة موجودة على الجهاز (القفل بيتعامل كمجموعة واحدة)
+    function applySecrets(sec, onlyMissing) {
+        if (!sec || typeof sec !== 'object') return 0;
+        var n = 0, lock = false, hadLock = !!LS.getItem('app_lock_hash');
+        SEC_KEYS.forEach(function (k) {
+            var v = sec[k]; if (typeof v !== 'string' || !v) return;
+            var isLock = k.indexOf('app_lock_') === 0;
+            if (onlyMissing && (isLock ? hadLock : !!LS.getItem(k))) return;
+            if (LS.getItem(k) === v) return;
+            try { LS.setItem(k, v); n++; if (isLock) lock = true; } catch (e) { }
+        });
+        if (n) { toast('رجّعنا إعدادات الأمان 🔐'); try { renderAIKeySettingsUI(); } catch (e) { } if (lock) scheduleReload(); }
+        return n;
+    }
+    function pullSecrets(u) {
+        try {
+            fbDb.collection('users').doc(u.uid).get().then(function (doc) {
+                var sec = doc.exists ? doc.data().app_secrets : null, n = sec ? applySecrets(sec, true) : 0;
+                if (LS.getItem('app_link_pending_secrets')) { LS.removeItem('app_link_pending_secrets'); if (!n) toast('مفيش مفاتيح محفوظة على الحساب ده، أو موجودة بالفعل على الجهاز'); }
+            }).catch(function () { toast('تعذّر استرجاع المفاتيح، تأكد من الإنترنت ⚠️'); });
+        } catch (e) { }
+    }
+    // ملف النسخة الاحتياطية بيحمل إيميل الحساب بس. أول ما يتستورد، بنطلب تسجيل الدخول عشان المفاتيح ترجع من الحساب
+    function checkPendingSecrets() {
+        var em = LS.getItem('app_link_pending_secrets'); if (!em) return;
+        if (typeof fbAuth === 'undefined' || !fbAuth || typeof fbDb === 'undefined') return;
+        var un = fbAuth.onAuthStateChanged(function (u) {
+            try { un(); } catch (e) { }
+            if (u) { pullSecrets(u); return; }
+            setTimeout(function () {
+                if (confirm('الملف ده كان من حساب ' + em + '\nسجّل دخول بنفس الحساب عشان نرجّع قفل التطبيق وباقي إعداداتك الأمنية؟')) { try { handleGoogleLogin(); } catch (e) { } }
+                else LS.removeItem('app_link_pending_secrets');
+            }, 800);
+        });
+    }
+    window.quietCloudPush = function () {
+        try { if (fbAuth && fbAuth.currentUser) fbDb.collection('users').doc(fbAuth.currentUser.uid).set(Object.assign({}, buildDataBundle('cloud'), { updated_at: firebase.firestore.FieldValue.serverTimestamp() }), { merge: true }); } catch (e) { }
+    };
     (function wrapBackup() {
-        var b0 = window.buildDataBundle, a0 = window.applyImportedDataBundle;
+        var b0 = window.buildDataBundle, a0 = window.applyImportedDataBundle, al0 = window.afterCloudLogin;
         if (typeof b0 === 'function') window.buildDataBundle = function (mode) {
             var d = b0.apply(this, arguments);
             try { d.app_extra = collectExtra(mode === 'cloud'); } catch (e) { }
+            if (mode !== 'file') { try { d.app_secrets = collectSecrets(mode === 'cloud'); } catch (e) { } }
             return d;
         };
         if (typeof a0 === 'function') window.applyImportedDataBundle = function (data) {
             var r = a0.apply(this, arguments);
             try {
-                if (data && data.app_extra && typeof data.app_extra === 'object') {
+                var hasExtra = !!(data && data.app_extra && typeof data.app_extra === 'object');
+                if (hasExtra) {
                     Object.keys(data.app_extra).forEach(function (k) { if (kvOk(k) && typeof data.app_extra[k] === 'string') { try { LS.setItem(k, data.app_extra[k]); } catch (e) { } } });
+                    try { if (typeof window.rpQDrop === 'function') window.rpQDrop(); } catch (e) { }
                     toast('تم استرجاع كل البيانات، هيتحدّث التطبيق 🔄'); scheduleReload();
                 }
+                if (data && data.app_secrets) applySecrets(data.app_secrets, false);
+                else if (data && data.app_account_email) { LS.setItem('app_link_pending_secrets', String(data.app_account_email)); if (!hasExtra) setTimeout(checkPendingSecrets, 1500); }
             } catch (e) { }
             return r;
         };
+        // أي تسجيل دخول جديد: لو الجهاز ناقصه مفتاح أو قفل وفي حسابك نسخة منه، بيرجع لوحده
+        if (typeof al0 === 'function') window.afterCloudLogin = function (user) {
+            var r = al0.apply(this, arguments);
+            try { Promise.resolve(r).then(function () { pullSecrets(user); }); } catch (e) { }
+            return r;
+        };
+        setTimeout(checkPendingSecrets, 3000);
     })();
 
 
@@ -36494,6 +37663,7 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
         if (!d) return;
         if (d.c === 'kv') {
             if (d.by === st.deviceId) return;
+            if (!kvSyncOk(d.k)) return;
             var g = d.g || ''; if (g && g !== kvCls()) return;
             var kid = g ? d.k + '@' + g : d.k;
             if (!rt.kvParts) rt.kvParts = {};
@@ -36509,9 +37679,13 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
             if (P.d) { changed = LS.getItem(d.k) !== null; LS.removeItem(d.k); delete rt.kvv[kid]; km[kid] = { h: null, t: P.t, d: true, p: true }; }
             else {
                 var kv = ''; for (var q = 0; q < P.n; q++) kv += P.got[q] || '';
+                var mergedNow = false;
+                if (d.k === 'app_quran_read_log' && typeof window.rpMergeReadLog === 'function') {
+                    try { var mg = JSON.stringify(window.rpMergeReadLog(JSON.parse(LS.getItem(d.k) || 'null'), JSON.parse(kv))); if (mg !== kv) { kv = mg; mergedNow = true; } } catch (e) { }
+                }
                 changed = LS.getItem(d.k) !== kv;
                 try { LS.setItem(d.k, kv); } catch (e) { delete rt.kvParts[kid]; return; }
-                rt.kvv[kid] = kv; km[kid] = { h: hash(kv), t: P.t, d: false, p: true };
+                rt.kvv[kid] = kv; km[kid] = { h: hash(kv), t: mergedNow ? Date.now() : P.t, d: false, p: !mergedNow };
             }
             if (changed) { if (!rt.kvTouched) rt.kvTouched = {}; rt.kvTouched[d.k] = 1; }
             delete rt.kvParts[kid]; saveSoon();
@@ -36582,7 +37756,7 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
         } catch (e) { }
     }
     function backup() {
-        var data; try { data = buildDataBundle(); } catch (e) { return; }
+        var data; try { data = buildDataBundle('file'); } catch (e) { return; }
         var s = JSON.stringify({ savedAt: new Date().toISOString(), data: data });
         try { LS.setItem('app_link_backup_before_merge', s); return; } catch (e) { }
         try {
@@ -38545,6 +39719,226 @@ async function speak(bubble, btn) {
     if (my === session) stop();
 }
 window.aiSpeakMessage = speak;
+})();
+</script>
+<script id="acctRestoreScript">
+(function () {
+    'use strict';
+    /* استرجاع بيانات الحساب على جهاز جديد:
+       1) المحادثات (نصوصها) بتتحفظ على الحساب مقسّمة أجزاء، فمتتخطّاش مهما كبرت (لحد حد أقصى)
+       2) قايمة التفسيرات والترجمات والخطوط اللي كانت محمّلة بتتحفظ على الحساب (الأسماء بس، مش الملفات)
+       3) أول ما تسجل دخول على جهاز جديد: بيسألك مرة واحدة تحمّلهم تاني ولا لأ */
+    var LS = window.localStorage;
+    var CHAT_KEYS = ['app_ai_conversations', 'app_ai_artifacts', 'app_ai_projects', 'app_ai_chat_history'];
+    var MERGE_KEYS = { app_ai_conversations: 1 };
+    var PART = 150000, MAXP = 20, MAX_CONV = 30;
+    var ST_KEY = 'sp_acct_state_v1'; // sp_ = خاص بالجهاز ومش بيتزامن
+    var MISSING_TXT = '[📎 المرفق ده مش متاح]';
+    var timer = null, ready = false, warned = {}, rl = null, session = 0;
+
+    function toast(m) { try { if (typeof showToast === 'function') showToast(m); } catch (e) { } }
+    function hash(s) { var h = 5381, i; for (i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return s.length + ':' + h; }
+    function loadState(uid) {
+        try { var o = JSON.parse(LS.getItem(ST_KEY) || 'null'); if (o && o.uid === uid) { o.h = o.h || {}; o.seen = o.seen || []; o.declined = o.declined || []; return o; } } catch (e) { }
+        return { uid: uid, h: {}, seen: [], declined: [], rh: '', ln: '' };
+    }
+    function saveState(s) { try { LS.setItem(ST_KEY, JSON.stringify(s)); } catch (e) { } }
+    function fb() {
+        try { if (typeof fbAuth !== 'undefined' && fbAuth && typeof fbDb !== 'undefined' && fbDb) return { auth: fbAuth, db: fbDb }; } catch (e) { }
+        return null;
+    }
+    function chatsCol(db, uid) { return db.collection('users').doc(uid).collection('chats'); }
+
+    // تقسيم النص بدون ما نقطع في نص زوج surrogate (إيموجي) عشان Firestore ما يبوّظهوش
+    function split(v) {
+        var out = [], i = 0, end;
+        while (i < v.length) {
+            end = Math.min(i + PART, v.length);
+            if (end < v.length) { var c = v.charCodeAt(end - 1); if (c >= 0xD800 && c <= 0xDBFF) end--; }
+            out.push(v.slice(i, end)); i = end;
+        }
+        return out.length ? out : [''];
+    }
+    function isEmptyVal(v) { return !v || v === '[]' || v === 'null' || v === '{}'; }
+
+    // دمج قايمة المحادثات: اتحاد بالـ id، ولو نفس المحادثة في الاتنين ناخد الأحدث
+    function mergeConvs(localStr, remoteStr) {
+        var L = [], R = [], map = {}, added = 0;
+        try { L = JSON.parse(localStr || '[]'); if (!Array.isArray(L)) L = []; } catch (e) { L = []; }
+        try { R = JSON.parse(remoteStr || '[]'); if (!Array.isArray(R)) return null; } catch (e) { return null; }
+        L.forEach(function (c) { if (c && c.id != null) map[c.id] = c; });
+        R.forEach(function (c) {
+            if (!c || c.id == null) return;
+            var cur = map[c.id];
+            if (!cur) { map[c.id] = c; added++; }
+            else if ((Date.parse(c.savedAt) || 0) > (Date.parse(cur.savedAt) || 0)) map[c.id] = c;
+        });
+        var arr = Object.keys(map).map(function (k) { return map[k]; });
+        arr.sort(function (a, b) { return (Date.parse(b.savedAt) || 0) - (Date.parse(a.savedAt) || 0); });
+        return { json: JSON.stringify(arr.slice(0, MAX_CONV)), added: added };
+    }
+
+    /* ---------- المحادثات ---------- */
+    async function pushChats(f, uid) {
+        var st = loadState(uid), changed = false, col = chatsCol(f.db, uid), ci, k, v, h, parts, b, i;
+        for (ci = 0; ci < CHAT_KEYS.length; ci++) {
+            k = CHAT_KEYS[ci]; v = LS.getItem(k);
+            if (isEmptyVal(v)) continue; // مبنمسحش حاجة من الحساب لو الجهاز فاضي
+            h = hash(v); if (st.h[k] === h) continue;
+            parts = split(v);
+            if (parts.length > MAXP) { if (!warned[k]) { warned[k] = 1; toast('المحادثات كبيرة جدًا، ماترفعتش كلها للحساب ⚠️'); } continue; }
+            b = f.db.batch();
+            for (i = 0; i < parts.length; i++) b.set(col.doc(k + '__' + i), { k: k, i: i, n: parts.length, js: parts[i], t: Date.now() });
+            for (i = parts.length; i < MAXP; i++) b.delete(col.doc(k + '__' + i));
+            await b.commit();
+            st.h[k] = h; changed = true;
+        }
+        if (changed) saveState(st);
+    }
+    async function pullChats(f, uid) {
+        var snap = await chatsCol(f.db, uid).get(), by = {}, st = loadState(uid), needReload = false, addedConvs = 0, restored = 0;
+        snap.forEach(function (d) {
+            var o = d.data();
+            if (!o || typeof o.k !== 'string' || typeof o.js !== 'string' || typeof o.i !== 'number') return;
+            var g = by[o.k] || (by[o.k] = { n: o.n, p: {} }); g.p[o.i] = o.js;
+        });
+        CHAT_KEYS.forEach(function (k) {
+            var g = by[k]; if (!g || !(g.n > 0)) return;
+            var parts = [], i; for (i = 0; i < g.n; i++) { if (typeof g.p[i] !== 'string') return; parts.push(g.p[i]); }
+            var remote = parts.join(''); try { JSON.parse(remote); } catch (e) { return; }
+            var local = LS.getItem(k);
+            try {
+                if (MERGE_KEYS[k]) {
+                    var m = mergeConvs(local, remote); if (!m) return;
+                    if (m.json !== local) { LS.setItem(k, m.json); addedConvs += m.added; }
+                } else if (isEmptyVal(local)) { LS.setItem(k, remote); needReload = true; restored++; }
+            } catch (e) { return; } // مساحة الجهاز ناقصة
+            if (LS.getItem(k) === remote) st.h[k] = hash(remote);
+        });
+        saveState(st);
+        if (addedConvs) toast('رجّعنا ' + addedConvs + ' محادثة من حسابك 💬');
+        else if (restored) toast('رجّعنا محادثاتك من حسابك 💬');
+        if (needReload) reloadSoon();
+    }
+    function reloadSoon() {
+        if (rl) return;
+        rl = setInterval(function () {
+            var last = 0; try { last = parseInt(sessionStorage.getItem('sp_acct_rl') || '0'); } catch (e) { }
+            if (Date.now() - last < 30000) return;
+            var a = document.activeElement;
+            if (a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable)) return;
+            try { if (typeof isTimerRunning !== 'undefined' && isTimerRunning) return; } catch (e) { }
+            try { if (typeof aiRequestInProgress !== 'undefined' && aiRequestInProgress) return; } catch (e) { }
+            try { sessionStorage.setItem('sp_acct_rl', String(Date.now())); } catch (e) { }
+            location.reload();
+        }, 2500);
+    }
+
+    /* ---------- قايمة التحميلات (تفسير / ترجمة / خط) ---------- */
+    var RES_RE = /^quran(Font|Tafsir|Translation)Downloaded:(.+)$/;
+    var RES_T = { Font: 'font', Tafsir: 'tafsir', Translation: 'trans' };
+    function localRes() {
+        var out = [], i, k, m;
+        for (i = 0; i < LS.length; i++) { k = LS.key(i); m = RES_RE.exec(k || ''); if (m && LS.getItem(k) === '1') out.push(RES_T[m[1]] + ':' + m[2]); }
+        return out.sort();
+    }
+    function resDef(x) {
+        var t = x.split(':')[0], id = x.slice(t.length + 1), arr;
+        try {
+            arr = t === 'font' ? QDS_FONTS : t === 'tafsir' ? QDS_TAFSIRS : t === 'trans' ? QDS_TRANSLATIONS : null;
+            if (!arr) return null;
+            var d = arr.find(function (z) { return z.id === id; });
+            return (d && !d.builtIn) ? { t: t, id: id, name: d.name } : null;
+        } catch (e) { return null; }
+    }
+    async function syncRes(f, uid) {
+        var st = loadState(uid), now = localRes(), nowKey = now.join('|');
+        if (st.ln === nowKey && st.rh) return; // مفيش تغيير من آخر مرة
+        var ref = f.db.collection('users').doc(uid), doc = await ref.get(), remote = [];
+        try { remote = (doc.exists && doc.data().app_resources && doc.data().app_resources.items) || []; } catch (e) { }
+        var nowSet = {}, rm = {}, out = {};
+        now.forEach(function (x) { nowSet[x] = 1; });
+        (st.seen || []).forEach(function (x) { if (!nowSet[x]) rm[x] = 1; }); // اتمسح من الجهاز ده عمدًا
+        remote.concat(now).forEach(function (x) { if (typeof x === 'string' && !rm[x]) out[x] = 1; });
+        var list = Object.keys(out).sort(), h = hash(list.join('|'));
+        if (h !== hash(remote.slice().sort().join('|'))) await ref.set({ app_resources: { items: list, at: Date.now() } }, { merge: true });
+        st.seen = now; st.ln = nowKey; st.rh = h; saveState(st);
+    }
+    async function offerRes(f, uid) {
+        var doc = await f.db.collection('users').doc(uid).get(), remote = [];
+        try { remote = (doc.exists && doc.data().app_resources && doc.data().app_resources.items) || []; } catch (e) { }
+        var st = loadState(uid), have = {}, dec = {};
+        localRes().forEach(function (x) { have[x] = 1; });
+        st.declined.forEach(function (x) { dec[x] = 1; });
+        var miss = [];
+        remote.forEach(function (x) { if (typeof x === 'string' && !have[x] && !dec[x]) { var d = resDef(x); if (d) miss.push(d); } });
+        if (!miss.length) return;
+        var names = miss.map(function (d) { return (d.t === 'font' ? 'خط ' : d.t === 'trans' ? 'ترجمة ' : '') + d.name; });
+        setTimeout(async function () {
+            var ok = false;
+            try { ok = confirm('كنت محمّل على حسابك:\n• ' + names.join('\n• ') + '\n\nتحمّلهم تاني على الجهاز ده دلوقتي؟ (محتاج نت، وممكن ياخد شوية وقت)'); } catch (e) { }
+            var st2 = loadState(uid);
+            if (!ok) { st2.declined = st2.declined.concat(miss.map(function (d) { return d.t + ':' + d.id; })); saveState(st2); return; }
+            toast('بدأ التحميل، سيب التطبيق مفتوح ⏳');
+            for (var i = 0; i < miss.length; i++) {
+                var d = miss[i];
+                try {
+                    if (d.t === 'font') await quranDownloadFont(d.id);
+                    else if (d.t === 'tafsir') await quranDownloadTafsirFull(d.id);
+                    else await quranDownloadTranslation(d.id);
+                } catch (e) { }
+            }
+            toast('خلّصنا محاولة تحميل اللي كان عندك ✅');
+        }, 4000);
+    }
+
+    /* ---------- التشغيل ---------- */
+    async function tick(f, uid, my) {
+        if (!ready || my !== session) return;
+        try { await pushChats(f, uid); } catch (e) { try { console.warn('acct chats push', e && e.code); } catch (x) { } }
+        try { await syncRes(f, uid); } catch (e) { try { console.warn('acct res sync', e && e.code); } catch (x) { } }
+    }
+    async function runSession(f, uid) {
+        var my = ++session;
+        ready = false;
+        try { await pullChats(f, uid); ready = true; } catch (e) { try { console.warn('acct chats pull', e && e.code); } catch (x) { } }
+        try { await offerRes(f, uid); } catch (e) { }
+        if (my !== session) return;
+        await tick(f, uid, my);
+        if (timer) clearInterval(timer);
+        timer = setInterval(function () { tick(f, uid, my); }, 120000);
+        document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') tick(f, uid, my); });
+    }
+    function start(tries) {
+        var f = fb();
+        if (!f || typeof f.auth.onAuthStateChanged !== 'function') { if ((tries || 0) < 20) setTimeout(function () { start((tries || 0) + 1); }, 1000); return; }
+        f.auth.onAuthStateChanged(function (u) {
+            if (timer) { clearInterval(timer); timer = null; }
+            ready = false; session++;
+            if (u) runSession(f, u.uid);
+        });
+    }
+    window.__acctTest = { split: split, mergeConvs: mergeConvs, hash: hash, pushChats: pushChats, pullChats: pullChats, syncRes: syncRes, localRes: localRes, resDef: resDef, PART: PART };
+    setTimeout(function () { start(0); }, 2500);
+})();
+</script>
+<script id="aiUserKeysAuthHook">
+(function () {
+    var n = 0;
+    function go() {
+        var a = (typeof fbAuth !== 'undefined') ? fbAuth : null;
+        if (!a || typeof a.onAuthStateChanged !== 'function') { if (n++ < 20) setTimeout(go, 1000); return; }
+        a.onAuthStateChanged(function (u) {
+            try {
+                if (u) { setTimeout(function () { try { aiUkRefresh(); } catch (e) { } }, 1200); }
+                else {
+                    try { window.__aiUk && window.__aiUk.clear(); } catch (e) { }
+                    if (localStorage.getItem('sp_ai_uk_meta')) { localStorage.removeItem('sp_ai_uk_meta'); aiApplyKeyPool(); renderAIKeySettingsUI(); }
+                }
+            } catch (e) { }
+        });
+    }
+    setTimeout(go, 1500);
 })();
 </script>
 </body>
