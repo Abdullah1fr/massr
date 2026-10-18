@@ -127,6 +127,8 @@
       '#onbRoot h1{font-size:1.5rem;margin:0;font-weight:800;line-height:1.3}' +
       '#onbRoot p{margin:0;color:var(--text-secondary,#5d667a);font-size:.92rem;line-height:1.7}' +
       '#onbRoot .brand{font-size:2.4rem;line-height:1}' +
+      '#onbRoot .logo{display:block;width:104px;height:104px;border-radius:24px;margin:0 auto;object-fit:cover;box-shadow:0 8px 24px rgba(0,0,0,.18)}#onbRoot .logo.sm{width:64px;height:64px;border-radius:16px}' +
+      '#onbRoot .hero{text-align:center;display:flex;flex-direction:column;gap:12px;align-items:center}#onbRoot .hero p{max-width:320px}' +
       '#onbRoot .tabs{display:flex;background:var(--card-bg,#fff);border:1px solid var(--card-border,#d9deea);border-radius:12px;padding:4px;gap:4px}' +
       '#onbRoot .tabs button{flex:1;border:0;background:none;color:inherit;font:inherit;font-weight:700;padding:10px;border-radius:9px;cursor:pointer}' +
       '#onbRoot .tabs button.on{background:var(--accent,#1b8a5a);color:#fff}' +
@@ -156,6 +158,8 @@
   function stepsBar(n) { var h = '<div class="steps" aria-hidden="true">'; for (var i = 1; i <= 3; i++) h += '<i class="' + (i <= n ? 'on' : '') + '"></i>'; return h + '</div>'; }
   function busy(b) { ctx.busy = b; var bs = root ? root.querySelectorAll('button') : []; for (var i = 0; i < bs.length; i++) bs[i].disabled = !!b; }
   function $(id) { return document.getElementById(id); }
+  /* أيقونة التطبيق (نفس icon-192.png اللي في الـ manifest)؛ لو ما اتحمّلتش بتتشال من غير ما تبوّظ الشاشة */
+  function logo(sm) { return '<img class="logo' + (sm ? ' sm' : '') + '" src="icon-192.png" alt="سأنجزها" onerror="this.style.display=\'none\'">'; }
 
   function closeGate() {
     gateOpen = false; phase = 'done';
@@ -165,32 +169,51 @@
   function openGate() { gateOpen = true; }
 
   /* --- splash --- */
-  function showSplash() { phase = 'splash'; paint('<div style="text-align:center;padding:60px 0"><div class="brand">✅</div><h1 style="margin:14px 0 18px">سأنجزها</h1><div class="spin" role="status" aria-label="جاري التحميل"></div></div>'); }
+  function showSplash() { phase = 'splash'; paint('<div style="text-align:center;padding:60px 0">' + logo() + '<h1 style="margin:16px 0 18px">سأنجزها</h1><div class="spin" role="status" aria-label="جاري التحميل"></div></div>'); }
 
   /* --- الدخول --- */
   var mode = 'register';
+  /* --- أول شاشة: الأيقونة + الترحيب + زرارين --- */
+  function showWelcome() {
+    openGate(); phase = 'welcome';
+    var offline = navigator.onLine === false;
+    paint('<div class="hero">' + logo() + '<h1>أهلًا في سأنجزها</h1><p>سجّل دخولك عشان بياناتك تتحفظ على حسابك، وتقدر تدخل من أي جهاز وتنافس أصحابك.</p></div>' +
+      '<button type="button" class="pri" id="onbNew">إنشاء حساب</button>' +
+      '<button type="button" class="sec" id="onbHave">تسجيل الدخول</button>' +
+      (offline ? '<p style="text-align:center">مفيش نت دلوقتي، أول دخول محتاج اتصال بالإنترنت.</p>' : '') +
+      (offline && hasLocalData() ? '<button type="button" class="lnk" id="onbBypass">افتح بياناتي على الجهاز مؤقتًا لحد ما النت يرجع</button>' : ''));
+    $('onbNew').onclick = function () { mode = 'register'; showAuth(); };
+    $('onbHave').onclick = function () { mode = 'login'; showAuth(); };
+    bindBypass();
+  }
+  function bindBypass() {
+    var b = $('onbBypass'); if (!b) return;
+    b.onclick = function () { tempBypass = true; gateOpen = false; if (root) { root.remove(); root = null; } toast('شغّال بدون حساب مؤقتًا، هنطلب الدخول لما النت يرجع'); };
+  }
+  /* --- نموذج الإنشاء / الدخول (بعد ما يختار من الشاشة اللي فوق) --- */
   function showAuth(note) {
     openGate(); phase = 'auth';
-    var offline = navigator.onLine === false, google = !isApk();
-    var h = '<div><div class="brand">✅</div><h1 style="margin-top:10px">أهلًا في سأنجزها</h1><p>سجّل دخولك عشان بياناتك تتحفظ على حسابك، وتقدر تدخل من أي جهاز وتنافس أصحابك.</p></div>' +
-      '<div class="tabs" role="tablist"><button type="button" id="onbTabReg" class="' + (mode === 'register' ? 'on' : '') + '" role="tab">حساب جديد</button><button type="button" id="onbTabIn" class="' + (mode === 'login' ? 'on' : '') + '" role="tab">عندي حساب</button></div>' +
+    var offline = navigator.onLine === false, google = !isApk(), reg = mode === 'register';
+    var h = '<button type="button" class="lnk" id="onbBack" style="align-self:flex-start;padding:4px 0">‹ رجوع</button>' +
+      '<div class="hero">' + logo(true) + '<h1>' + (reg ? 'إنشاء حساب جديد' : 'تسجيل الدخول') + '</h1></div>' +
       '<input type="email" id="onbEmail" placeholder="الإيميل" autocomplete="email" inputmode="email" dir="ltr" style="text-align:left">' +
-      '<input type="password" id="onbPass" placeholder="كلمة المرور (6 خانات على الأقل)" autocomplete="' + (mode === 'register' ? 'new-password' : 'current-password') + '" dir="ltr" style="text-align:left">' +
-      '<div id="onbMsg" class="msg" role="alert">' + '</div>' +
-      '<button type="button" class="pri" id="onbGo">' + (mode === 'register' ? 'إنشاء الحساب' : 'تسجيل الدخول') + '</button>' +
-      (google ? '<div class="or">أو</div><button type="button" class="sec" id="onbGoogle"><span aria-hidden="true">G</span> الدخول بحساب جوجل</button>' : '<p>الدخول بجوجل مش متاح في تطبيق الأندرويد دلوقتي، استخدم الإيميل وكلمة المرور.</p>') +
-      (mode === 'login' ? '<button type="button" class="lnk" id="onbForgot">نسيت كلمة المرور؟</button>' : '') +
+      '<input type="password" id="onbPass" placeholder="كلمة المرور' + (reg ? ' (6 خانات على الأقل)' : '') + '" autocomplete="' + (reg ? 'new-password' : 'current-password') + '" dir="ltr" style="text-align:left">' +
+      '<div id="onbMsg" class="msg" role="alert"></div>' +
+      '<button type="button" class="pri" id="onbGo">' + (reg ? 'إنشاء الحساب' : 'تسجيل الدخول') + '</button>' +
+      (google ? '<div class="or">أو</div><button type="button" class="sec" id="onbGoogle"><span aria-hidden="true">G</span> ' + (reg ? 'الإنشاء' : 'الدخول') + ' بحساب جوجل</button>' : '<p>الدخول بجوجل مش متاح في تطبيق الأندرويد دلوقتي، استخدم الإيميل وكلمة المرور.</p>') +
+      (!reg ? '<button type="button" class="lnk" id="onbForgot">نسيت كلمة المرور؟</button>' : '') +
+      '<button type="button" class="lnk" id="onbSwitch">' + (reg ? 'عندي حساب بالفعل' : 'معنديش حساب، إنشاء حساب جديد') + '</button>' +
       (offline ? '<p>مفيش نت دلوقتي، أول دخول محتاج اتصال بالإنترنت.</p>' : '') +
       (offline && hasLocalData() ? '<button type="button" class="lnk" id="onbBypass">افتح بياناتي على الجهاز مؤقتًا لحد ما النت يرجع</button>' : '');
     paint(h);
     if (note) setMsg(note, true);
-    $('onbTabReg').onclick = function () { mode = 'register'; showAuth(); };
-    $('onbTabIn').onclick = function () { mode = 'login'; showAuth(); };
+    $('onbBack').onclick = showWelcome;
+    $('onbSwitch').onclick = function () { mode = reg ? 'login' : 'register'; showAuth(); };
     $('onbGo').onclick = doEmail;
     $('onbPass').onkeydown = function (e) { if (e.key === 'Enter') doEmail(); };
     if ($('onbGoogle')) $('onbGoogle').onclick = doGoogle;
     if ($('onbForgot')) $('onbForgot').onclick = doForgot;
-    if ($('onbBypass')) $('onbBypass').onclick = function () { tempBypass = true; gateOpen = false; if (root) { root.remove(); root = null; } toast('شغّال بدون حساب مؤقتًا، هنطلب الدخول لما النت يرجع'); };
+    bindBypass();
   }
   function doEmail() {
     var a = A(); if (!a) { setMsg('خدمة الحساب مش متاحة دلوقتي ⚠', true); return; }
@@ -373,12 +396,12 @@
     }
     showSplash();
     var resolved = false, prev;
-    var timer = setTimeout(function () { if (!resolved) { resolved = true; showAuth(); } }, 8000);
+    var timer = setTimeout(function () { if (!resolved) { resolved = true; showWelcome(); } }, 8000);
     a.onAuthStateChanged(function (u) {
       resolved = true; clearTimeout(timer);
       var uid = u ? u.uid : '';
       if (u) { if (uid !== prev || gateOpen) { prev = uid; handleUser(u); } else prev = uid; }
-      else { prev = ''; ctx.user = null; busy(false); if (!tempBypass) showAuth(); }
+      else { prev = ''; ctx.user = null; busy(false); if (!tempBypass) showWelcome(); }
     });
     window.addEventListener('online', function () {
       if (tempBypass && !(A() && A().currentUser)) { tempBypass = false; showAuth('رجع النت. سجّل دخولك عشان تكمّل'); }
