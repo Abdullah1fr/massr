@@ -3158,8 +3158,8 @@ window.spProgressCheck = function (why) { try { sgSyncProgress({ xp: why === 'fo
    - ويب بس (مش APK). الـ Worker هو social-push-worker.js.
    - حط رابط الـ Worker هنا، أو افتح التطبيق مرة بـ ?msgpush=رابط1,رابط2 (لو رافعه على حسابين).
    - كل مستخدم بيتوزّع على Worker حسب الـ uid بتاعه، فالمرسل بيعرف يوصل لنفس الـ Worker اللي مسجّل فيه المستلم. */
-var PP_URLS = [];
-var PP_VAPID = 'BOGBUSE9xJWtNh-1So9PaktGro9cY8sgJc5shxMHGyh5m2R6EVERz3NT5zByHn_IjkLDrqrWvYjvc6pDTxgzWQk';
+var PP_URLS = ['https://sanjiz-messages.abdo-kh66666.workers.dev'];
+var PP_VAPID = 'BLWJGYAc9D0f7X9YD4aXd3uj1Te63LOz0S9Dn6gmruBTRJXf4nf5XPqde4YVv1lqio94HLeeMxDu2jyAIuRw-8w';
 try {
   var ppq = new URLSearchParams(location.search).get('msgpush');
   if (ppq) {
@@ -3199,7 +3199,13 @@ function ppReg(force) {
   if (!force && sig === ppSig && Date.now() - ppAt < 6 * HOUR) return;
   if (ppBusy) return; ppBusy = true;
   navigator.serviceWorker.ready.then(function (reg) {
-    return reg.pushManager.getSubscription().then(function (sub) { return sub || reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: ppU8(PP_VAPID) }); });
+    return reg.pushManager.getSubscription().then(function (sub) {
+      /* لو الاشتراك القديم متربط بمفتاح VAPID غير الحالي: نلغيه ونشترك من جديد */
+      var cur = ppU8(PP_VAPID), ok = true;
+      try { if (sub && sub.options && sub.options.applicationServerKey) { var o = new Uint8Array(sub.options.applicationServerKey); ok = o.length === cur.length && o.every(function (b, i) { return b === cur[i]; }); } } catch (e) { }
+      if (sub && !ok) return sub.unsubscribe().then(function () { return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: cur }); });
+      return sub || reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: cur });
+    });
   }).then(function (sub) {
     return cfToken().then(function (tok) {
       return fetch(url + '/register', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + tok }, body: JSON.stringify({ subscription: sub.toJSON(), friends: ids, prefs: np, blocked: bl }) });
