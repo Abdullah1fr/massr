@@ -120,7 +120,7 @@ async function showInbox(visible) {
   if (!items.length || visible) return 0; // التطبيق مفتوح قدامه: الصفحة نفسها هي اللي بتنبّه
   let lockedIds = []; try { lockedIds = (await idbGet('lockedIds')) || []; } catch (err) { }
   const byKey = {};
-  items.forEach(it => { const kd = it.kind || 'msg'; const lk = kd === 'msg' && it.chatId && lockedIds.indexOf(it.chatId) >= 0; const k = lk ? 'locked' : kd === 'admin' ? 'admin:' + (it.at || Date.now()) : kd + ':' + (it.from || '') + (DUEL_KINDS.indexOf(kd) >= 0 ? ':' + (it.chatId || '') : ''); (byKey[k] = byKey[k] || []).push(it); });
+  items.forEach(it => { const kd = it.kind || 'msg'; const lk = (kd === 'msg' || kd === 'gmsg') && it.chatId && lockedIds.indexOf(it.chatId) >= 0; const k = lk ? 'locked' : kd === 'admin' ? 'admin:' + (it.at || Date.now()) : kd === 'gmsg' ? 'g:' + (it.chatId || '') : (kd === 'gcall' || kd === 'gmissed') ? kd + ':' + (it.chatId || '') : kd + ':' + (it.from || '') + (DUEL_KINDS.indexOf(kd) >= 0 ? ':' + (it.chatId || '') : ''); (byKey[k] = byKey[k] || []).push(it); });
   const base = { badge: './icon-192.png', lang: 'ar', dir: 'rtl', vibrate: [200, 100, 200], renotify: true };
   let shown = 0;
   for (const k of Object.keys(byKey).slice(0, 8)) {
@@ -129,7 +129,7 @@ async function showInbox(visible) {
       await self.registration.showNotification(list.length > 1 ? 'رسائل جديدة (' + list.length + ')' : 'رسالة جديدة', { ...base, body: '', icon: './icon-192.png', tag: 'locked', actions: [], data: { kind: 'lockedmsg' } });
       shown++; continue;
     }
-    let title = (last.name || 'صديق') + (list.length > 1 && kind === 'msg' ? ' (' + list.length + ')' : '');
+    let title = (last.name || 'صديق') + (list.length > 1 && kind === 'msg' ? ' (' + list.length + ')' : ''), extraOpts = {};
     let body, actions = [], data = { kind, from: SAFE_ID.test(String(last.from || '')) ? last.from : '', name: last.name || '', ref: last.chatId || '' };
     if (kind === 'req') { body = 'بعتلك طلب صداقة 📨'; actions = [{ action: 'accept', title: '✅ قبول' }, { action: 'decline', title: '✖ رفض' }]; }
     else if (kind === 'nudge') { body = '👊 بيحفّزك في تحدي «' + (last.preview || '') + '»'; }
@@ -138,9 +138,14 @@ async function showInbox(visible) {
     else if (kind === 'claim') { body = '🤝 بيطلب تأكيد إنجاز في «' + (last.preview || '') + '»'; }
     else if (kind === 'verdict') { body = (last.extra === 'ok' ? '✔ أكّد إنجازك في «' : '✖ اعترض على إنجازك في «') + (last.preview || '') + '»'; }
     else if (kind === 'duelacc') { body = '⚔️ قبل التحدي «' + (last.preview || '') + '»'; }
+    else if (kind === 'gmsg') { title = (last.gname || 'مجموعة') + (list.length > 1 ? ' (' + list.length + ')' : ''); body = (last.name || 'صديق') + ': ' + (last.preview || 'رسالة جديدة'); data = { kind: 'gmsg', from: SAFE_ID.test(String(last.from || '')) ? last.from : '', name: last.name || '', ref: SAFE_ID.test(String(last.chatId || '')) ? last.chatId : '' }; }
+    else if (kind === 'call') { body = last.extra === 'video' ? '📹 مكالمة فيديو واردة' : '📞 مكالمة صوتية واردة'; actions = [{ action: 'answer', title: '📞 فتح للرد' }]; extraOpts = { requireInteraction: true, vibrate: [500, 250, 500, 250, 500, 250, 500] }; data.kind = 'call'; }
+    else if (kind === 'gcall') { title = last.gname || 'مجموعة'; body = (last.name || 'صديق') + (last.extra === 'video' ? ' بدأ مكالمة فيديو جماعية 📹' : ' بدأ مكالمة صوتية جماعية 📞'); actions = [{ action: 'answer', title: '📞 فتح للانضمام' }]; extraOpts = { requireInteraction: true, vibrate: [500, 250, 500, 250, 500, 250, 500] }; data = { kind: 'gcall', from: '', name: last.name || '', ref: SAFE_ID.test(String(last.chatId || '')) ? last.chatId : '' }; }
+    else if (kind === 'gmissed') { title = last.gname || 'مجموعة'; body = '📵 مكالمة جماعية فائتة من ' + (last.name || 'صديق'); data = { kind: 'gmissed', from: '', name: last.name || '', ref: SAFE_ID.test(String(last.chatId || '')) ? last.chatId : '' }; }
+    else if (kind === 'missed') { body = '📵 مكالمة فائتة'; data.kind = 'missed'; }
     else if (kind === 'admin') { title = last.name || 'سأنجزها'; body = last.preview || ''; data = { kind: 'admin' }; }
     else { body = last.preview || 'رسالة جديدة'; actions = [{ action: 'reply', type: 'text', title: '↩️ رد', placeholder: 'اكتب ردك…' }, { action: 'read', title: '✔ قُرئت' }]; }
-    await self.registration.showNotification(title, { ...base, body, icon: safePhoto(last.photo) || './icon-192.png', tag: k, actions, data });
+    await self.registration.showNotification(title, { ...base, ...extraOpts, body, icon: safePhoto(last.photo) || './icon-192.png', tag: k, actions, data });
     shown++;
   }
   return shown;
@@ -251,6 +256,14 @@ self.addEventListener('notificationclick', e => {
     if (data.kind === 'lockedmsg') {
       if (c) { await c.focus(); c.postMessage({ type: 'sp-open', kind: 'chats', from: '', ref: '', reply: false }); return; }
       await self.clients.openWindow('./?spgo=chats'); return;
+    }
+    if (data.kind === 'gmsg' || data.kind === 'gcall' || data.kind === 'gmissed') {
+      if (c) { await c.focus(); c.postMessage({ type: 'sp-open', kind: 'gmsg', from: '', ref: data.ref || '', reply: false }); return; }
+      await self.clients.openWindow('./?spgo=g:' + encodeURIComponent(data.ref || '')); return;
+    }
+    if (data.kind === 'call' || data.kind === 'missed') {
+      if (c) { await c.focus(); return; }
+      await self.clients.openWindow('./'); return;
     }
     if (data.kind === 'msg' || data.kind === 'req' || data.kind === 'acc' || DUEL_KINDS.indexOf(data.kind) >= 0) {
       const isDuel = DUEL_KINDS.indexOf(data.kind) >= 0, openKind = data.kind === 'acc' ? 'msg' : isDuel ? 'duel' : data.kind;
