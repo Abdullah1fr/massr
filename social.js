@@ -3,7 +3,7 @@ if (window.__spV2) return; window.__spV2 = 1;
 var LS = localStorage, $ = function (i) { return document.getElementById(i); };
 var BASE = 'https://abdullah1fr.github.io/massr/';
 var DAY = 864e5, HOUR = 36e5, GRACE = 24 * HOUR, COOLDOWN = 45000, NUDGE_GAP = 3 * HOUR;
-var S = { uid: null, name: '', code: '', friends: {}, fp: {}, duels: [], unsubs: [], tab: 'chats', seg: { comp: 'league', me: 'home', add: 'name' }, err: '', booting: false, form: null, qr: '', auto: {}, claim: null, dirty: false, reqs: {}, rFirst: true, res: null, qraw: '', fFirst: true, lastSeenW: 0 };
+var S = { uid: null, name: '', code: '', friends: {}, fp: {}, duels: [], unsubs: [], tab: 'chats', seg: { comp: 'league', me: 'home', add: 'name' }, err: '', booting: false, form: null, qr: '', auto: {}, claim: null, dirty: false, reqs: {}, rFirst: true, res: null, qraw: '', fFirst: true, lastSeenW: 0, groups: {}, cmts: {}, gn: {}, gReady: false, cReady: false, gf: null, gnSync: {}, cfg: {} };
 var KINDS = {
   app: { i: '📌', n: 'من تطبيقك — بتتوثّق لوحدها' },
   focus: { i: '⏱', n: 'دقائق تركيز — بتتوثّق لوحدها' },
@@ -112,7 +112,7 @@ function fail(e) {
   S.booting = false; render(true); if (UI.open && S.code) snack(S.err);
 }
 function gen() { var a = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', s = '', i; for (i = 0; i < 6; i++) s += a[Math.floor(Math.random() * a.length)]; return s; }
-function fname(id) { var p = S.fp[id]; return (p && p.data && p.data.name) || (S.friends[id] && S.friends[id].name) || 'صديق'; }
+function fname(id) { if (isConv(id)) return convName(id); var p = S.fp[id]; return (p && p.data && p.data.name) || (S.friends[id] && S.friends[id].name) || (S.gn && S.gn[id]) || 'صديق'; }
 function parseCode(t) {
   t = String(t || '').trim();
   var m = t.match(/[?&#]f=([A-Za-z0-9]{6})(?![A-Za-z0-9])/) || t.match(/^MSR1:([A-Za-z0-9]{6})$/i) || t.match(/^([A-Za-z0-9]{6})$/);
@@ -272,7 +272,7 @@ function boot() {
 function teardown() {
   try { ppForget(); } catch (e) { }
   S.unsubs.forEach(function (u) { try { u(); } catch (e) { } }); S.unsubs = []; try { sgInboxStop(); sgStopChat(); } catch (e) { }
-  Object.keys(S.fp).forEach(function (k) { try { S.fp[k].u && S.fp[k].u(); } catch (e) { } }); S.fp = {}; S.friends = {}; S.duels = []; UI.duelsReady = false;
+  Object.keys(S.fp).forEach(function (k) { try { S.fp[k].u && S.fp[k].u(); } catch (e) { } }); S.fp = {}; S.friends = {}; S.duels = []; UI.duelsReady = false; S.groups = {}; S.cmts = {}; S.gn = {}; S.gReady = false; S.cReady = false; S.gf = null; S.gnSync = {}; SG.inboxG = {}; SG.inboxD = {};
   if (S.timer) clearInterval(S.timer); S.code = ''; S.hyd = false; S.verified = false; S.qr = ''; S.fFirst = true; S.reqs = {}; S.rFirst = true; S.res = null;
 }
 function listen() {
@@ -302,6 +302,8 @@ function listen() {
   }, fail));
   S.timer = setInterval(tick, 30000);
   try { sgInboxStart(); } catch (e) { }
+  try { convListen(d); } catch (e) { }
+  try { S.unsubs.push(d.collection('config').doc('social').onSnapshot(function (x) { S.cfg = x.exists ? (x.data() || {}) : {}; }, function () { })); } catch (e) { }
 }
 var tn = 0;
 function tick() { push(false); autoVerify(); if (++tn % 10 === 0) syncSent(); try { sgSyncProgress({}); } catch (e) { } render(); }
@@ -401,7 +403,7 @@ function ic(n, sz) { sz = sz || 24; return '<svg viewBox="0 0 24 24" width="' + 
 
 /* ---------- أدوات صغيرة ---------- */
 var AVC = ['#e57373', '#f06292', '#ba68c8', '#9575cd', '#7986cb', '#4fa3e0', '#26a69a', '#66bb6a', '#f0a030', '#a1887f'];
-function picOf(id) { var u = ''; try { u = (id === S.uid) ? (LS.getItem('sp_pic') || '') : ((S.fp[id] && S.fp[id].data && S.fp[id].data.pic) || ''); } catch (e) { } return sgSafeImg(u); }
+function picOf(id) { if (isConv(id)) { var cc0 = convOf(id); return sgSafeImg((cc0 && cc0.pic) || ''); } var u = ''; try { u = (id === S.uid) ? (LS.getItem('sp_pic') || '') : ((S.fp[id] && S.fp[id].data && S.fp[id].data.pic) || ''); } catch (e) { } return sgSafeImg(u); }
 function avatar(name, id, sz) {
   var s = String(id || name || '?'), h = 0, i; for (i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
   var ch = String(name || '?').trim().charAt(0) || '?', z = sz || 48, pic = picOf(id);
@@ -614,6 +616,9 @@ function css() {
     '#spBackdrop{position:fixed;inset:0;z-index:2147480900;background:rgba(3,6,10,.66);display:none;-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}',
     'html.dev-desktop #spPage{left:0;right:var(--rail-w,148px);top:0;bottom:0;width:auto;max-width:none;margin:0;transform:none;border-radius:0;box-shadow:none;border-left:1px solid var(--card-border);z-index:90}',
     'html.dev-desktop #spBackdrop{display:none!important}',
+    '.sx-gh{display:flex;flex-direction:column;align-items:center;gap:6px;padding:20px 16px 12px;text-align:center}.sx-gh .nm{font-weight:800;font-size:1.25rem}.sx-gh .sub{font-size:.82rem;color:var(--text-secondary)}.sx-gh .ds{font-size:.88rem;line-height:1.7;max-width:420px;margin-top:4px}',
+    '.sx-b.vidb{padding:3px}.sx-vid video{display:block;width:min(300px,72vw);max-height:62vh;border-radius:8px;background:#000}.sx-vid .vn{font-size:.72rem;opacity:.8;padding:4px 6px 0;max-width:min(300px,72vw);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.sx-vcard{display:flex;align-items:center;gap:10px;min-width:210px;padding:8px 10px;cursor:pointer}.sx-vcard small{display:block;opacity:.75;font-size:.72rem}.sx-vpl{width:46px;height:46px;border-radius:50%;border:0;background:var(--wa-green,#00a884);color:#fff;display:grid;place-items:center;flex:none;cursor:pointer}',
+    '.sx-tag{display:inline-block;font-size:.66rem;font-weight:700;padding:1px 7px;border-radius:999px;border:1px solid var(--wa-green,#00a884);color:var(--wa-green,#00a884);margin-right:6px;vertical-align:middle}.sx-ro{padding:14px 16px;text-align:center;font-size:.85rem;color:var(--text-secondary);background:var(--card-bg);border-top:1px solid var(--sx-sep)}.sx-sn{font-size:.76rem;font-weight:800;margin-bottom:2px}',
     'html.dev-desktop .sx-b.img img{width:min(340px,40vw)}html.dev-desktop .sx-b{max-width:62%}html.dev-desktop .sx-b.img .cap{max-width:min(340px,40vw)}',
   ].join('');
   document.head.appendChild(s);
@@ -879,8 +884,9 @@ function sheetRow(icon, label, fn, sub, disabled) {
 }
 window.spMenu = function () {
   sheetOpen('المزيد',
-    sheetRow('👥', 'مجموعة جديدة', 'spSoon()', 'قريبًا', 1) +
-    sheetRow('🌐', 'مجتمع جديد', 'spSoon()', 'قريبًا', 1) +
+    sheetRow('👥', 'مجموعة جديدة', 'spNewGroup()', 'اعمل مجموعة وضيف أصحابك') +
+    sheetRow('🌐', 'مجتمع جديد', 'spNewCmty()', 'قناة إعلانات + مجموعات تابعة') +
+    sheetRow('🔑', 'انضمام بكود دعوة', 'spJoinSheet()', 'ادخل مجموعة أو مجتمع بكود') +
     sheetRow('📣', 'رسالة جماعية جديدة', 'spBcast()', 'ابعت نفس الرسالة لأكتر من صديق') +
     sheetRow('📲', 'الأجهزة المرتبطة', 'spLinkedDevices()', 'اربط جهاز تاني وزامن بياناتك') +
     sheetRow('🔁', 'تبديل الحساب', 'spAccounts()', 'بدّل بين حساباتك أو أضف حساب'));
@@ -949,7 +955,7 @@ window.spSignOut = function () {
 window.spPickChat = function () { navPush({ t: 'pick' }); };
 window.spProfile = function (id) { id = sgSafeId(id); if (!id) return; navPush({ t: 'profile', id: id }); };
 window.spChat = function (id) {
-  id = sgSafeId(id); if (!id || !S.friends[id]) return; var top = curView();
+  id = sgSafeId(id); if (!id || !(S.friends[id] || convOf(id))) return; var top = curView();
   if (top.t === 'chat' && top.id === id) return;
   if (isLocked(id) && !lkUnlocked(sgChatId(id))) { lkAsk(function () { LK.pass[sgChatId(id)] = 1; spChat(id); }); return; }
   if (top.t === 'profile' && NAV.length >= 2 && NAV[NAV.length - 2].t === 'chat' && NAV[NAV.length - 2].id === id) { spBack(); return; }
@@ -969,7 +975,7 @@ function actions(title, items) {
 function actClose() { var o = $('sxAct'); if (o) o.classList.remove('on'); }
 window.spAct = function (i) { var it = (UI.acts || [])[i]; actClose(); if (it && it.f) it.f(); };
 window.spViewAv = function (id) {
-  var u = '';
+  var u = ''; if (isConv(id)) { var cc1 = convOf(id); u = sgSafeImg((cc1 && cc1.pic) || ''); if (u) spView(u); return; }
   try { u = (id === S.uid) ? (LS.getItem('sp_pic_big') || LS.getItem('sp_pic') || '') : ((S.fp[id] && S.fp[id].data && (S.fp[id].data.picBig || S.fp[id].data.pic)) || ''); } catch (e) { }
   u = sgSafeImg(u); if (u) spView(u);
 };
@@ -1006,7 +1012,7 @@ function copyText(t) { try { navigator.clipboard.writeText(t).then(function () {
 
 /* ---------- التنقّل السفلي والعدّادات ---------- */
 var TABS = [['chats', 'chat', 'الدردشات'], ['friends', 'users', 'الأصدقاء'], ['comp', 'trophy', 'المنافسة'], ['me', 'user', 'حسابي']];
-function unreadChats() { var n = 0; Object.keys(S.friends).forEach(function (id) { if ((SG.unread[sgChatId(id)] || 0) > 0 && !isArch(id) && !isLocked(id)) n++; }); return n; }
+function unreadChats() { var n = 0; allConvIds().forEach(function (id) { if ((SG.unread[sgChatId(id)] || 0) > 0 && !isArch(id) && !isLocked(id)) n++; }); return n; }
 function questsReady() { try { return sgQuests().filter(function (q) { return q.ready && !q.claimed; }).length; } catch (e) { return 0; } }
 function tabCount(t) { try { if (!S.code) return 0; if (t === 'chats') return unreadChats(); if (t === 'friends') return Object.keys(S.reqs).length; if (t === 'comp') return reviewsToDo() + invitesCount(); if (t === 'me') return questsReady(); } catch (e) { } return 0; }
 function refreshBadges() {
@@ -1034,7 +1040,7 @@ function setArch(id, on) {
   sgWrite('arch', m);
   if (on && UI.sel) { try { spSelClear(); } catch (e) { } }
 }
-function archCount() { var n = 0; Object.keys(S.friends).forEach(function (id) { if (isArch(id) && !isLocked(id)) n++; }); return n; }
+function archCount() { var n = 0; allConvIds().forEach(function (id) { if (isArch(id) && !isLocked(id)) n++; }); return n; }
 /* ---------- قفل المحادثات (محلي على الجهاز) ----------
    - «قفل المحادثة» من قايمة المحادثة (ضغطة مطوّلة أو ⋮ جوه المحادثة). أول مرة بتختار رمز.
    - المحادثة المقفولة بتختفي تمامًا من القايمة والأرشيف والبحث بالاسم، ومن عدّاد غير المقروء، ومن إشعار «رسالة جديدة» جوه التطبيق.
@@ -1187,7 +1193,7 @@ window.spLockBio = function () {
     else if (un) { bioOff(); var e = $('lkE'); if (e) e.textContent = 'البصمة مش متاحة على الجهاز دلوقتي (اتلغت) — استخدم الرمز'; }
   });
 };
-function lockedCount() { return Object.keys(S.friends).filter(function (id) { return isLocked(id); }).length; }
+function lockedCount() { return allConvIds().filter(function (id) { return isLocked(id); }).length; }
 function lkEnsureCode(next) { if (lockCfg()) next(); else lkSetup(next); }
 
 /* قفل القسم كله (شاشة قفل فوق الصفحة) */
@@ -1314,7 +1320,7 @@ window.spRowMenu = function (id) {
   actions(fname(id), [
     { t: a ? 'إلغاء الأرشفة' : 'أرشفة المحادثة', ic: 'archive', f: function () { spArch(id, !a); } },
     { t: isLocked(id) ? 'إلغاء قفل المحادثة' : 'قفل المحادثة', ic: 'lock', f: function () { spLockToggle(id); } },
-    { t: 'معلومات الصديق', ic: 'user', f: function () { spProfile(id); } }
+    isConv(id) ? { t: isCid(id) ? 'معلومات المجتمع' : 'معلومات المجموعة', ic: 'info', f: function () { spConvInfo(id); } } : { t: 'معلومات الصديق', ic: 'user', f: function () { spProfile(id); } }
   ]);
 };
 /* ضغطة مطوّلة (لمس): بنمنع الفتح العادي اللي بييجي بعدها */
@@ -1329,13 +1335,13 @@ function chatRowsHtml() {
   if (!q) {
     if (LK.open) pre = '<div class="sx-banner" onclick="spLockView(0)"><span style="font-size:1.2rem">⬅️</span><b>🔒 المحادثات المقفولة</b></div><div class="sx-banner" onclick="spLockSettings()"><span style="font-size:1.2rem">⚙️</span><b>إعدادات القفل</b></div>';
     else if (UI.archOpen) pre = '<div class="sx-banner" onclick="spArchOpen(0)"><span style="font-size:1.2rem">⬅️</span><b>المحادثات المؤرشفة</b></div>';
-    else { var ac = archCount(); if (ac) { var un = 0; Object.keys(S.friends).forEach(function (id) { if (isArch(id) && !isLocked(id) && (SG.unread[sgChatId(id)] || 0) > 0) un++; }); pre = '<div class="sx-banner" onclick="spArchOpen(1)"><span style="font-size:1.2rem">📦</span><b>المؤرشفة (' + ac + ')</b>' + badge(un) + '</div>'; } }
+    else { var ac = archCount(); if (ac) { var un = 0; allConvIds().forEach(function (id) { if (isArch(id) && !isLocked(id) && (SG.unread[sgChatId(id)] || 0) > 0) un++; }); pre = '<div class="sx-banner" onclick="spArchOpen(1)"><span style="font-size:1.2rem">📦</span><b>المؤرشفة (' + ac + ')</b>' + badge(un) + '</div>'; } }
   }
   if (!q && !LK.open && !UI.archOpen && lkOpt().show) { var lc = lockedCount(); if (lc) pre = '<div class="sx-banner" onclick="spLockRowOpen()"><span style="font-size:1.2rem">🔒</span><b>المحادثات المقفولة (' + lc + ')</b></div>' + pre; }
   return pre + chatRowsCore();
 }
 function chatRowsCore() {
-  var ids = Object.keys(S.friends), q = (UI.q || '').trim().toLowerCase(), av = !!UI.archOpen;
+  var ids = allConvIds(), q = (UI.q || '').trim().toLowerCase(), av = !!UI.archOpen;
   var rows = ids.map(function (id) { var c = SG.inbox[sgChatId(id)]; return { id: id, at: (c && c.at) || 0, name: fname(id), arch: isArch(id), lock: isLocked(id) }; })
     .filter(function (r) { var nm = !q || r.name.toLowerCase().indexOf(q) >= 0; if (LK.open) return r.lock && nm; if (r.lock) return false; return nm && (q ? true : (av ? r.arch : !r.arch)); });
   rows.sort(function (a, b) { return (b.at - a.at) || a.name.localeCompare(b.name, 'ar'); });
@@ -1343,14 +1349,14 @@ function chatRowsCore() {
   return rows.map(function (r) {
     var id = r.id, sid = sgSafeId(id); if (!sid) return '';
     var p = S.fp[id] && S.fp[id].data, c = SG.inbox[sgChatId(id)], n = SG.unread[sgChatId(id)] || 0, sub;
-    if (c && c.last) sub = (c.lastFrom === S.uid ? '<span style="display:inline-flex;vertical-align:middle;margin-left:4px;color:var(--text-secondary)">' + ic('check', 16) + '</span>' : '') + esc(c.last);
-    else sub = '<span style="opacity:.75">' + esc(lastSeen(p) || '—') + '</span>';
+    if (c && c.last) sub = (c.lastFrom === S.uid ? '<span style="display:inline-flex;vertical-align:middle;margin-left:4px;color:var(--text-secondary)">' + ic('check', 16) + '</span>' : (isGid(id) && c.lastFrom ? esc(fname(c.lastFrom)) + ': ' : '')) + esc(c.last);
+    else sub = '<span style="opacity:.75">' + esc(isConv(id) ? convSub(id) : (lastSeen(p) || '—')) + '</span>';
     return '<div class="sx-r" onclick="spRowOpen(\'' + sid + '\')" oncontextmenu="spRowMenu(\'' + sid + '\');return false" ontouchstart="spLP(this,\'' + sid + '\')" ontouchend="spLPc()" ontouchmove="spLPc()" ontouchcancel="spLPc()">' + avWrap(r.name, id, 52, p) + '<div class="sx-rb"><div class="sx-rt"><span class="sx-rn">' + esc(r.name) + '</span><span class="sx-rm ' + (n ? 'hot' : '') + '">' + (r.arch && q ? '📦 ' : '') + (r.at ? listTime(r.at) : '') + '</span></div><div class="sx-rs"><span class="tx">' + sub + '</span>' + badge(n) + '</div></div></div>';
   }).join('');
 }
 window.spQ = function (v) { UI.q = v; var b = $('sxRows'); if (b) b.innerHTML = chatRowsHtml() || ''; lkTryReveal(v); };
 function chatsTab() {
-  var ids = Object.keys(S.friends), rq = Object.keys(S.reqs).length, h = '';
+  var ids = allConvIds(), rq = Object.keys(S.reqs).length, h = '';
   if (!ids.length) {
     return emptyBox('💬', 'مفيش محادثات لسه.<br>ضيف أصحابك الأول وابدأ الشات.', '<button class="btn" onclick="spAddPage()">' + ic('userplus', 20) + ' إضافة صديق</button>') + (rq ? '<div class="sx-banner" onclick="spRequests()"><span style="font-size:1.4rem">📨</span><b>طلبات صداقة (' + rq + ')</b>' + badge(rq) + '</div>' : '');
   }
@@ -1483,7 +1489,7 @@ function profilePageHtml(id) {
   return h;
 }
 function pickPageHtml() {
-  var ids = Object.keys(S.friends), h = '<div class="sx-act" onclick="spAddPage()"><span class="ico">' + ic('userplus', 24) + '</span><b>إضافة صديق جديد</b></div><div class="sx-sec">أصدقائي (' + ids.length + ')</div>';
+  var ids = Object.keys(S.friends), h = '<div class="sx-act" onclick="spNewGroup()"><span class="ico">' + ic('users', 24) + '</span><b>مجموعة جديدة</b></div><div class="sx-act" onclick="spNewCmty()"><span class="ico am">' + ic('share', 22) + '</span><b>مجتمع جديد</b></div><div class="sx-act" onclick="spAddPage()"><span class="ico">' + ic('userplus', 24) + '</span><b>إضافة صديق جديد</b></div><div class="sx-sec">أصدقائي (' + ids.length + ')</div>';
   ids.map(function (id) { return { id: id, name: fname(id) }; }).sort(function (a, b) { return a.name.localeCompare(b.name, 'ar'); }).forEach(function (r) {
     var sid = sgSafeId(r.id); if (!sid) return; var p = S.fp[r.id] && S.fp[r.id].data;
     h += '<div class="sx-r" onclick="spChat(\'' + sid + '\')">' + avWrap(r.name, r.id, 50, p) + '<div class="sx-rb"><div class="sx-rt"><span class="sx-rn">' + esc(r.name) + '</span></div><div class="sx-rs"><span class="tx">' + esc(lastSeen(p) || '') + '</span></div></div></div>';
@@ -1535,7 +1541,7 @@ function render(force) {
   S.dirty = false;
   /* صفحات اتشالت من تحت إيدينا (صديق اتحذف / تحدي اتمسح) */
   if (S.code) {
-    var gone = ((cur.t === 'chat' || cur.t === 'profile') && !S.fFirst && !S.friends[cur.id]) || (cur.t === 'duel' && UI.duelsReady && !duelById(cur.id));
+    var gone = ((cur.t === 'chat' && isConv(cur.id)) ? convGone(cur) : ((cur.t === 'chat' || cur.t === 'profile') && !S.fFirst && !S.friends[cur.id])) || ((cur.t === 'ginfo' || cur.t === 'cmty') && convGone(cur)) || (cur.t === 'duel' && UI.duelsReady && !duelById(cur.id));
     if (gone) { NAV.pop(); if (UI.hist) { try { history.back(); } catch (e) { } } cur = curView(); key = viewKeyOf(cur); }
   }
   var changed = key !== UI.key, body = $('sxBody');
@@ -1552,6 +1558,9 @@ function render(force) {
     case 'newduel': setHead(hb('تحدّي جديد')); setBody('<div class="sx-pad">' + (S.form ? formHtml() : '') + '</div>'); setFoot(''); break;
     case 'duel': setHead(hb('تفاصيل التحدي')); setBody(duelPageHtml(cur.id)); setFoot(''); break;
     case 'settings': setHead(hb('الإعدادات')); setBody(settingsHtml()); setFoot(''); break;
+    case 'newgroup': setHead(hb(S.gf && S.gf.kind === 'c' ? 'مجتمع جديد' : 'مجموعة جديدة')); setBody(convFormHtml()); setFoot(''); break;
+    case 'ginfo': setHead(hb('معلومات المجموعة')); setBody(convInfoHtml(cur.id)); setFoot(''); break;
+    case 'cmty': setHead(hb('معلومات المجتمع')); setBody(convInfoHtml(cur.id)); setFoot(''); break;
     default: renderMain(); break;
   }
   if (changed) { enterView(cur); var sb = $('sxBody'); if (sb) sb.scrollTop = UI.scroll[key] || 0; } else { var sb2 = $('sxBody'); if (sb2) sb2.scrollTop = keep; }
@@ -1559,7 +1568,7 @@ function render(force) {
 }
 function renderMain() {
   var t = S.tab, title = { chats: 'الدردشات', friends: 'الأصدقاء', comp: 'المنافسة', me: 'حسابي' }[t] || '', right = '', body = '', cls = '';
-  if (t === 'chats') { right = ibtn('userplus', 'spAddPage()', 'إضافة صديق'); body = chatsTab() + (Object.keys(S.friends).length ? '<button class="sx-fab" onclick="spPickChat()" aria-label="محادثة جديدة">' + ic('chat', 26) + '</button>' : ''); }
+  if (t === 'chats') { right = ibtn('userplus', 'spAddPage()', 'إضافة صديق'); body = chatsTab() + (allConvIds().length ? '<button class="sx-fab" onclick="spPickChat()" aria-label="محادثة جديدة">' + ic('chat', 26) + '</button>' : ''); }
   else if (t === 'friends') { right = ibtn('userplus', 'spAddPage()', 'إضافة صديق'); body = friendsTab(); }
   else if (t === 'comp') body = compTab();
   else { right = ibtn('gear', 'spSettings()', 'الإعدادات'); body = meTab(); }
@@ -1587,7 +1596,7 @@ function leaveView(v) {
 function sgChatReadMap() { return sgRead('chatRead', {}); }
 function sgStopChat() {
   ['chatUnsub', 'readUnsub'].forEach(function (k) { if (SG[k]) { try { SG[k](); } catch (e) { } SG[k] = null; } });
-  SG.chatItems = []; SG.chatLoading = false; SG.chatMore = false; SG.readAt = 0; SG.myReadSent = 0; SG.dAt = 0; SG.played = {}; SG.chatFriend = ''; SG.chatLive = false;
+  try { Object.keys(SG.vid || {}).forEach(function (k) { URL.revokeObjectURL(SG.vid[k]); }); } catch (e) { } SG.vid = {}; UI.rfPend = 0; SG.chatItems = []; SG.chatLoading = false; SG.chatMore = false; SG.readAt = 0; SG.myReadSent = 0; SG.dAt = 0; SG.played = {}; SG.chatFriend = ''; SG.chatLive = false;
 }
 function chatStart(fid) {
   sgStopChat(); var d = db(); if (!d || !S.uid) return;
@@ -1596,13 +1605,13 @@ function chatStart(fid) {
     if (MC[cid] && MC[cid].length) { SG.chatItems = MC[cid].slice(); try { chatRefresh(); } catch (e) { } }
     else mcLoad(cid).then(function (it) { if (it && it.length && SG.chatFriend === fid && !SG.chatLive) { SG.chatItems = it; chatRefresh(); } });
   }
-  SG.chatUnsub = d.collection('socialChats').doc(cid).collection('messages').orderBy('createdAt', 'desc').limit(lim).onSnapshot({ includeMetadataChanges: true }, function (sn) {
+  SG.chatUnsub = chatRef(cid).collection('messages').orderBy('createdAt', 'desc').limit(lim).onSnapshot({ includeMetadataChanges: true }, function (sn) {
     SG.chatItems = sn.docs.map(function (x) { var o = Object.assign({ id: x.id }, x.data({ serverTimestamps: 'estimate' })); o._p = x.metadata.hasPendingWrites; return o; }).reverse();
     SG.chatMore = sn.size >= lim; SG.chatLoading = false; SG.chatLive = true; mcSave(cid, SG.chatItems); chatMarkRead(); chatRefresh(); try { cleanOld(cid); } catch (e) { }
     try { autoSaveIncoming(SG.chatItems); sn.docChanges().forEach(function (c) { if (c.type === 'removed') { var dm = c.doc.data(); if (dm && dm.type === 'file' && dm.fileId && LF.have[dm.fileId]) lfCheckGone(cid, c.doc.id, dm.fileId); } }); } catch (e) { }
   }, function () { SG.chatLoading = false; snack('تعذّر تحميل الشات. راجع قواعد أمان socialChats في Firestore.'); chatRefresh(); });
-  try {
-    SG.readUnsub = d.collection('socialChats').doc(cid).collection('reads').doc(fid).onSnapshot(function (s) {
+  if (!isConv(fid)) try {
+    SG.readUnsub = chatRef(cid).collection('reads').doc(fid).onSnapshot(function (s) {
       var x = s.exists ? s.data({ serverTimestamps: 'estimate' }) : {}, t = x.at ? ms(x.at) : 0, dt = x.dAt ? ms(x.dAt) : 0, pl = {}, k;
       if (x.pl) for (k in x.pl) pl[k] = x.pl[k] ? ms(x.pl[k]) : 1;
       var sg = JSON.stringify(pl), ch = t !== SG.readAt || dt !== SG.dAt || sg !== JSON.stringify(SG.played);
@@ -1619,12 +1628,13 @@ function chatMarkRead() {
   var inc = null, k; for (k = it.length - 1; k >= 0; k--) { if (it[k].from !== S.uid && !it[k]._p) { inc = it[k]; break; } }
   if (inc && ms(inc.createdAt) > (SG.myReadSent || 0) && db()) {
     SG.myReadSent = ms(inc.createdAt);
-    db().collection('socialChats').doc(cid).collection('reads').doc(S.uid).set({ at: FV().serverTimestamp(), dAt: FV().serverTimestamp() }, { merge: true }).catch(function () { });
+    chatRef(cid).collection('reads').doc(S.uid).set({ at: FV().serverTimestamp(), dAt: FV().serverTimestamp() }, { merge: true }).catch(function () { });
   }
   refreshBadges();
 }
 function tickHtml(m, t) {
   if (m._p) return '<span class="tk" title="جاري الإرسال">' + ic('clock', 13) + '</span>';
+  if (isConv(SG.chatFriend)) return '<span class="tk" title="اتبعتت">' + ic('check', 16) + '</span>';
   var rd = !!(SG.readAt && t <= SG.readAt), dl = rd || !!(SG.dAt && t <= SG.dAt);
   if (m.type === 'voice' && m.fileId && SG.played[m.fileId]) return '<span class="tk" style="color:var(--wa-played)" title="اتسمعت">' + ic('check2', 16) + '</span>';
   if (rd) return '<span class="tk" style="color:var(--wa-tick)" title="اتقرأت">' + ic('check2', 16) + '</span>';
@@ -1649,6 +1659,7 @@ function bubbleHtml(m, idx, tail) {
   }
   else if (m.type === 'voice' && m.fileId && /^[A-Za-z0-9_-]{1,40}$/.test(m.fileId)) body = voiceHtml(m, mine);
   else if (m.type === 'file' && m.fileId && expired(m)) body = '<div class="sx-fil"><span class="fi">' + ic('file', 22) + '</span><span style="min-width:0;flex:1"><b>' + esc(m.fileName || 'ملف مرفق') + '</b><small>انتهت صلاحية الملف (بعد ' + KEEP_DAYS + ' أيام)</small></span></div>';
+  else if (isVid(m) && m.fileId && /^[A-Za-z0-9_-]{1,40}$/.test(m.fileId)) { cls += ' vidb'; body = videoHtml(m); }
   else if (m.type === 'file' && m.fileId) {
     var fi = m.fileId, st = SG.dlBusy[fi] ? ' busy' : (SG.dlDone[fi] ? ' done' : '');
     body = '<div class="sx-fil"><span class="fi">' + ic('file', 22) + '</span><span style="min-width:0;flex:1"><b>' + esc(m.fileName || 'ملف مرفق') + '</b><small>' + fmtSize(m.fileSize) + fileHint(m) + '</small></span><button class="dlb' + st + '" data-dl="1" aria-label="تنزيل الملف" title="تنزيل">' + (SG.dlBusy[fi] ? '<b style="font-size:.72rem">' + (SG.dlPct[fi] || 0) + '%</b>' : ic(SG.dlDone[fi] ? 'check' : 'dl', 20)) + '</button></div>';
@@ -1656,6 +1667,7 @@ function bubbleHtml(m, idx, tail) {
   else if (m.type === 'file') body = url ? '<a class="sx-fil" href="' + esc(url) + '" target="_blank" rel="noopener noreferrer"><span class="fi">' + ic('file', 22) + '</span><span style="min-width:0"><b>' + esc(m.fileName || 'ملف مرفق') + '</b><small>اضغط للفتح</small></span></a>' : '<i style="opacity:.7">الملف مش متاح</i>';
   else body = '<span class="tx">' + linkify(m.text || '') + '</span>';
   if (m.rp && m.rp.id) body = '<div class="sx-q" data-q="' + esc(m.rp.id) + '"><b>' + esc(m.rp.from === S.uid ? 'أنت' : fname(m.rp.from)) + '</b><span>' + esc(m.rp.tx || '') + '</span></div>' + body;
+  if (!mine && tail && isGid(SG.chatFriend)) body = '<div class="sx-sn" style="color:' + AVC[hstr(m.from) % AVC.length] + '">' + esc(fname(m.from)) + '</div>' + body;
   if (UI.sel && UI.sel === m.id) cls += ' sel';
   return '<div class="' + cls + '" data-i="' + idx + '" data-mid="' + esc(m.id) + '">' + body + meta + '</div>';
 }
@@ -1663,8 +1675,8 @@ function chatMsgsHtml() {
   var it = SG.chatItems, h = '', prev = null;
   if (SG.chatLoading && !it.length) return '<div class="sx-sys">⏳ جاري تحميل الرسائل...</div>';
   if (SG.chatMore) h += '<button class="sx-more" onclick="spOlder()">تحميل رسائل أقدم</button>';
-  else h += '<div class="sx-sys">🔒 المحادثة دي خاصة بينك وبين ' + esc(fname(SG.chatFriend)) + ' بس.</div>';
-  if (!it.length && !UI.upl.length) h += '<div class="sx-sys" style="margin-top:4px">ابدأ بـ «سلام» 👋</div>';
+  else h += '<div class="sx-sys">' + (isConv(SG.chatFriend) ? (isCid(SG.chatFriend) ? '📣 قناة إعلانات «' : '👥 مجموعة «') + esc(convName(SG.chatFriend)) + '»' : '🔒 المحادثة دي خاصة بينك وبين ' + esc(fname(SG.chatFriend)) + ' بس.') + '</div>';
+  if (!it.length && !UI.upl.length && (!isConv(SG.chatFriend) || canPost(SG.chatFriend))) h += '<div class="sx-sys" style="margin-top:4px">ابدأ بـ «سلام» 👋</div>';
   var hid = hiddenMap();
   it.forEach(function (m, idx) {
     if (hid[m.id]) return;
@@ -1678,6 +1690,7 @@ function chatMsgsHtml() {
 }
 function chatRefresh() {
   var box = $('sxMsgs'); if (!box || curView().t !== 'chat') return;
+  var pv = box.querySelector('video'); if (pv && !pv.paused && !pv.ended) { UI.rfPend = 1; return; }
   var near = box.scrollHeight - box.scrollTop - box.clientHeight < 140, oldH = box.scrollHeight, oldTop = box.scrollTop;
   var it = SG.chatItems, last = it.length ? it[it.length - 1] : null, prevId = UI.lastId;
   box.innerHTML = chatMsgsHtml();
@@ -1689,7 +1702,7 @@ function chatRefresh() {
   UI.lastId = last ? last.id : '';
   if (stickNow) { var imgs = box.querySelectorAll('img'), j; for (j = 0; j < imgs.length; j++) { if (!imgs[j].complete) imgs[j].addEventListener('load', function () { box.scrollTop = box.scrollHeight; }, { once: true }); } }
   updDown(); onMsgScroll(); try { voiceSync(); } catch (e) { }
-  var st = document.querySelector('.sx-hdr-chat .st'); if (st) { var p = S.fp[curView().id] && S.fp[curView().id].data; st.textContent = lastSeen(p); st.className = 'st ' + (isOnline(p) ? 'on' : ''); }
+  var st = document.querySelector('.sx-hdr-chat .st'); if (st) { var cvid = curView().id; if (isConv(cvid)) { st.textContent = convSub(cvid); st.className = 'st'; } else { var p = S.fp[cvid] && S.fp[cvid].data; st.textContent = lastSeen(p); st.className = 'st ' + (isOnline(p) ? 'on' : ''); } }
 }
 function onMsgScroll() { var b = $('sxMsgs'), d = $('sxDown'); if (!b || !d) return; var near = b.scrollHeight - b.scrollTop - b.clientHeight < 140; d.classList.toggle('on', !near); UI.stickKb = near; if (near && UI.newBelow) { UI.newBelow = 0; updDown(); } }
 function updDown() { var d = $('sxDown'); if (d) d.innerHTML = ic('down', 22) + badge(UI.newBelow); }
@@ -1713,12 +1726,12 @@ function composerHtml(fid) {
     '<div class="sx-emoji" id="sxEmoji">' + EMOJIS.map(function (e) { return '<button onpointerdown="event.preventDefault()" onclick="spEmojiAdd(\'' + e + '\')">' + e + '</button>'; }).join('') + '</div>';
 }
 function renderChat(v, changed) {
-  var id = v.id, p = S.fp[id] && S.fp[id].data, nm = fname(id), sid = sgSafeId(id);
+  var id = v.id, p = S.fp[id] && S.fp[id].data, nm = fname(id), sid = sgSafeId(id), cvm = isConv(id);
   var sm = UI.sel ? selMsg() : null; if (UI.sel && !sm) UI.sel = '';
   if (sm) { var own = sm.from === S.uid; setHead('<div class="sx-selbar">' + ibtn('close', 'spSelClear()', 'إلغاء التحديد') + '<span class="n">1</span>' + ibtn('reply', 'spReplyTo()', 'رد') + (sm.type === 'text' || sm.type === 'image' ? ibtn('copy', 'spSelCopy()', 'نسخ') : '') + ibtn('fwd', 'spForward()', 'إعادة توجيه') + ibtn('trash', 'spDelMsg()', 'حذف') + ibtn('more', 'spMsgMore()', 'المزيد') + '</div>'); }
-  else setHead('<button class="sx-ib" onclick="spBack()" aria-label="رجوع">' + ic('back') + '</button><div class="sx-hdr-chat" onclick="spProfile(\'' + sid + '\')">' + avWrap(nm, id, 40, p) + '<div style="min-width:0"><div class="nm">' + esc(nm) + '</div><div class="st ' + (isOnline(p) ? 'on' : '') + '">' + esc(lastSeen(p)) + '</div></div></div>' + ibtn('more', 'spChatMenu()', 'المزيد'));
+  else setHead('<button class="sx-ib" onclick="spBack()" aria-label="رجوع">' + ic('back') + '</button><div class="sx-hdr-chat" onclick="' + (cvm ? 'spConvInfo' : 'spProfile') + '(\'' + sid + '\')">' + avWrap(nm, id, 40, p) + '<div style="min-width:0"><div class="nm">' + esc(nm) + '</div><div class="st ' + (!cvm && isOnline(p) ? 'on' : '') + '">' + esc(cvm ? convSub(id) : lastSeen(p)) + '</div></div></div>' + ibtn('more', 'spChatMenu()', 'المزيد'));
   if (changed || !$('sxMsgs')) {
-    setBody(chatBodyHtml(), 'sx-chatbody'); setFoot(composerHtml(id)); bindMsgs($('sxMsgs'));
+    setBody(chatBodyHtml(), 'sx-chatbody'); setFoot(chatFootHtml(id)); bindMsgs($('sxMsgs'));
     var inp = $('sxInput'); if (inp) spInp(inp); try { recUi(); } catch (e) { } try { rplUi(); } catch (e) { }
   }
   if (changed) enterView(v);
@@ -1731,6 +1744,7 @@ function bindMsgs(box) {
     var qq = e.target.closest && e.target.closest('.sx-q[data-q]'); if (qq) { spJump(qq.getAttribute('data-q')); return; }
     if (UI.sel) { if (Date.now() - (UI.menuAt || 0) > 400) spSelClear(); return; }
     var im = e.target.closest && e.target.closest('.sx-b.img img'); if (im) spView(im.getAttribute('src'));
+    var vlc = e.target.closest && e.target.closest('[data-vl]'); if (vlc) { var vb = vlc.closest('.sx-b[data-i]'); if (vb) spVideo(+vb.getAttribute('data-i')); return; }
     var dl = e.target.closest && e.target.closest('[data-dl]'); if (dl) { e.preventDefault(); var bb = dl.closest('.sx-b[data-i]'); if (bb) spDownload(+bb.getAttribute('data-i')); return; }
     var vp = e.target.closest && e.target.closest('[data-vp],[data-vb]');
     if (vp) { var b2 = vp.closest('.sx-b[data-i]'); if (b2) { var ratio = null; if (vp.hasAttribute('data-vb')) { var rr = vp.getBoundingClientRect(); ratio = Math.max(0, Math.min(1, (rr.right - e.clientX) / Math.max(1, rr.width))); } spVoice(+b2.getAttribute('data-i'), ratio); } }
@@ -1761,6 +1775,8 @@ function bindMsgs(box) {
   box.addEventListener('touchend', function () { swEnd(false); }, { passive: true });
   box.addEventListener('touchcancel', function () { swEnd(true); }, { passive: true });
   box.addEventListener('scroll', onMsgScroll, { passive: true });
+  function vidDone() { if (UI.rfPend) { UI.rfPend = 0; chatRefresh(); } }
+  box.addEventListener('pause', vidDone, true); box.addEventListener('ended', vidDone, true);
 }
 function closePanels() {
   UI.emojiOn = false; UI.attachOn = false; var e = $('sxEmoji'), a = $('sxAttach'), b = $('sxEmojiBtn');
@@ -1788,11 +1804,13 @@ window.spEmojiAdd = function (e) {
 function sgSendMsg(fid, fields, preview) {
   if (UI.reply && UI.reply.fid === fid) { fields = Object.assign({}, fields, { rp: { id: UI.reply.id, from: UI.reply.from, ty: UI.reply.ty, tx: String(UI.reply.tx || '').slice(0, 120) } }); UI.reply = null; try { rplUi(); } catch (e) { } }
   var d = db(); if (!d || !S.uid || !fid) return Promise.resolve(false);
-  var ref = d.collection('socialChats').doc(sgChatId(fid)), mref = ref.collection('messages').doc(), now = FV().serverTimestamp(), b = d.batch();
-  b.set(ref, { participants: [S.uid, fid], updatedAt: now, lastMessage: String(preview || '').slice(0, 100), lastFrom: S.uid }, { merge: true });
-  b.set(mref, Object.assign({ from: S.uid, to: fid, createdAt: now }, fields));
+  if (S.cfg && S.cfg.chatOff === true) { snack('الشات متوقف مؤقتًا من الإدارة'); return Promise.resolve(false); }
+  var ref = chatRef(sgChatId(fid)), mref = ref.collection('messages').doc(), now = FV().serverTimestamp(), b = d.batch();
+  var cv = isConv(fid);
+  if (cv) { b.update(ref, { updatedAt: now, lastMessage: String(preview || '').slice(0, 100), lastFrom: S.uid }); b.set(mref, Object.assign({ from: S.uid, createdAt: now }, fields)); }
+  else { b.set(ref, { participants: [S.uid, fid], updatedAt: now, lastMessage: String(preview || '').slice(0, 100), lastFrom: S.uid }, { merge: true }); b.set(mref, Object.assign({ from: S.uid, to: fid, createdAt: now }, fields)); }
   UI.stick = true;
-  return b.commit().then(function () { try { ppNotify(fid, 'msg', preview); } catch (e) { } return true; }).catch(function (e) { snack('فشل الإرسال' + (e && e.code ? ' (' + e.code + ')' : '') + '. تحقق من قواعد Firestore الخاصة بالشات.'); return false; });
+  return b.commit().then(function () { try { if (cv) convNotify(fid, preview); else ppNotify(fid, 'msg', preview); } catch (e) { } return true; }).catch(function (e) { snack('فشل الإرسال' + (e && e.code ? ' (' + e.code + ')' : '') + '. تحقق من قواعد Firestore الخاصة بالشات.'); return false; });
 }
 window.spGameChatSend = function () {
   var inp = $('sxInput'), text = (inp && inp.value || '').trim(), fid = SG.chatFriend; if (!text || !fid) return;
@@ -1804,11 +1822,16 @@ function rmUpl(u) { var i = UI.upl.indexOf(u); if (i >= 0) UI.upl.splice(i, 1); 
 window.spGameChatFile = function (inp) {
   var f = inp.files && inp.files[0]; inp.value = ''; var fid = SG.chatFriend; closePanels(); if (!f || !fid) return;
   var u = { kind: /^image\//.test(f.type || '') ? 'image' : 'file', name: f.name || 'ملف' };
+  if (cfgOff('chatOff', 'الشات متوقف مؤقتًا من الإدارة')) return;
+  if (u.kind === 'file' && cfgOff('uploadsOff', 'رفع الملفات متوقف مؤقتًا من الإدارة')) return;
+  if (isVidFile(f) && cfgOff('videoOff', 'رفع الفيديو متوقف مؤقتًا من الإدارة')) return;
+  var capMB = +(S.cfg && S.cfg.maxFileMB); if (u.kind === 'file' && capMB > 0 && f.size > capMB * MB) { snack('الحد الأقصى للملف دلوقتي ' + capMB + ' ميجا'); return; }
   if (u.kind === 'image') {
     edOpen(f, function (dataUrl, cap) { UI.stick = true; sgSendMsg(fid, { type: 'image', text: cap || '', img: dataUrl }, '📷 ' + (cap || 'صورة')); });
     return;
   }
   if (f.size > MAXBIG) { snack('الحد الأقصى للملف ' + fmtSize(MAXBIG)); return; }
+  if (isConv(fid) && f.size > 10 * MB) { snack('الحد الأقصى للملف في المجموعات والمجتمعات 10 ميجا'); return; }
   if (!f.size) { snack('الملف فاضي'); return; }
   var tr = tierOf(f.size);
   if (!tr || (CF_URL && f.size > CF_MIN)) { startUpload(f, fid, u, null); return; }
@@ -1866,7 +1889,7 @@ function cfUpload(f, fid, u) {
     }
     return nx();
   }).then(function (r) {
-    if (r.st === 200) { lfPut(id, f, nm); rmUpl(u); UI.stick = true; var fl = { type: 'file', text: '', fileId: id, fileName: nm, fileSize: f.size, chunks: 0, store: 'cf' }; if (split) fl.parts = 2; return sgSendMsg(fid, fl, '📎 ' + f.name.slice(0, 100)); }
+    if (r.st === 200) { lfPut(id, f, nm); if (isVidFile(f)) { try { SG.vid[id] = URL.createObjectURL(f); } catch (e) { } } rmUpl(u); UI.stick = true; var fl = { type: 'file', text: '', fileId: id, fileName: nm, fileSize: f.size, chunks: 0, store: 'cf' }; if (f.type) fl.mime = String(f.type).slice(0, 60); if (split) fl.parts = 2; return sgSendMsg(fid, fl, (isVidFile(f) ? '🎬 ' : '📎 ') + f.name.slice(0, 100)); }
     rmUpl(u); var e = {}; try { e = JSON.parse(r.text || '{}'); } catch (x) { }
     if (r.st === 429) { var t = split ? tierOf(f.size) : null, i; if (!t) for (i = 0; i < TIERS.length; i++) if (TIERS[i].k === e.k) t = TIERS[i]; snack('🚫 وصلت للحد اليومي: ' + (e.max || '') + ' ' + (e.max === 1 ? 'ملف' : 'ملفات') + ' ' + (t ? t.lbl : 'بالحجم ده') + ' في اليوم. الحصة بتتجدد بكرة.'); }
     else if (r.st === 413) snack('الحد الأقصى للملف ' + fmtSize(MAXBIG));
@@ -1874,9 +1897,9 @@ function cfUpload(f, fid, u) {
   }).catch(function () { rmUpl(u); snack('فشل رفع الملف. راجع الاتصال.'); });
 }
 function startUpload(f, fid, u, tr) {
-  if (CF_URL && f.size > CF_MIN) { UI.upl.push(u); UI.stick = true; chatRefresh(); cfUpload(f, fid, u); return; }
+  if (!isConv(fid) && CF_URL && f.size > CF_MIN) { UI.upl.push(u); UI.stick = true; chatRefresh(); cfUpload(f, fid, u); return; }
   UI.upl.push(u); UI.stick = true; chatRefresh();
-  uploadFile(f, fid, u).then(function (info) { if (f.size > MAXFILE) lfPut(info.id, f, f.name); rmUpl(u); UI.stick = true; return sgSendMsg(fid, { type: 'file', text: '', fileId: info.id, fileName: f.name.slice(0, 120), fileSize: f.size, chunks: info.n }, '📎 ' + f.name.slice(0, 100)).then(function (ok) { if (ok) useQuota(tr); return ok; }); })
+  uploadFile(f, fid, u).then(function (info) { if (f.size > MAXFILE || isVidFile(f)) { lfPut(info.id, f, f.name); if (isVidFile(f)) { try { SG.vid[info.id] = URL.createObjectURL(f); } catch (e) { } } } rmUpl(u); UI.stick = true; return sgSendMsg(fid, { type: 'file', text: '', fileId: info.id, fileName: f.name.slice(0, 120), fileSize: f.size, chunks: info.n, mime: String(f.type || '').slice(0, 60) }, (isVidFile(f) ? '🎬 ' : '📎 ') + f.name.slice(0, 100)).then(function (ok) { if (ok) useQuota(tr); return ok; }); })
     .catch(function () { rmUpl(u); snack('فشل رفع الملف. راجع الاتصال وقواعد Firestore.'); });
 }
 function fileHint(m) {
@@ -1896,7 +1919,7 @@ function uploadFile(f, fid, u) {
         (function (i) {
           active++;
           readB64(f.slice(i * RAW, Math.min(f.size, (i + 1) * RAW))).then(function (b64) {
-            return d.collection('socialChats').doc(cid).collection('blobs').doc(id + '_' + i).set({ from: S.uid, fid: id, idx: i, total: n, data: b64 });
+            return chatRef(cid).collection('blobs').doc(id + '_' + i).set({ from: S.uid, fid: id, idx: i, total: n, data: b64 });
           }).then(function () { active--; done++; u.pct = Math.min(99, Math.round(done / n * 100)); u.prog = u.pct + '%'; if (done % 3 === 0 || done === n) chatRefresh(); pump(); }, function (e) { failed = true; rej(e); });
         })(next++);
       }
@@ -1974,7 +1997,7 @@ function fetchFileBlob(m, onP, cid) {
       while (active < 6 && next < n) {
         (function (k) {
           active++;
-          d.collection('socialChats').doc(cid).collection('blobs').doc(fi + '_' + k).get().then(function (x) {
+          chatRef(cid).collection('blobs').doc(fi + '_' + k).get().then(function (x) {
             if (!x.exists) throw new Error('missing');
             var bin = atob(x.data().data), arr = new Uint8Array(bin.length), q; for (q = 0; q < bin.length; q++) arr[q] = bin.charCodeAt(q);
             parts[k] = arr; active--; got++; onP(got / n); pump();
@@ -2023,13 +2046,13 @@ function autoSaveIncoming(items) {
 /* لو الرسالة اتمسحت من عند الطرف التاني، نمسح النسخة المحلية كمان (بنتأكد من السيرفر عشان الرسائل القديمة اللي بتخرج من نافذة التحميل ماتتحسبش محذوفة) */
 function lfCheckGone(cid, mid, fid) {
   var d = db(); if (!d) return;
-  d.collection('socialChats').doc(cid).collection('messages').doc(mid).get({ source: 'server' }).then(function (x) { if (!x.exists) lfDel(fid); }, function () { });
+  chatRef(cid).collection('messages').doc(mid).get({ source: 'server' }).then(function (x) { if (!x.exists) lfDel(fid); }, function () { });
 }
 function cleanOld(cid) {
   var done = {}; try { done = JSON.parse(LS.getItem('sp_cleaned') || '{}'); } catch (e) { } var ch = false, d = db(); if (!d) return;
   SG.chatItems.forEach(function (m) {
     if (m.from !== S.uid || m.store === 'cf' || !srvExpired(m) || !m.fileId || done[m.fileId] || !/^[A-Za-z0-9_-]{1,40}$/.test(m.fileId)) return;
-    done[m.fileId] = 1; ch = true; blobIds(m.fileId, Math.min(+m.chunks || 1, 260)).forEach(function (k) { d.collection('socialChats').doc(cid).collection('blobs').doc(k).delete().catch(function () { }); });
+    done[m.fileId] = 1; ch = true; blobIds(m.fileId, Math.min(+m.chunks || 1, 260)).forEach(function (k) { chatRef(cid).collection('blobs').doc(k).delete().catch(function () { }); });
   });
   if (ch) { try { LS.setItem('sp_cleaned', JSON.stringify(done)); } catch (e) { } }
 }
@@ -2079,9 +2102,9 @@ window.spJump = function (id) {
   }
   el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); setTimeout(function () { el.classList.remove('flash'); }, 1500);
 };
-function delBlobs(m) { var cc = db().collection('socialChats').doc(sgChatId(SG.chatFriend)); if (m.type === 'file' && m.fileId) lfDel(m.fileId); if (m.store === 'cf' && CF_URL) { cfToken().then(function (tk) { cfReq('DELETE', '/f/' + m.fileId, tk); }).catch(function () { }); return cc; } if (m.fileId && /^[A-Za-z0-9_-]{1,40}$/.test(m.fileId)) blobIds(m.fileId, Math.min(+m.chunks || 1, 260)).forEach(function (k) { cc.collection('blobs').doc(k).delete().catch(function () { }); }); return cc; }
+function delBlobs(m) { var cc = chatRef(sgChatId(SG.chatFriend)); if (m.type === 'file' && m.fileId) lfDel(m.fileId); if (m.store === 'cf' && CF_URL) { cfToken().then(function (tk) { cfReq('DELETE', '/f/' + m.fileId, tk); }).catch(function () { }); return cc; } if (m.fileId && /^[A-Za-z0-9_-]{1,40}$/.test(m.fileId)) blobIds(m.fileId, Math.min(+m.chunks || 1, 260)).forEach(function (k) { cc.collection('blobs').doc(k).delete().catch(function () { }); }); return cc; }
 window.spDelMsg = function () {
-  var m = selMsg(); if (!m) return; var own = m.from === S.uid, items = [];
+  var m = selMsg(); if (!m) return; var own = m.from === S.uid || (isConv(SG.chatFriend) && isAdminOf(convOf(SG.chatFriend))), items = [];
   if (own) items.push({ t: 'حذف لدى الجميع', ic: 'trash', danger: true, f: function () { if (!confirm('تحذف الرسالة عند الطرفين؟')) return; var cc = delBlobs(m); cc.collection('messages').doc(m.id).delete().catch(function () { snack('تعذّر الحذف'); }); UI.sel = ''; selRefresh(); } });
   items.push({ t: 'حذف لدي', ic: 'trash', danger: true, f: function () { if (m.type === 'file' && m.fileId) lfDel(m.fileId); var h = hiddenMap(); h[m.id] = 1; try { LS.setItem('sp_hid_' + sgChatId(SG.chatFriend), JSON.stringify(h)); } catch (e) { } UI.sel = ''; selRefresh(); chatRefresh(); } });
   items.push({ t: 'إلغاء', ic: 'close', f: function () { } });
@@ -2109,7 +2132,7 @@ window.spInfo = function (id) {
 window.spForward = function () {
   var m = selMsg(); if (!m) return;
   if (m.type === 'voice' || m.type === 'file') { snack('إعادة توجيه الملفات والصوت مش متاحة حاليًا'); return; }
-  var ids = Object.keys(S.friends).filter(function (x) { return x !== SG.chatFriend; }); if (!ids.length) { snack('مفيش أصدقاء تانيين تبعتلهم'); return; }
+  var ids = allConvIds().filter(function (x) { return x !== SG.chatFriend && (!isConv(x) || canPost(x)); }); if (!ids.length) { snack('مفيش محادثات تانية تبعتلها'); return; }
   UI.fwd = { type: m.type, text: m.text || '', img: m.img || '', fileUrl: m.fileUrl || '' };
   actions('إعادة توجيه إلى', ids.slice(0, 12).map(function (id) { return { t: fname(id), ic: 'fwd', f: function () { doForward(id); } }; }));
 };
@@ -2119,9 +2142,17 @@ function doForward(id) {
 }
 window.spChatMenu = function () {
   var id = SG.chatFriend || curView().id; if (!id) return;
+  if (isConv(id)) { actions(convName(id), [
+    { t: isArch(id) ? 'إلغاء الأرشفة' : 'أرشفة المحادثة', ic: 'archive', f: function () { var a = !isArch(id); setArch(id, a); snack(a ? '📦 اتأرشفت المحادثة' : 'رجعت المحادثة للقايمة'); render(true); } },
+    { t: isLocked(id) ? 'إلغاء قفل المحادثة' : 'قفل المحادثة', ic: 'lock', f: function () { spLockToggle(id); } },
+    { t: isMutedCid(id) ? 'تفعيل الإشعارات' : 'كتم الإشعارات', ic: 'info', f: function () { spMuteToggle(id); } },
+    { t: isCid(id) ? 'معلومات المجتمع' : 'معلومات المجموعة', ic: 'info', f: function () { spConvInfo(id); } },
+    { t: isCid(id) ? 'مغادرة المجتمع' : 'مغادرة المجموعة', ic: 'trash', danger: true, f: function () { spConvLeave(id); } }
+  ]); return; }
   actions(fname(id), [
     { t: isArch(id) ? 'إلغاء الأرشفة' : 'أرشفة المحادثة', ic: 'archive', f: function () { var a = !isArch(id); setArch(id, a); snack(a ? '📦 اتأرشفت المحادثة' : 'رجعت المحادثة للقايمة'); render(true); } },
     { t: isLocked(id) ? 'إلغاء قفل المحادثة' : 'قفل المحادثة', ic: 'lock', f: function () { spLockToggle(id); } },
+    { t: isMutedCid(sgChatId(id)) ? 'تفعيل الإشعارات' : 'كتم الإشعارات', ic: 'info', f: function () { spMuteToggle(id); } },
     { t: 'معلومات الصديق', ic: 'user', f: function () { spProfile(id); } },
     { t: 'تحدّيه ⚔️', ic: 'swords', f: function () { spChallenge(id); } },
     { t: 'حذف الصديق', ic: 'trash', danger: true, f: function () { spRemove(id); } }
@@ -2129,7 +2160,7 @@ window.spChatMenu = function () {
 };
 
 /* ---------- صندوق الوارد: آخر رسالة + عدّاد غير المقروء ---------- */
-function sgInboxStop() { if (SG.inboxUnsub) { try { SG.inboxUnsub(); } catch (e) { } } SG.inboxUnsub = null; SG.inboxFor = null; SG.inbox = {}; SG.inboxReady = false; }
+function sgInboxStop() { if (SG.inboxUnsub) { try { SG.inboxUnsub(); } catch (e) { } } SG.inboxUnsub = null; SG.inboxFor = null; SG.inbox = {}; SG.inboxD = {}; SG.inboxG = {}; SG.inboxReady = false; }
 function isViewingChat(cid) { var v = curView(); return UI.open && v.t === 'chat' && sgChatId(v.id) === cid && document.visibilityState === 'visible'; }
 function sgInboxStart() {
   var d = db(); if (!d || !S.uid || SG.inboxFor === S.uid) return; sgInboxStop(); SG.inboxFor = S.uid; SG.unread = sgRead('chatUnread', {});
@@ -2143,9 +2174,9 @@ function sgInboxStart() {
         try { var am = archMap(); if (am[cid] && f.lastFrom && f.lastFrom !== S.uid && f.at > am[cid]) { delete am[cid]; sgWrite('arch', am); } } catch (e) { }
         if (!f.lastFrom || f.lastFrom === S.uid || isViewingChat(cid)) { SG.unread[cid] = 0; return; }
         var changed = first || !o || f.at > o.at;
-        if (changed) { if (!first && !isLockedCid(cid)) toast('💬 ' + fname(f.lastFrom) + ': ' + String(f.last).slice(0, 40)); recountUnread(cid, fid); }
+        if (changed) { if (!first && !isLockedCid(cid) && !isMutedCid(cid)) toast('💬 ' + fname(f.lastFrom) + ': ' + String(f.last).slice(0, 40)); recountUnread(cid, fid); }
       });
-      SG.inbox = fresh; SG.inboxReady = true; sgWrite('chatUnread', SG.unread); render();
+      SG.inboxD = fresh; inboxMerge(); SG.inboxReady = true; sgWrite('chatUnread', SG.unread); render();
     }, function () { SG.inboxReady = true; });
   } catch (e) { }
 }
@@ -2153,16 +2184,16 @@ function sgInboxStart() {
 /* «وصلت»: أول ما تطبيق المستلم يشوف الرسالة (حتى لو مش فاتح المحادثة) بنكتب وقت الوصول — المرسل بيشوف ✓✓ رمادي */
 function markDelivered(cid, at) {
   if (!at || !db() || !S.uid) return; var dm = sgRead('dSent', {}); if (at <= (dm[cid] || 0)) return; dm[cid] = at; sgWrite('dSent', dm);
-  db().collection('socialChats').doc(cid).collection('reads').doc(S.uid).set({ dAt: FV().serverTimestamp() }, { merge: true }).catch(function () { delete dm[cid]; sgWrite('dSent', dm); });
+  chatRef(cid).collection('reads').doc(S.uid).set({ dAt: FV().serverTimestamp() }, { merge: true }).catch(function () { delete dm[cid]; sgWrite('dSent', dm); });
 }
 
 /* عدّاد غير المقروء الحقيقي: بيتحسب من السيرفر (وقت قراءتي المتزامن بين الأجهزة) فنفس الرقم يظهر على أي جهاز */
 function recountUnread(cid, fid) {
   var d = db(); if (!d || !S.uid) return;
-  d.collection('socialChats').doc(cid).collection('reads').doc(S.uid).get().then(function (s) {
+  chatRef(cid).collection('reads').doc(S.uid).get().then(function (s) {
     var sr = s.exists ? ms(s.data({ serverTimestamps: 'estimate' }).at) : 0, since = Math.max(sr, sgChatReadMap()[cid] || 0);
-    return d.collection('socialChats').doc(cid).collection('messages').where('createdAt', '>', new Date(since)).orderBy('createdAt').limit(100).get().then(function (sn) {
-      var n = 0; sn.forEach(function (x) { if (x.data().from === fid) n++; });
+    return chatRef(cid).collection('messages').where('createdAt', '>', new Date(since)).orderBy('createdAt').limit(100).get().then(function (sn) {
+      var n = 0; sn.forEach(function (x) { var fr = x.data().from; if (fid ? fr === fid : fr !== S.uid) n++; });
       if (isViewingChat(cid)) n = 0;
       if ((SG.unread[cid] || 0) !== n) { SG.unread[cid] = n; sgWrite('chatUnread', SG.unread); render(); }
     });
@@ -2224,7 +2255,7 @@ function sendVoice(fid, blob, dur) {
 function voiceUrl(m) {
   if (SG.audio[m.fileId]) return Promise.resolve(SG.audio[m.fileId]);
   var d = db(), cid = sgChatId(SG.chatFriend), n = Math.min(+m.chunks || 1, 260);
-  return Promise.all(blobIds(m.fileId, n).map(function (k) { return d.collection('socialChats').doc(cid).collection('blobs').doc(k).get(); })).then(function (ss) {
+  return Promise.all(blobIds(m.fileId, n).map(function (k) { return chatRef(cid).collection('blobs').doc(k).get(); })).then(function (ss) {
     var b64 = ss.map(function (x) { if (!x.exists) throw new Error('missing'); return x.data().data; }).join(''), bin = atob(b64), arr = new Uint8Array(bin.length), k;
     for (k = 0; k < bin.length; k++) arr[k] = bin.charCodeAt(k);
     var mt = /^audio\/(webm|ogg|mp4|mpeg|aac|x-m4a)$/.test(String(m.mime)) ? m.mime : 'audio/webm', url = URL.createObjectURL(new Blob([arr], { type: mt }));
@@ -2250,7 +2281,7 @@ function voiceSync() {
 function markPlayed(m) {
   var pm = sgRead('played', {}); if (pm[m.fileId]) return; pm[m.fileId] = Date.now(); sgWrite('played', pm);
   var d = db(); if (!d || !S.uid || !SG.chatFriend) return; var o = {}; o[m.fileId] = FV().serverTimestamp();
-  d.collection('socialChats').doc(sgChatId(SG.chatFriend)).collection('reads').doc(S.uid).set({ pl: o }, { merge: true }).catch(function () { delete pm[m.fileId]; sgWrite('played', pm); });
+  chatRef(sgChatId(SG.chatFriend)).collection('reads').doc(S.uid).set({ pl: o }, { merge: true }).catch(function () { delete pm[m.fileId]; sgWrite('played', pm); });
 }
 window.spVoice = function (idx, ratio) {
   var m = SG.chatItems[idx]; if (!m || m.type !== 'voice' || !m.fileId || !sgSafeId(m.fileId)) return; var id = m.fileId, dur = +m.dur || 0;
@@ -2699,7 +2730,7 @@ window.spScanFile = function (inp) {
    Adds daily quests, XP/levels, badges, seasonal event, league and analytics.
    XP and reward claims are local-first; cloud chat uses the existing isolated social Firebase app.
 */
-var SG = { chatFriend: '', chatUnsub: null, chatItems: [], chatBusy: false, chatLoading: false, inbox: {}, inboxReady: false, inboxUnsub: null, inboxFor: null, storageP: null, lastTab: {}, unread: {}, chatLimit: 40, chatMore: false, readAt: 0, myReadSent: 0, readUnsub: null, dAt: 0, played: {}, audio: {}, dlBusy: {}, dlDone: {}, dlPct: {} };
+var SG = { chatFriend: '', chatUnsub: null, chatItems: [], chatBusy: false, chatLoading: false, inbox: {}, inboxReady: false, inboxUnsub: null, inboxFor: null, storageP: null, lastTab: {}, unread: {}, chatLimit: 40, chatMore: false, readAt: 0, myReadSent: 0, readUnsub: null, dAt: 0, played: {}, audio: {}, dlBusy: {}, dlDone: {}, dlPct: {}, vid: {} };
 /* completedHistory بيتسجّل فيه كل مرة تعلّم فيها مهمة كمكتملة (حتى لو لغيتها ورجعت علّمتها) — هنا بنحسب كل مهمة مرة واحدة في اليوم */
 function sgDoneList() { var seen = {}, out = []; try { (completedHistory || []).forEach(function (h) { if (!h) return; var k = h.date ? sgDateKey(new Date(h.date)) : 'nd'; var u = (h.taskId != null ? h.taskId : (h.title || h.id)) + '|' + k; if (seen[u]) return; seen[u] = 1; out.push(h); }); } catch (e) { } return out; }
 function sgDateKey(d) { d = d || new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
@@ -2791,7 +2822,7 @@ window.spLgMode = function (m) { S.lgm = m === 'm' ? 'm' : 'w'; render(true); };
 function sgSafeId(id) { return /^[A-Za-z0-9_-]{1,128}$/.test(String(id)) ? String(id) : ''; }
 function sgSafeUrl(u) { u = String(u || ''); return /^https:\/\/(firebasestorage\.googleapis\.com|[a-z0-9.-]+\.firebasestorage\.app)\//i.test(u) ? u : ''; }
 function sgSafeImg(u) { u = String(u || ''); return (u.length < 600000 && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+\/=]+$/.test(u)) ? u : ''; }
-function sgChatId(uid) { return [String(S.uid), String(uid)].sort().join('__'); }
+function sgChatId(uid) { if (isConv(uid)) return String(uid); return [String(S.uid), String(uid)].sort().join('__'); }
 
 window.spGameClaim=function(id){var q=sgQuests().filter(function(x){return x.id===id;})[0];if(!q||!q.ready||q.claimed){toast('المهمة لسه ما اكتملتش أو استلمت مكافأتها');return;}var claims=sgRead('questClaims',{}),key=sgDateKey()+'_'+id;claims[key]=1;sgWrite('questClaims',claims);var rewards=sgRead('questRewardLog',{});rewards[key]={xp:q.xp,at:Date.now()};sgWrite('questRewardLog',rewards);toast('🎁 استلمت مكافأة المهمة! +'+q.xp+' XP');render(true);};
 window.spGameClaimSeason=function(){var s=sgSeason(),claims=sgRead('seasonClaims',{});if(s.seasonTasks<20||claims[s.from]){toast('مهمة الموسم لسه ما اكتملتش أو استلمت المكافأة');return;}claims[s.from]=1;sgWrite('seasonClaims',claims);var rewards=sgRead('questRewardLog',{});rewards['season_'+s.from]={xp:250,at:Date.now()};sgWrite('questRewardLog',rewards);toast('🏅 مكافأة الموسم! +250 XP');render(true);};
@@ -2976,6 +3007,383 @@ try {
   }
 } catch (e) { }
 
+
+/* ================== المجموعات والمجتمعات ==================
+   - المجموعة = وثيقة groups/{gid} (أعضاء، أدمن، أسماء) + رسايل/ملفات/إيصالات تحتها بنفس شكل الدردشة الخاصة.
+   - المجتمع  = communities/{cid}: قناة إعلانات (الأدمن بس يكتب فيها) + مجموعات تابعة + أعضاء.
+   - الدردشة نفسها (القايمة، الرسايل، الرد، الصوت، الملفات، القفل، الأرشفة) هي نفس كود الدردشة الخاصة.
+     التفرقة بالـ id: المجموعة بتبدأ بـ g- والمجتمع بـ c-، وsgChatId() بترجّعهم زي ما هم، وchatRef() بتختار المكان في Firestore.
+   - الدعوة: أدمن بيضيف صديق من أصحابه (واحد واحد، والقواعد بتتأكد إنه صديقه)، أو بكود دعوة (invites/{code}).
+   - إشعارات Push للمجموعات لسه مش شغّالة: محتاجة تحديث social-push-worker.js (نوع إشعار لعدة مستلمين بيتأكد من العضوية).
+     لما الـ Worker يجهز: GROUP_PUSH = true. لحد وقتها الرسايل بتوصل جوه التطبيق (عدّاد غير مقروء + توست) من غير إشعار والتطبيق مقفول. */
+var GROUP_MAX = 256, CMTY_MAX = 500, GROUP_PUSH = false;
+var JOIN_AL = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function isGid(id) { return /^g-[A-Za-z0-9]{16,40}$/.test(String(id)); }
+function isCid(id) { return /^c-[A-Za-z0-9]{16,40}$/.test(String(id)); }
+function isConv(id) { return isGid(id) || isCid(id); }
+function convOf(id) { id = String(id || ''); return isGid(id) ? (S.groups[id] || null) : isCid(id) ? (S.cmts[id] || null) : null; }
+function convName(id) { var c = convOf(id); return (c && c.name) || (isCid(id) ? 'مجتمع' : 'مجموعة'); }
+function isAdminOf(c) { return !!(c && c.admins && c.admins.indexOf(S.uid) >= 0); }
+function canPost(id) { var c = convOf(id); if (!c) return false; return isCid(id) ? isAdminOf(c) : (!c.only || isAdminOf(c)); }
+function convSub(id) {
+  var c = convOf(id); if (!c) return ''; var n = (c.members || []).length;
+  return isCid(id) ? 'قناة الإعلانات • ' + n + ' عضو' : n + ' عضو' + (c.only ? ' • الأدمن بس يبعت' : '');
+}
+function randAlnum(n) {
+  var a = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', r = new Uint8Array(n), s = '', i;
+  try { crypto.getRandomValues(r); } catch (e) { for (i = 0; i < n; i++) r[i] = Math.floor(Math.random() * 256); }
+  for (i = 0; i < n; i++) s += a[r[i] % a.length]; return s;
+}
+function newConvId(p) { return p + '-' + randAlnum(20); }
+function newJoinCode() {
+  var r = new Uint8Array(10), s = '', i;
+  try { crypto.getRandomValues(r); } catch (e) { for (i = 0; i < 10; i++) r[i] = Math.floor(Math.random() * 256); }
+  for (i = 0; i < 10; i++) s += JOIN_AL[r[i] % JOIN_AL.length]; return s;
+}
+function chatRef(cid) {
+  var d = db(); cid = String(cid);
+  return isGid(cid) ? d.collection('groups').doc(cid) : isCid(cid) ? d.collection('communities').doc(cid) : d.collection('socialChats').doc(cid);
+}
+function allConvIds() { return Object.keys(S.friends).concat(Object.keys(S.groups), Object.keys(S.cmts)); }
+function inboxMerge() { SG.inbox = Object.assign({}, SG.inboxG || {}, SG.inboxD || {}); }
+function convGone(v) { if (!v || !isConv(v.id)) return false; return (isGid(v.id) ? S.gReady : S.cReady) && !convOf(v.id); }
+function openWhenReady(id) { var n = 0; (function w() { if (convOf(id)) { try { spChat(id); } catch (e) { } return; } if (++n < 24) setTimeout(w, 250); })(); }
+function chatFootHtml(id) {
+  if (isConv(id) && !canPost(id)) return '<div class="sx-ro">' + (isCid(id) ? '📣 الأدمن بس هما اللي بينشروا في قناة الإعلانات' : '🔒 الأدمن بس هما اللي يقدروا يبعتوا في المجموعة دي') + '</div>';
+  return composerHtml(id);
+}
+
+/* ---------- الاشتراك في مجموعاتي ومجتمعاتي ---------- */
+function convRebuildNames() {
+  var g = {}; [S.groups, S.cmts].forEach(function (m) { Object.keys(m).forEach(function (k) { var n = m[k].names || {}; Object.keys(n).forEach(function (u) { if (typeof n[u] === 'string') g[u] = n[u]; }); }); });
+  S.gn = g;
+}
+function convApply(kind, cur) {
+  var map = kind === 'g' ? S.groups : S.cmts, first = kind === 'g' ? !S.gReady : !S.cReady, inb = SG.inboxG || (SG.inboxG = {});
+  var wasPost = {}; Object.keys(map).forEach(function (id) { wasPost[id] = canPost(id); });
+  Object.keys(map).forEach(function (id) { if (!cur[id]) { delete map[id]; delete inb[id]; delete SG.unread[id]; } });
+  Object.keys(cur).forEach(function (id) {
+    var c = cur[id], old = map[id], o = SG.inbox[id];
+    if (!old && !first && c.createdBy !== S.uid) toast((kind === 'g' ? '👥 اتضفت لمجموعة: ' : '🌐 اتضفت لمجتمع: ') + (c.name || ''));
+    map[id] = c;
+    var at = ms(c.updatedAt || c.createdAt);
+    inb[id] = { lastFrom: c.lastFrom || '', at: at, last: c.lastMessage || '' };
+    /* اسمي في المجموعة (بيتحدّث لو اتغيّر) */
+    try {
+      var nm = String(S.name || '').slice(0, 40); S.gnSync = S.gnSync || {};
+      if (nm && (c.names || {})[S.uid] !== nm && !S.gnSync[id + '|' + nm]) { S.gnSync[id + '|' + nm] = 1; var up = {}; up['names.' + S.uid] = nm; chatRef(id).update(up).catch(function () { }); }
+    } catch (e) { }
+    if (!c.lastFrom || c.lastFrom === S.uid || isViewingChat(id)) { SG.unread[id] = 0; return; }
+    var changed = first || !o || at > o.at;
+    if (changed) {
+      try { var am = archMap(); if (am[id] && c.lastFrom && at > am[id]) { delete am[id]; sgWrite('arch', am); } } catch (e) { }
+      if (!first && !isLockedCid(id) && !isMutedCid(id)) toast('💬 ' + fname(c.lastFrom) + ' • ' + (c.name || '') + ': ' + String(c.lastMessage || '').slice(0, 40));
+      recountUnread(id);
+    }
+  });
+  if (kind === 'g') S.gReady = true; else S.cReady = true;
+  convRebuildNames(); inboxMerge(); sgWrite('chatUnread', SG.unread);
+  /* لو بتشوف المحادثة وصلاحية الإرسال اتغيّرت (اتحوّلت لأدمن أو اتشالت منه) */
+  try { var v = curView(); if (v.t === 'chat' && isConv(v.id) && map[v.id] && wasPost[v.id] !== undefined && wasPost[v.id] !== canPost(v.id)) { setFoot(chatFootHtml(v.id)); } } catch (e) { }
+  render();
+}
+function convListen(d) {
+  [['g', 'groups'], ['c', 'communities']].forEach(function (k) {
+    S.unsubs.push(d.collection(k[1]).where('members', 'array-contains', S.uid).onSnapshot(function (sn) {
+      var cur = {}; sn.forEach(function (x) { if (k[0] === 'g' ? isGid(x.id) : isCid(x.id)) cur[x.id] = Object.assign({ id: x.id }, x.data({ serverTimestamps: 'estimate' })); });
+      convApply(k[0], cur);
+    }, function () { if (k[0] === 'g') S.gReady = true; else S.cReady = true; }));
+  });
+}
+function convNotify(id, preview) {
+  if (!GROUP_PUSH) return; var c = convOf(id); if (!c) return;
+  (c.members || []).forEach(function (u) { if (u !== S.uid && sgSafeId(u)) ppNotify(u, 'gmsg', preview, id); });
+}
+
+/* ---------- أدوات صغيرة ---------- */
+function thumbOfFile(f, z) {
+  return new Promise(function (res) {
+    var url; try { url = URL.createObjectURL(f); } catch (e) { res(''); return; }
+    var im = new Image();
+    im.onload = function () {
+      try {
+        var cv = document.createElement('canvas'); cv.width = cv.height = z; var cx = cv.getContext('2d'), s = Math.min(im.naturalWidth, im.naturalHeight);
+        cx.drawImage(im, (im.naturalWidth - s) / 2, (im.naturalHeight - s) / 2, s, s, 0, 0, z, z);
+        var q = 0.74, v = cv.toDataURL('image/jpeg', q); while (v.length > 17000 && q > 0.3) { q -= 0.12; v = cv.toDataURL('image/jpeg', q); }
+        res(v.length <= 19000 ? v : '');
+      } catch (e) { res(''); }
+      try { URL.revokeObjectURL(url); } catch (e) { }
+    };
+    im.onerror = function () { try { URL.revokeObjectURL(url); } catch (e) { } res(''); }; im.src = url;
+  });
+}
+function convUpd(id, fields) {
+  return chatRef(id).update(fields).then(function () { return true; }, function (e) {
+    snack('تعذّر التنفيذ' + (e && e.code === 'permission-denied' ? ' — مفيش صلاحية (أو قواعد Firestore لسه ما اتحدّثتش)' : '') + ' ⚠️'); return false;
+  });
+}
+function addMembersSeq(id, uids) {
+  var ok = 0, i = 0, ref = chatRef(id);
+  return (function next() {
+    if (i >= uids.length) return Promise.resolve(ok);
+    var u = uids[i++], up = { members: FV().arrayUnion(u) }; up['names.' + u] = String((S.friends[u] && S.friends[u].name) || fname(u)).slice(0, 40);
+    return ref.update(up).then(function () { ok++; }, function () { }).then(next);
+  })();
+}
+function nameSorted(ids) { return ids.slice().sort(function (a, b) { return fname(a).localeCompare(fname(b), 'ar'); }); }
+
+/* ---------- إنشاء مجموعة / مجتمع ---------- */
+window.spNewGroup = function (cm) {
+  sheetClose(); if (cfgOff('groupsOff', 'إنشاء المجموعات متوقف مؤقتًا من الإدارة')) return; if (!S.code) { snack('فعّل المنافسة والأصدقاء الأول'); return; }
+  S.gf = { kind: 'g', name: '', desc: '', only: false, picks: {}, cmty: isCid(cm) ? cm : '' }; navPush({ t: 'newgroup' });
+};
+window.spNewCmty = function () {
+  sheetClose(); if (cfgOff('groupsOff', 'إنشاء المجتمعات متوقف مؤقتًا من الإدارة')) return; if (!S.code) { snack('فعّل المنافسة والأصدقاء الأول'); return; }
+  S.gf = { kind: 'c', name: '', desc: '', picks: {} }; navPush({ t: 'newgroup' });
+};
+window.spGF = function (k, v) { if (S.gf) S.gf[k] = v; };
+window.spGPick = function (id, on) { if (S.gf && S.friends[id]) S.gf.picks[id] = !!on; };
+function convFormHtml() {
+  var f = S.gf; if (!f) return ''; var cm = f.kind === 'c', ids = nameSorted(Object.keys(S.friends).filter(sgSafeId));
+  var h = '<div class="sx-pad"><label class="sx-lbl">' + (cm ? 'اسم المجتمع' : 'اسم المجموعة') + '</label><input class="sp-in" maxlength="60" value="' + esc(f.name) + '" oninput="spGF(\'name\',this.value)" placeholder="' + (cm ? 'مثلًا: مجتمع طلاب الثانوية' : 'مثلًا: شلة المذاكرة') + '">' +
+    '<label class="sx-lbl" style="margin-top:12px">الوصف (اختياري)</label><textarea class="sp-in" rows="3" maxlength="' + (cm ? 300 : 200) + '" oninput="spGF(\'desc\',this.value)" placeholder="نبذة قصيرة">' + esc(f.desc) + '</textarea>';
+  if (cm) h += '<div class="sp-sm" style="margin-top:10px;line-height:1.8">المجتمع فيه <b>قناة إعلانات</b> إنت (والأدمن) بس اللي تنشر فيها، وتقدر تعمل جواه مجموعات يدخلها الأعضاء. الانضمام بكود دعوة أو إنك تضيف أصحابك.</div>';
+  else {
+    if (f.cmty) h += '<div class="sp-sm" style="margin-top:10px">المجموعة دي هتبقى تابعة للمجتمع، وأي عضو في المجتمع يقدر ينضم لها.</div>';
+    h += '<label class="sx-sw" style="margin-top:8px"><div><b>الأدمن بس يبعت</b><div class="sp-sm">الأعضاء بيقروا بس (زي قناة إعلانات)</div></div><input type="checkbox" ' + (f.only ? 'checked ' : '') + 'onchange="spGF(\'only\',this.checked)" style="width:20px;height:20px"></label>';
+  }
+  h += '<div class="sx-sec" style="padding-right:2px">' + (ids.length ? 'ضيف أعضاء من أصحابك (اختياري)' : 'أعضاء') + '</div>';
+  h += ids.length ? ids.map(function (id) {
+    var p = S.fp[id] && S.fp[id].data;
+    return '<label class="sx-r" style="padding:0 4px;min-height:58px"><input type="checkbox" ' + (f.picks[id] ? 'checked ' : '') + 'onchange="spGPick(\'' + id + '\',this.checked)" style="width:18px;height:18px;flex:none">' + avWrap(fname(id), id, 42, p) + '<div class="sx-rb"><div class="sx-rt"><span class="sx-rn">' + esc(fname(id)) + '</span></div></div></label>';
+  }).join('') : '<div class="sp-sm" style="padding:6px 2px">ضيف أصحاب الأول عشان تقدر تضيفهم، وتقدر تدعوهم بعدين بكود دعوة.</div>';
+  return h + '<button class="btn" id="spGoBtn" style="margin-top:16px" onclick="spMkConv()">' + (cm ? 'إنشاء المجتمع' : 'إنشاء المجموعة') + '</button></div>';
+}
+window.spMkConv = function () {
+  var f = S.gf, d = db(); if (!f || f.busy || !d || !S.uid) return;
+  var cm = f.kind === 'c', name = String(f.name || '').trim().slice(0, 60), desc = String(f.desc || '').trim().slice(0, cm ? 300 : 200);
+  if (!name) { snack('اكتب الاسم الأول ✏️'); return; }
+  var max = cm ? CMTY_MAX : GROUP_MAX, picks = Object.keys(f.picks || {}).filter(function (k) { return f.picks[k] && S.friends[k]; }).slice(0, max - 1);
+  f.busy = true; var btn = $('spGoBtn'); if (btn) { btn.disabled = true; btn.textContent = '⏳ جاري الإنشاء...'; }
+  var id = newConvId(cm ? 'c' : 'g'), now = FV().serverTimestamp(), data = { name: name, createdBy: S.uid, createdAt: now, updatedAt: now, members: [S.uid], admins: [S.uid], names: {} };
+  data.names[S.uid] = String(S.name || 'أنا').slice(0, 40); if (desc) data.desc = desc;
+  if (cm) data.groups = []; else { data.only = !!f.only; if (f.cmty) data.cmty = f.cmty; }
+  var b = d.batch(); b.set(chatRef(id), data);
+  if (!cm && f.cmty) b.update(d.collection('communities').doc(f.cmty), { groups: FV().arrayUnion({ id: id, name: name }) });
+  b.commit().then(function () { return addMembersSeq(id, picks); }).then(function (n) {
+    f.busy = false; S.gf = null; snack((cm ? '🌐 اتعمل المجتمع' : '👥 اتعملت المجموعة') + (picks.length ? ' — اتضاف ' + n + ' من ' + picks.length : '') + ' ✅');
+    if (curView().t === 'newgroup') { navReplace(cm ? { t: 'cmty', id: id } : { t: 'chat', id: id }); }
+    var w = 0; (function wt() { if (convOf(id) || ++w > 20) { if (curView().t === 'newgroup' || !convOf(id)) { try { render(true); } catch (e) { } } return; } setTimeout(wt, 200); })();
+  }).catch(function (e) {
+    f.busy = false; var bt = $('spGoBtn'); if (bt) { bt.disabled = false; bt.textContent = cm ? 'إنشاء المجتمع' : 'إنشاء المجموعة'; }
+    snack('تعذّر الإنشاء' + (e && e.code === 'permission-denied' ? ' — قواعد Firestore لسه ما اتحدّثتش بالمجموعات والمجتمعات' : '') + ' ⚠️');
+  });
+};
+
+/* ---------- صفحة معلومات المجموعة / المجتمع ---------- */
+window.spConvInfo = function (id) { id = sgSafeId(id); if (!id || !convOf(id)) return; navPush({ t: isCid(id) ? 'cmty' : 'ginfo', id: id }); };
+function convInfoHtml(id) {
+  var c = convOf(id); if (!c) return '<div class="sx-empty">مش لاقي المجموعة دي</div>';
+  var cm = isCid(id), adm = isAdminOf(c), mem = c.members || [], sid = sgSafeId(id), h = '';
+  h += '<div class="sx-gh">' + (adm ? '<div onclick="spConvPic(\'' + sid + '\')" style="cursor:pointer;position:relative">' : '<div>') + avatar(c.name, id, 96) + (adm ? '<span class="sx-camb">' + ic('camera', 16) + '</span>' : '') + '</div><div class="nm">' + esc(c.name) + '</div><div class="sub">' + (cm ? '🌐 مجتمع' : '👥 مجموعة') + ' • ' + mem.length + ' عضو' + (!cm && c.only ? ' • الأدمن بس يبعت' : '') + '</div>' + (c.desc ? '<div class="ds">' + linkify(c.desc) + '</div>' : '') + '</div>';
+  if (cm) {
+    var n = SG.unread[id] || 0;
+    h += '<div class="sx-act" onclick="spChat(\'' + sid + '\')"><span class="ico am">' + ic('chat', 24) + '</span><b>📣 قناة الإعلانات</b>' + badge(n) + '</div>';
+    h += '<div class="sx-sec">المجموعات (' + (c.groups || []).length + ')</div>';
+    (c.groups || []).forEach(function (g) {
+      if (!g || !isGid(g.id)) return; var mine = !!S.groups[g.id];
+      h += '<div class="sx-r" style="min-height:62px" onclick="' + (mine ? 'spChat(\'' + g.id + '\')' : 'spCjoin(\'' + g.id + '\')') + '">' + avWrap(g.name || 'مجموعة', g.id, 44) + '<div class="sx-rb"><div class="sx-rt"><span class="sx-rn">' + esc((S.groups[g.id] && S.groups[g.id].name) || g.name || 'مجموعة') + '</span></div></div>' + (mine ? '<span class="sx-tag">عضو</span>' : '<button class="btn sp-mini" onclick="event.stopPropagation();spCjoin(\'' + g.id + '\')">انضمام</button>') + '</div>';
+    });
+    if (!(c.groups || []).length) h += '<div class="sp-sm" style="padding:4px 16px 8px">مفيش مجموعات لسه.</div>';
+    if (adm) h += '<div class="sx-act" onclick="spNewGroup(\'' + sid + '\')"><span class="ico">' + ic('plus', 24) + '</span><b>مجموعة جديدة داخل المجتمع</b></div>';
+  }
+  if (adm) {
+    h += '<div class="sx-sec">إدارة</div>';
+    h += '<div class="sx-act" onclick="spConvEdit(\'' + sid + '\')"><span class="ico am">' + ic('pen', 22) + '</span><b>تعديل الاسم والوصف</b></div>';
+    if (c.pic) h += '<div class="sx-act" onclick="spConvPicDel(\'' + sid + '\')"><span class="ico am">' + ic('trash', 22) + '</span><b>إزالة الصورة</b></div>';
+    h += '<div class="sx-act" onclick="spConvAdd(\'' + sid + '\')"><span class="ico">' + ic('userplus', 24) + '</span><b>إضافة أعضاء من أصحابي</b></div>';
+    h += '<div class="sx-act" onclick="spConvInvite(\'' + sid + '\')"><span class="ico am">' + ic('share', 22) + '</span><b>كود الدعوة' + (c.joinOn && c.joinCode ? ' <span class="sx-tag">شغّال</span>' : '') + '</b></div>';
+    if (!cm) h += '<label class="sx-sw" style="padding:14px 16px"><div><b>الأدمن بس يبعت</b><div class="sp-sm">الأعضاء بيقروا بس</div></div><input type="checkbox" ' + (c.only ? 'checked ' : '') + 'onchange="spConvOnly(\'' + sid + '\',this.checked)" style="width:20px;height:20px"></label>';
+  }
+  h += '<div class="sx-sec">الأعضاء (' + mem.length + ')</div>';
+  var adms = c.admins || [], sorted = mem.filter(sgSafeId).sort(function (a, b) { var x = adms.indexOf(a) >= 0 ? 0 : 1, y = adms.indexOf(b) >= 0 ? 0 : 1; return (x - y) || fname(a).localeCompare(fname(b), 'ar'); });
+  sorted.forEach(function (u) {
+    var p = S.fp[u] && S.fp[u].data, nm = u === S.uid ? 'أنت' : fname(u), isA = adms.indexOf(u) >= 0;
+    h += '<div class="sx-r" style="min-height:60px" onclick="spConvMember(\'' + sid + '\',\'' + u + '\')">' + avWrap(fname(u), u, 44, p) + '<div class="sx-rb"><div class="sx-rt"><span class="sx-rn">' + esc(nm) + (isA ? '<span class="sx-tag">أدمن</span>' : '') + '</span></div></div></div>';
+  });
+  h += '<div style="height:10px"></div><div class="sx-act" onclick="spConvLeave(\'' + sid + '\')"><span class="ico" style="background:#d94c4c">' + ic('back', 22) + '</span><b style="color:#ff7b7b">' + (cm ? 'مغادرة المجتمع' : 'مغادرة المجموعة') + '</b></div>';
+  if (c.createdBy === S.uid) h += '<div class="sx-act" onclick="spConvDelete(\'' + sid + '\')"><span class="ico" style="background:#d94c4c">' + ic('trash', 22) + '</span><b style="color:#ff7b7b">' + (cm ? 'حذف المجتمع' : 'حذف المجموعة') + ' للكل</b></div>';
+  return h + '<div style="height:30px"></div>';
+}
+
+window.spConvMember = function (id, u) {
+  id = sgSafeId(id); u = sgSafeId(u); var c = convOf(id); if (!c || !u || u === S.uid) return;
+  var adm = isAdminOf(c), isA = (c.admins || []).indexOf(u) >= 0, items = [];
+  if (S.friends[u]) items.push({ t: 'محادثة مع ' + fname(u), ic: 'chat', f: function () { spChat(u); } });
+  if (adm) {
+    items.push({ t: isA ? 'إزالة من الأدمن' : 'تعيين كأدمن', ic: 'user', f: function () { spConvAdminToggle(id, u); } });
+    items.push({ t: 'إزالة من ' + (isCid(id) ? 'المجتمع' : 'المجموعة'), ic: 'trash', danger: true, f: function () { spConvKick(id, u); } });
+  }
+  if (!items.length) return; actions(fname(u), items);
+};
+window.spConvAdminToggle = function (id, u) {
+  var c = convOf(id); if (!c || !isAdminOf(c)) return; var a = (c.admins || []).slice(), i = a.indexOf(u);
+  if (i >= 0) { if (a.length <= 1) { snack('لازم يفضل أدمن واحد على الأقل'); return; } a.splice(i, 1); } else a.push(u);
+  convUpd(id, { admins: a }).then(function (ok) { if (ok) snack(i >= 0 ? 'اتشال من الأدمن' : '✅ بقى أدمن'); });
+};
+window.spConvKick = function (id, u) {
+  var c = convOf(id); if (!c || !isAdminOf(c)) return; if (!confirm('تشيل ' + fname(u) + ' من ' + (isCid(id) ? 'المجتمع' : 'المجموعة') + '؟')) return;
+  var up = { members: (c.members || []).filter(function (x) { return x !== u; }), admins: (c.admins || []).filter(function (x) { return x !== u; }) };
+  up['names.' + u] = FV().delete(); up['jc.' + u] = FV().delete();
+  convUpd(id, up).then(function (ok) { if (ok) snack('اتشال من ' + (isCid(id) ? 'المجتمع' : 'المجموعة')); });
+};
+window.spConvOnly = function (id, on) { var c = convOf(id); if (!c || !isAdminOf(c) || isCid(id)) return; convUpd(id, { only: !!on }).then(function (ok) { if (ok) snack(on ? '🔒 الأدمن بس يبعت دلوقتي' : '🔓 الكل يقدر يبعت'); else render(true); }); };
+
+window.spConvEdit = function (id) {
+  id = sgSafeId(id); var c = convOf(id); if (!c || !isAdminOf(c)) return; var cm = isCid(id);
+  sheetOpen('تعديل', '<label class="sx-lbl">الاسم</label><input id="spCeN" class="sp-in" maxlength="60" value="' + esc(c.name) + '"><label class="sx-lbl" style="margin-top:10px">الوصف</label><textarea id="spCeD" class="sp-in" rows="3" maxlength="' + (cm ? 300 : 200) + '">' + esc(c.desc || '') + '</textarea><div class="sx-btnrow"><button class="btn" onclick="spConvEditSave(\'' + id + '\')">حفظ</button></div>');
+};
+window.spConvEditSave = function (id) {
+  var c = convOf(id); if (!c || !isAdminOf(c)) return; var nm = String((($('spCeN') || {}).value) || '').trim().slice(0, 60), ds = String((($('spCeD') || {}).value) || '').trim().slice(0, isCid(id) ? 300 : 200);
+  if (!nm) { snack('الاسم مطلوب'); return; }
+  var up = { name: nm }; up.desc = ds ? ds : FV().delete();
+  convUpd(id, up).then(function (ok) { if (ok) { sheetClose(); snack('اتحفظ ✅'); } });
+};
+window.spConvPic = function (id) {
+  var c = convOf(id); if (!c || !isAdminOf(c)) return; var i = document.createElement('input'); i.type = 'file'; i.accept = 'image/*';
+  i.onchange = function () { var f = i.files && i.files[0]; if (!f) return; thumbOfFile(f, 96).then(function (v) { if (!v) { snack('الصورة دي مش مناسبة'); return; } convUpd(id, { pic: v }).then(function (ok) { if (ok) snack('اتغيرت الصورة ✅'); }); }); };
+  i.click();
+};
+window.spConvPicDel = function (id) { var c = convOf(id); if (!c || !isAdminOf(c)) return; convUpd(id, { pic: FV().delete() }).then(function (ok) { if (ok) snack('اتشالت الصورة'); }); };
+
+window.spConvAdd = function (id) {
+  id = sgSafeId(id); var c = convOf(id); if (!c || !isAdminOf(c)) return; var has = {}; (c.members || []).forEach(function (u) { has[u] = 1; });
+  var ids = nameSorted(Object.keys(S.friends).filter(function (k) { return !has[k] && sgSafeId(k); }));
+  if (!ids.length) { snack('كل أصحابك أعضاء بالفعل'); return; }
+  var h = ids.map(function (u) { return '<label style="display:flex;align-items:center;gap:10px;padding:9px 6px;cursor:pointer"><input type="checkbox" class="spCaCk" value="' + esc(u) + '" style="width:18px;height:18px"><span>' + esc(fname(u)) + '</span></label>'; }).join('');
+  sheetOpen('إضافة أعضاء', h + '<div class="sx-btnrow"><button class="btn" id="spCaGo" onclick="spConvAddGo(\'' + id + '\')">إضافة</button></div>');
+};
+window.spConvAddGo = function (id) {
+  var c = convOf(id); if (!c || !isAdminOf(c)) return; var max = isCid(id) ? CMTY_MAX : GROUP_MAX;
+  var picks = Array.prototype.filter.call(document.querySelectorAll('.spCaCk'), function (x) { return x.checked; }).map(function (x) { return x.value; });
+  if (!picks.length) { snack('اختار صديق واحد على الأقل'); return; }
+  if ((c.members || []).length + picks.length > max) { snack('الحد الأقصى ' + max + ' عضو'); return; }
+  var b = $('spCaGo'); if (b) { b.disabled = true; b.textContent = '⏳ جاري الإضافة...'; }
+  addMembersSeq(id, picks).then(function (n) { sheetClose(); snack(n === picks.length ? '✅ اتضاف ' + n : 'اتضاف ' + n + ' من ' + picks.length + ' ⚠️'); });
+};
+
+/* ---------- كود الدعوة ---------- */
+window.spConvInvite = function (id) {
+  id = sgSafeId(id); var c = convOf(id); if (!c || !isAdminOf(c)) return; var on = !!(c.joinOn && c.joinCode), what = isCid(id) ? 'المجتمع' : 'المجموعة';
+  if (!on) { sheetOpen('كود الدعوة', '<div class="sp-sm" style="line-height:1.8;margin:0 4px 12px">فعّل كود دعوة، وأي حد معاه الكود يقدر ينضم لـ' + what + '. تقدر تلغيه أو تغيّره في أي وقت.</div><div class="sx-btnrow"><button class="btn" onclick="spConvInvOn(\'' + id + '\')">تفعيل كود الدعوة</button></div>'); return; }
+  sheetOpen('كود الدعوة', '<div class="sx-code">' + esc(c.joinCode) + '</div><div class="sp-sm" style="text-align:center;margin:8px 0 12px">اكتبه في «انضمام بكود دعوة» من قايمة المزيد</div>' +
+    '<div class="sx-btnrow"><button class="btn" onclick="spConvInvCopy(\'' + id + '\')">نسخ</button><button class="btn" onclick="spConvInvShare(\'' + id + '\')">مشاركة</button></div>' +
+    '<div class="sx-btnrow"><button class="btn" onclick="spConvInvNew(\'' + id + '\')">كود جديد</button><button class="btn" onclick="spConvInvOff(\'' + id + '\')">إيقاف الدعوة</button></div>');
+};
+function invMake(id) {
+  var code = newJoinCode(), d = db(), k = isCid(id) ? 'c' : 'g';
+  return d.collection('invites').doc(code).set({ k: k, id: id }).then(function () {
+    return convUpd(id, { joinCode: code, joinOn: true }).then(function (ok) { if (!ok) { d.collection('invites').doc(code).delete().catch(function () { }); return ''; } return code; });
+  }, function () { snack('تعذّر إنشاء الكود ⚠️'); return ''; });
+}
+function invDrop(code) { if (code) { try { db().collection('invites').doc(code).delete().catch(function () { }); } catch (e) { } } }
+window.spConvInvOn = function (id) { var c = convOf(id); if (!c || !isAdminOf(c)) return; var old = c.joinCode; invMake(id).then(function (code) { if (code) { invDrop(old); setTimeout(function () { spConvInvite(id); }, 350); } }); };
+window.spConvInvNew = function (id) { var c = convOf(id); if (!c || !isAdminOf(c)) return; var old = c.joinCode; invMake(id).then(function (code) { if (code) { invDrop(old); snack('✅ كود جديد'); setTimeout(function () { spConvInvite(id); }, 350); } }); };
+window.spConvInvOff = function (id) { var c = convOf(id); if (!c || !isAdminOf(c)) return; var old = c.joinCode; convUpd(id, { joinOn: false }).then(function (ok) { if (ok) { invDrop(old); sheetClose(); snack('اتوقف كود الدعوة'); } }); };
+window.spConvInvCopy = function (id) { var c = convOf(id); if (c && c.joinCode) copyText(c.joinCode); };
+window.spConvInvShare = function (id) {
+  var c = convOf(id); if (!c || !c.joinCode) return; var tx = 'ادخل ' + (isCid(id) ? 'مجتمع «' : 'مجموعة «') + c.name + '» في تطبيق سأنجزها.\nكود الدعوة: ' + c.joinCode + '\n(المزيد ← انضمام بكود دعوة)\n' + BASE;
+  try { if (navigator.share) { navigator.share({ text: tx }).catch(function () { }); return; } } catch (e) { } copyText(tx);
+};
+window.spJoinSheet = function () {
+  sheetOpen('انضمام بكود دعوة', '<label class="sx-lbl">كود الدعوة (10 حروف/أرقام)</label><input id="spJcIn" class="sp-in" maxlength="14" autocomplete="off" autocapitalize="characters" style="direction:ltr;text-align:center;letter-spacing:.14em;font-weight:800" placeholder="XXXXXXXXXX"><div class="sx-btnrow"><button class="btn" id="spJcGo" onclick="spJoinGo()">انضمام</button></div>');
+  setTimeout(function () { var i = $('spJcIn'); if (i) { try { i.focus(); } catch (e) { } } }, 200);
+};
+window.spJoinGo = function () {
+  if (cfgOff('groupsOff', 'الانضمام للمجموعات متوقف مؤقتًا من الإدارة')) return;
+  var code = String((($('spJcIn') || {}).value) || '').toUpperCase().replace(/[^A-Z0-9]/g, ''), d = db();
+  if (code.length !== 10) { snack('الكود لازم يكون 10 حروف/أرقام'); return; } if (!d || !S.uid) return;
+  var b = $('spJcGo'); if (b) { b.disabled = true; b.textContent = '⏳'; }
+  var fin = function () { var x = $('spJcGo'); if (x) { x.disabled = false; x.textContent = 'انضمام'; } };
+  d.collection('invites').doc(code).get().then(function (s) {
+    if (!s.exists) { fin(); snack('الكود غلط أو اتلغى ⚠️'); return; }
+    var v = s.data() || {}, id = String(v.id || ''), ok = v.k === 'c' ? isCid(id) : isGid(id);
+    if (!ok) { fin(); snack('الكود غلط ⚠️'); return; }
+    if (convOf(id)) { sheetClose(); snack('إنت عضو فيها بالفعل'); openWhenReady(id); return; }
+    var up = { members: FV().arrayUnion(S.uid) }; up['names.' + S.uid] = String(S.name || 'عضو').slice(0, 40); up['jc.' + S.uid] = code;
+    return chatRef(id).update(up).then(function () { sheetClose(); snack('🎉 انضمّيت'); if (v.k === 'c') { var w = 0; (function wt() { if (convOf(id)) { navPush({ t: 'cmty', id: id }); return; } if (++w < 24) setTimeout(wt, 250); })(); } else openWhenReady(id); },
+      function () { fin(); snack('الكود مش شغّال دلوقتي، أو العدد وصل للحد الأقصى ⚠️'); });
+  }).catch(function () { fin(); snack('تعذّر التحقق من الكود ⚠️'); });
+};
+window.spCjoin = function (gid) {
+  if (cfgOff('groupsOff', 'الانضمام للمجموعات متوقف مؤقتًا من الإدارة')) return;
+  gid = sgSafeId(gid); var d = db(); if (!isGid(gid) || !d || !S.uid) return;
+  if (S.groups[gid]) { spChat(gid); return; }
+  var up = { members: FV().arrayUnion(S.uid) }; up['names.' + S.uid] = String(S.name || 'عضو').slice(0, 40);
+  d.collection('groups').doc(gid).update(up).then(function () { snack('🎉 انضمّيت للمجموعة'); openWhenReady(gid); }, function () { snack('تعذّر الانضمام (لازم تكون عضو في المجتمع، والمجموعة ما تكونش مليانة) ⚠️'); });
+};
+
+/* ---------- مغادرة وحذف ---------- */
+window.spConvLeave = function (id) {
+  id = sgSafeId(id); var c = convOf(id); if (!c) return; var cm = isCid(id);
+  if (!confirm('تغادر ' + (cm ? 'المجتمع' : 'المجموعة') + ' «' + c.name + '»؟')) return;
+  var rest = (c.members || []).filter(function (x) { return x !== S.uid; });
+  if (!rest.length) { convDelete(id, true); return; }
+  var adm = (c.admins || []).filter(function (x) { return x !== S.uid; }); if (!adm.length) adm = [rest[0]];   // آخر أدمن بيمشي: أقدم عضو يبقى أدمن
+  var up = { members: rest, admins: adm }; up['names.' + S.uid] = FV().delete(); up['jc.' + S.uid] = FV().delete();
+  convUpd(id, up).then(function (ok) { if (ok) { try { var m = lockMap(); if (m[id]) { delete m[id]; sgWrite('lock', m); lkSyncSw(); } setArch(id, false); } catch (e) { } snack('غادرت ' + (cm ? 'المجتمع' : 'المجموعة')); goMain('chats'); } });
+};
+window.spConvDelete = function (id) {
+  id = sgSafeId(id); var c = convOf(id); if (!c || c.createdBy !== S.uid) return;
+  if (!confirm('تحذف ' + (isCid(id) ? 'المجتمع' : 'المجموعة') + ' «' + c.name + '» وكل رسايلها للكل؟ مفيش رجوع.')) return; convDelete(id, false);
+};
+function convPurge(id, sub, n) {
+  return chatRef(id).collection(sub).limit(300).get().then(function (sn) {
+    if (sn.empty || n > 8) return; var b = db().batch(); sn.forEach(function (x) { b.delete(x.ref); });
+    return b.commit().then(function () { return sn.size >= 300 ? convPurge(id, sub, n + 1) : null; });
+  }).catch(function () { });
+}
+function convDelete(id, quiet) {
+  var c = convOf(id); if (!c) return; snack('⏳ جاري الحذف...');
+  invDrop(c.joinCode);
+  convPurge(id, 'messages', 0).then(function () { return convPurge(id, 'blobs', 0); }).then(function () { return chatRef(id).delete(); }).then(function () {
+    try { var m = lockMap(); if (m[id]) { delete m[id]; sgWrite('lock', m); lkSyncSw(); } setArch(id, false); } catch (e) { }
+    snack('اتحذفت ✅'); goMain('chats');
+  }, function () { snack('تعذّر الحذف ⚠️'); });
+}
+
+/* ---------- تحكم من لوحة التحكم: config/social (بتكتبه اللوحة بالـ Admin SDK) ----------
+   groupsOff · uploadsOff · videoOff · chatOff = true بيوقف الميزة | maxFileMB = رقم بيحدّد أقصى حجم ملف.
+   ده تحكم من ناحية التطبيق (سريع). الحظر والكتم والتجميد الحقيقي بيتنفّذ من القواعد. */
+function cfgOff(k, msg) { if (S.cfg && S.cfg[k] === true) { snack(msg); return true; } return false; }
+/* كتم إشعارات محادثة (محلي على الجهاز) */
+function isMutedCid(cid) { var m = sgRead('mute', {}); return !!(m && m[cid]); }
+window.spMuteToggle = function (id) { id = sgSafeId(id); if (!id) return; var m = sgRead('mute', {}), c = sgChatId(id); if (m[c]) delete m[c]; else m[c] = Date.now(); sgWrite('mute', m); snack(m[c] ? '🔕 اتكتمت إشعارات المحادثة' : '🔔 رجعت الإشعارات'); };
+/* ---------- الفيديو جوه الشات (زي واتساب): بيتنزّل مرة وبيتشغّل في نفس الفقاعة ---------- */
+function isVidFile(f) { return /^video\//.test(f.type || '') || /\.(mp4|m4v|mov|webm|3gp)$/i.test(f.name || ''); }
+function isVid(m) { return !!(m && m.type === 'file' && ((/^video\/[a-z0-9.+-]{1,40}$/i.test(m.mime || '')) || /\.(mp4|m4v|mov|webm|3gp)$/i.test(m.fileName || ''))); }
+function vidMime(m) { return /^video\/(mp4|webm|quicktime|3gpp|x-m4v)$/i.test(m.mime || '') ? m.mime : (/\.webm$/i.test(m.fileName || '') ? 'video/webm' : 'video/mp4'); }
+function videoHtml(m) {
+  var fi = m.fileId, u = SG.vid[fi], nm = esc(m.fileName || 'فيديو');
+  if (u) return '<div class="sx-vid"><video controls playsinline preload="metadata" src="' + esc(u) + '" onerror="spVidErr(this)"></video><div class="vn">' + nm + ' · ' + fmtSize(m.fileSize) + '</div></div>';
+  var busy = SG.dlBusy[fi];
+  return '<div class="sx-vid sx-vcard" data-vl="1"><button class="sx-vpl" aria-label="تشغيل الفيديو">' + (busy ? '<b style="font-size:.78rem">' + (SG.dlPct[fi] || 0) + '%</b>' : ic('play', 26)) + '</button><span style="min-width:0;flex:1"><b>' + nm + '</b><small>' + fmtSize(m.fileSize) + (busy ? ' · جاري التحميل...' : ' · اضغط للتشغيل') + '</small></span></div>';
+}
+window.spVideo = function (i) {
+  var m = SG.chatItems[i]; if (!m || !m.fileId || !/^[A-Za-z0-9_-]{1,40}$/.test(m.fileId)) return; var fi = m.fileId; if (SG.vid[fi] || SG.dlBusy[fi]) return;
+  var cid = sgChatId(SG.chatFriend), fid = SG.chatFriend; SG.dlBusy[fi] = true; SG.dlPct[fi] = 0; chatRefresh();
+  lfGet(fi).then(function (b) {
+    if (b) return b;
+    if (srvExpired(m)) { var e = new Error('exp'); e.exp = 1; throw e; }
+    var last = -1;
+    return fetchFileBlob(m, function (p) { var v = Math.min(99, Math.round(p * 100)); SG.dlPct[fi] = v; if (v - last >= 4) { last = v; chatRefresh(); } }, cid).then(function (blob) { lfPut(fi, blob, m.fileName); return blob; });
+  }).then(function (blob) {
+    SG.dlBusy[fi] = false; if (SG.chatFriend !== fid) return;
+    try { SG.vid[fi] = URL.createObjectURL(new Blob([blob], { type: vidMime(m) })); } catch (e) { snack('تعذّر تجهيز الفيديو'); }
+    chatRefresh();
+  }).catch(function (e) { SG.dlBusy[fi] = false; chatRefresh(); snack(e && (e.exp || e.st === 404) ? 'الفيديو ده انتهت صلاحيته واتحذف من السيرفر' : 'تعذّر تحميل الفيديو. راجع الاتصال'); });
+};
+window.spVidErr = function () { snack('صيغة الفيديو دي مش بتشتغل في المتصفح — نزّله من زر التحميل وشغّله من الجهاز'); };
 
 /* زر القسم في «المزيد»: social.js بيسجّله بنفسه (لو الملف اتشال من المشروع الزر مابيظهرش والـ index مابيتكسرش) */
 try { if (typeof window.registerAppTile === 'function') window.registerAppTile({ id: 'moreSocialTile', icon: '🏆', label: 'المنافسة والأصدقاء', badgeId: 'moreSocialBadge', onClick: function () { window.spOpen(); } }); } catch (e) { }
