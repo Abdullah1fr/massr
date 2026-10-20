@@ -23158,13 +23158,38 @@ Object.assign(APP_ACTIONS, {
             else out = new TextEncoder().encode(swap(new TextDecoder().decode(bytes), false));
             if (!count) return { status: 'error', message: 'النص "' + a.find + '" مش موجود في الملف (أو متقسّم جواه).' };
             return aiOk('اتبدّل ' + count + ' مرة', await aiAddOutputFile(aiBase(f.name, '_معدّل', ext || 'txt'), f.mime, out)); } catch (e) { return aiFail(e); } } },
-    docx_create: { description: 'إنشاء مستند Word (.docx) من فقرات. كل فقرة لها نص ونمط: h1 عنوان رئيسي، h2 عنوان فرعي، p فقرة، li نقطة.', parameters: { type: 'object', properties: { name: { type: 'string' }, rtl: { type: 'boolean', description: 'true للعربي (اتجاه من اليمين)' }, paragraphs: { type: 'array', items: { type: 'object', properties: { text: { type: 'string' }, style: { type: 'string', description: 'h1 | h2 | p | li' } }, required: ['text'] } } }, required: ['name', 'paragraphs'] },
+    docx_create: { description: 'إنشاء مستند Word (.docx) منسّق من فقرات. style: title عنوان الغلاف | h1 | h2 | h3 | p فقرة | li نقطة | num قايمة مرقّمة | quote اقتباس | table جدول (headers: مصفوفة العناوين، rows: مصفوفة صفوف) | pagebreak فاصل صفحة. جوه أي نص: **غامق** و[نص الرابط](https://..) رابط قابل للضغط، وأي رابط عادي بيتحول لرابط. accent لون hex للعناوين وترويسة الجداول.', parameters: { type: 'object', properties: { name: { type: 'string' }, rtl: { type: 'boolean', description: 'true للعربي (اتجاه من اليمين)' }, accent: { type: 'string', description: 'لون hex رئيسي مثل 1F4E79' }, paragraphs: { type: 'array', items: { type: 'object', properties: { text: { type: 'string' }, style: { type: 'string', description: 'title | h1 | h2 | h3 | p | li | num | quote | table | pagebreak' }, headers: { type: 'array', items: { type: 'string' }, description: 'لو style=table: عناوين الأعمدة' }, rows: { type: 'array', items: { type: 'array', items: { type: 'string' } }, description: 'لو style=table: الصفوف' } } } } }, required: ['name', 'paragraphs'] },
         handler: async (a) => { try {
             const z = new (await aiLib('JSZip'))(), H = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>', rtl = a.rtl !== false;
             z.file('[Content_Types].xml', H + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>');
             z.file('_rels/.rels', H + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>');
-            const body = (a.paragraphs || []).map(p => { const st = p.style || 'p', sz = st === 'h1' ? 40 : st === 'h2' ? 32 : 24, b = st[0] === 'h' ? '<w:b/>' : ''; return '<w:p><w:pPr>' + (rtl ? '<w:bidi/>' : '') + '</w:pPr><w:r><w:rPr>' + b + (rtl ? '<w:rtl/>' : '') + '<w:sz w:val="' + sz + '"/></w:rPr><w:t xml:space="preserve">' + aiXmlEsc((st === 'li' ? '• ' : '') + p.text) + '</w:t></w:r></w:p>'; }).join('');
-            z.file('word/document.xml', H + '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' + body + '</w:body></w:document>');
+            const acc = /^#?[0-9a-fA-F]{6}$/.test(a.accent || '') ? a.accent.replace('#', '').toUpperCase() : '1F4E79', rels = [], qa = s => aiXmlEsc(s).replace(/"/g, '&quot;');
+            const FONT = '<w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Arial"/>';
+            const run = (t, x) => { if (!t) return ''; return '<w:r><w:rPr>' + FONT + (x.b ? '<w:b/><w:bCs/>' : '') + (x.i ? '<w:i/><w:iCs/>' : '') + (x.color ? '<w:color w:val="' + x.color + '"/>' : '') + '<w:sz w:val="' + x.sz + '"/><w:szCs w:val="' + x.sz + '"/>' + (x.u ? '<w:u w:val="single"/>' : '') + (rtl ? '<w:rtl/>' : '') + '</w:rPr><w:t xml:space="preserve">' + aiXmlEsc(t) + '</w:t></w:r>'; };
+            const runs = (txt, o) => { txt = String(txt == null ? '' : txt); const re = /\*\*([^*\n]+)\*\*|\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s<>"'،)\]]+)/g; let out = '', last = 0, m; const link = (label, url) => { const id = 'rIdL' + (rels.length + 1); rels.push([id, url]); return '<w:hyperlink r:id="' + id + '">' + run(label, Object.assign({}, o, { color: '0563C1', u: 1 })) + '</w:hyperlink>'; };
+                while ((m = re.exec(txt))) { out += run(txt.slice(last, m.index), o); if (m[1] !== undefined) out += run(m[1], Object.assign({}, o, { b: 1 })); else if (m[3]) out += link(m[2], m[3]); else { const u = m[4].replace(/[.,;:!؟،]+$/, ''); out += link(u, u); out += run(m[4].slice(u.length), o); } last = m.index + m[0].length; }
+                return out + run(txt.slice(last), o); };
+            const para = (inner, ppr) => '<w:p><w:pPr>' + (ppr.pre || '') + (rtl ? '<w:bidi/>' : '') + (ppr.sp || '') + (ppr.ind || '') + (ppr.jc || '') + '</w:pPr>' + inner + '</w:p>';
+            const cell = (t, w, hdr, alt) => '<w:tc><w:tcPr><w:tcW w:w="' + w + '" w:type="dxa"/>' + (hdr ? '<w:shd w:val="clear" w:color="auto" w:fill="' + acc + '"/>' : alt ? '<w:shd w:val="clear" w:color="auto" w:fill="F2F5F9"/>' : '') + '</w:tcPr>' + para(runs(t, { sz: 21, b: hdr ? 1 : 0, color: hdr ? 'FFFFFF' : '' }), { sp: '<w:spacing w:before="40" w:after="40"/>' }) + '</w:tc>';
+            const table = p => { const hd = Array.isArray(p.headers) ? p.headers.map(String) : [], rows = (Array.isArray(p.rows) ? p.rows : []).map(r => (Array.isArray(r) ? r : [r]).map(String)), n = Math.max(hd.length, ...rows.map(r => r.length), 1), w = Math.floor(9300 / n), fix = r => Array.from({ length: n }, (_, k) => r[k] == null ? '' : r[k]);
+                let x = '<w:tbl><w:tblPr>' + (rtl ? '<w:bidiVisual/>' : '') + '<w:tblW w:w="5000" w:type="pct"/><w:tblBorders>' + ['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].map(s => '<w:' + s + ' w:val="single" w:sz="4" w:space="0" w:color="BFBFBF"/>').join('') + '</w:tblBorders><w:tblCellMar><w:top w:w="40" w:type="dxa"/><w:left w:w="100" w:type="dxa"/><w:bottom w:w="40" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>' + Array.from({ length: n }, () => '<w:gridCol w:w="' + w + '"/>').join('') + '</w:tblGrid>';
+                if (hd.length) x += '<w:tr><w:trPr><w:cantSplit/><w:tblHeader/></w:trPr>' + fix(hd).map(c => cell(c, w, true, false)).join('') + '</w:tr>';
+                rows.forEach((r, i) => { x += '<w:tr><w:trPr><w:cantSplit/></w:trPr>' + fix(r).map(c => cell(c, w, false, i % 2 === 1)).join('') + '</w:tr>'; });
+                return x + '</w:tbl>' + para('', { sp: '<w:spacing w:after="120"/>' }); };
+            let num = 0;
+            const body = (a.paragraphs || []).map(p => { const st = String(p.style || 'p').toLowerCase(); if (st !== 'num') num = st === 'li' ? num : 0; const txt = p.text == null ? '' : p.text;
+                if (st === 'pagebreak') return '<w:p><w:r><w:br w:type="page"/></w:r></w:p>';
+                if (st === 'table') return table(p);
+                if (st === 'title') return para(runs(txt, { sz: 56, b: 1, color: acc }), { sp: '<w:spacing w:before="120" w:after="240"/>', jc: '<w:jc w:val="center"/>' });
+                if (st === 'h1') return para(runs(txt, { sz: 40, b: 1, color: acc }), { pre: '<w:keepNext/><w:pBdr><w:bottom w:val="single" w:sz="8" w:space="2" w:color="' + acc + '"/></w:pBdr>', sp: '<w:spacing w:before="360" w:after="140"/>' });
+                if (st === 'h2') return para(runs(txt, { sz: 32, b: 1, color: acc }), { pre: '<w:keepNext/>', sp: '<w:spacing w:before="280" w:after="100"/>' });
+                if (st === 'h3') return para(runs(txt, { sz: 26, b: 1, color: '404040' }), { pre: '<w:keepNext/>', sp: '<w:spacing w:before="200" w:after="80"/>' });
+                if (st === 'li') return para(runs('• ' + txt, { sz: 24 }), { sp: '<w:spacing w:after="60" w:line="340" w:lineRule="auto"/>', ind: '<w:ind w:left="360" w:hanging="260"/>' });
+                if (st === 'num') { num++; return para(runs(num + '. ' + txt, { sz: 24 }), { sp: '<w:spacing w:after="60" w:line="340" w:lineRule="auto"/>', ind: '<w:ind w:left="420" w:hanging="320"/>' }); }
+                if (st === 'quote') return para(runs(txt, { sz: 24, i: 1, color: '595959' }), { pre: '<w:pBdr><w:' + (rtl ? 'right' : 'left') + ' w:val="single" w:sz="18" w:space="8" w:color="' + acc + '"/></w:pBdr>', sp: '<w:spacing w:before="80" w:after="120"/>', ind: '<w:ind w:left="480" w:right="240"/>' });
+                return para(runs(txt, { sz: 24, b: st === 'b' ? 1 : 0 }), { sp: '<w:spacing w:after="140" w:line="360" w:lineRule="auto"/>' }); }).join('');
+            z.file('word/document.xml', H + '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>' + body + '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr></w:body></w:document>');
+            if (rels.length) z.file('word/_rels/document.xml.rels', H + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + rels.map(r => '<Relationship Id="' + r[0] + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="' + qa(r[1]) + '" TargetMode="External"/>').join('') + '</Relationships>');
             const nm = /\.docx$/i.test(a.name) ? a.name : a.name + '.docx';
             return aiOk('تم إنشاء مستند Word', await aiAddOutputFile(nm, AI_MIME_BY_EXT.docx, await z.generateAsync({ type: 'uint8array' }))); } catch (e) { return aiFail(e); } } },
     xlsx_tool: { description: 'جداول Excel: operation=create ينشئ ملف من أوراق (sheets) كل ورقة صفوف (rows) — والقيمة اللي تبدأ بـ = بتتحول معادلة. operation=edit يعدّل خلايا في ملف xlsx موجود (cells: مصفوفة من {sheet, cell, value}).', parameters: { type: 'object', properties: { operation: { type: 'string', description: 'create | edit' }, name: { type: 'string' }, file: { type: 'string', description: 'للتعديل: الملف الأصلي' }, sheets: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, rows: { type: 'array', items: { type: 'array', items: { type: 'string' } } } } } }, cells: { type: 'array', items: { type: 'object', properties: { sheet: { type: 'string' }, cell: { type: 'string', description: 'مثل B3' }, value: { type: 'string' } } } } }, required: ['operation'] },
@@ -36341,40 +36366,91 @@ function h2pClean(doc){
     });
   });
 }
-// بيزق عناصر معيّنة للصفحة اللي بعدها: فواصل الصفحات اليدوية، والعناصر اللي مينفعش تتقطع بين صفحتين
-function h2pPaginate(fr,ch){
-  const win=fr.contentWindow,doc=fr.contentDocument,body=doc.body;
-  const top=el=>el.getBoundingClientRect().top+(win.pageYOffset||0);
-  const els=Array.from(body.querySelectorAll('*')).slice(0,6000);
-  let guard=0;
+// بيحسب أماكن قطع الصفحات: مش مضاعفات ثابتة، لكن أقرب مكان آمن (بين سطرين، قبل كارت أو جدول أو صورة، ومش بين عنوان وأول سطر بعده)
+function h2pCuts(fr,ch,effH){
+  const win=fr.contentWindow,doc=fr.contentDocument,root=doc.getElementById('__h2p'),sy=win.pageYOffset||0;
+  const lines=[],soft=[],forced=[];
+  const R=el=>{const r=el.getBoundingClientRect();return{t:r.top+sy,b:r.bottom+sy,h:r.height}};
+  const tw=doc.createTreeWalker(root,4,null),rg=doc.createRange();let n,cnt=0;
+  while((n=tw.nextNode())&&cnt<40000){
+    if(!n.nodeValue||!n.nodeValue.trim())continue;
+    const p=n.parentElement;if(!p)continue;
+    const cs=win.getComputedStyle(p);if(cs.display==='none'||cs.visibility==='hidden')continue;
+    rg.selectNodeContents(n);
+    for(const r of rg.getClientRects()){cnt++;if(r.height<2||r.width<1)continue;lines.push([r.top+sy+r.height*0.08,r.bottom+sy-r.height*0.08])}
+  }
+  const els=Array.from(root.querySelectorAll('*')).slice(0,8000);
   for(const el of els){
-    if(++guard>6000)break;
-    if(!el.isConnected)continue;
-    const cs=win.getComputedStyle(el);
-    if(cs.display==='none')continue;
-    const par=el.parentElement?win.getComputedStyle(el.parentElement).display:'';
-    const unsafe=/table|flex|grid/.test(cs.display)||/table|flex|grid/.test(par)||cs.position==='absolute'||cs.position==='fixed';
-    if(unsafe)continue;
-    const brk=cs.breakBefore==='page'||cs.breakBefore==='always'||cs.pageBreakBefore==='always'||cs.pageBreakBefore==='left'||cs.pageBreakBefore==='right'||/(^|\s)(page-break|pagebreak|new-page)(\s|$)/.test(el.className&&el.className.baseVal===undefined?el.className:'');
-    let t=top(el);
-    const r=t%ch;
-    if(brk&&r>2&&r<ch-2){
-      const sp=doc.createElement('div');sp.style.cssText='display:block;margin:0;padding:0;border:0;height:'+(ch-r)+'px;';
-      el.parentNode.insertBefore(sp,el);
-      const t2=top(el),want=Math.ceil(t/ch)*ch;sp.style.height=Math.max(0,(ch-r)+(want-t2))+'px';
-      continue;
-    }
-    const avoid=cs.breakInside==='avoid'||cs.pageBreakInside==='avoid'||el.tagName==='IMG'||el.tagName==='FIGURE';
-    if(avoid){
-      const h=el.getBoundingClientRect().height;
-      if(h>2&&h<=ch&&Math.floor(t/ch)!==Math.floor((t+h-1)/ch)){
-        const need=ch-(t%ch);
-        const sp=doc.createElement('div');sp.style.cssText='display:block;margin:0;padding:0;border:0;height:'+need+'px;';
-        el.parentNode.insertBefore(sp,el);
-        const t2=top(el),want=Math.ceil(t/ch)*ch;sp.style.height=Math.max(0,need+(want-t2))+'px';
-      }
+    const cs=win.getComputedStyle(el);if(cs.display==='none')continue;
+    const tg=el.tagName.toLowerCase(),r=R(el);if(r.h<2)continue;
+    const cn=typeof el.className==='string'?el.className:'';
+    const brk=cs.breakBefore==='page'||cs.breakBefore==='always'||cs.pageBreakBefore==='always'||cs.pageBreakBefore==='left'||cs.pageBreakBefore==='right'||/(^|\s)(page-break|pagebreak|new-page)(\s|$)/.test(cn);
+    if(brk&&r.t>2)forced.push(r.t);
+    const avoid=cs.breakInside==='avoid'||cs.pageBreakInside==='avoid'||cs.breakInside==='avoid-page';
+    const media=/^(img|svg|canvas|video|figure)$/.test(tg);
+    const row=tg==='tr';
+    const textBlk=/^(p|li|dd|dt|figcaption|summary|h[1-6])$/.test(tg);
+    const bgc=cs.backgroundColor,hasBg=!!bgc&&bgc!=='rgba(0, 0, 0, 0)'&&bgc!=='transparent';
+    const hasBorder=['Top','Bottom','Left','Right'].some(k=>parseFloat(cs['border'+k+'Width'])>0&&cs['border'+k+'Style']!=='none');
+    const card=(hasBg||hasBorder)&&r.h<=ch*0.35&&(el.textContent||'').trim().length>0&&!/^(html|body|span|a|b|i|em|strong|code|u|small)$/.test(tg);
+    if(((avoid||media)&&r.h<=ch*0.95)||(row&&r.h<=ch*0.6)||(textBlk&&r.h<=ch*0.14)||card)soft.push([r.t+1,r.b-1]);
+    if(/^h[1-6]$/.test(tg)){
+      const nx=el.nextElementSibling;let end=r.b;
+      if(nx){const q=R(nx);end=Math.max(r.b,Math.min(q.b,q.t+60))}
+      soft.push([r.t+1,end]);
     }
   }
+  const merge=a=>{const s=a.slice().sort((x,y)=>x[0]-y[0]),o=[];for(const v of s){const l=o[o.length-1];if(l&&v[0]<l[1])l[1]=Math.max(l[1],v[1]);else o.push([v[0],v[1]])}return o};
+  const mAll=merge(lines.concat(soft)),mLines=merge(lines);
+  const find=(set,start,limit)=>{
+    let y=limit;
+    for(let k=0;k<400;k++){
+      let hit=null;for(const v of set){if(v[0]>=y)break;if(y<v[1]&&v[0]<y){hit=v;break}}
+      if(!hit)return y;
+      y=hit[0]-1;if(y<=start+10)return -1;
+    }
+    return -1;
+  };
+  forced.sort((a,b)=>a-b);
+  const cuts=[0];let g=0;
+  while(cuts[cuts.length-1]<effH-2&&g++<400){
+    const start=cuts[cuts.length-1],limit=start+ch;
+    const f=forced.find(v=>v>start+3&&v<=limit&&v<effH-2);
+    if(f!==undefined){cuts.push(Math.round(f));continue}
+    if(effH<=limit+1){cuts.push(effH);break}
+    let cut=find(mAll,start,limit);
+    if(cut<0||cut<start+ch*0.55){const c2=find(mLines,start,limit);cut=(c2>start+ch*0.3)?c2:limit}
+    cuts.push(Math.floor(cut));
+  }
+  if(cuts[cuts.length-1]<effH)cuts.push(effH);
+  return cuts;
+}
+// إصلاح النص العربي قبل التصوير: letter-spacing بيقطّع الحروف ويعكسها في html2canvas، وbidi-override وdirection:ltr بيعكسوا العنوان، والنص المتدرّج (background-clip:text) بيختفي أو بيتشوّه
+function h2pFixText(fr,rtl){
+  const win=fr.contentWindow,doc=fr.contentDocument,root=doc.getElementById('__h2p');
+  const AR=/[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/g,LT=/[A-Za-z]/g;
+  const own=el=>{let s='';for(const c of el.childNodes)if(c.nodeType===3)s+=c.nodeValue;return s};
+  Array.from(root.querySelectorAll('*')).slice(0,8000).concat([root]).forEach(el=>{
+    const cs=win.getComputedStyle(el),t=own(el),ar=(t.match(AR)||[]).length,lt=(t.match(LT)||[]).length;
+    el.style.setProperty('letter-spacing','normal','important');
+    el.style.setProperty('word-break','normal','important');
+    if(/^(inherit|none)$/.test(cs.textTransform)===false)el.style.setProperty('text-transform','none','important');
+    if(ar>0){
+      if(/override/.test(cs.unicodeBidi))el.style.setProperty('unicode-bidi','isolate','important');
+      if(rtl&&cs.direction==='ltr'&&ar>=lt*1.5&&ar>=2){el.style.setProperty('direction','rtl','important');if(cs.textAlign==='left'||cs.textAlign==='start')el.style.setProperty('text-align','right','important')}
+      el.style.setProperty('font-variant-ligatures','normal','important');
+    }
+    const clip=cs.webkitBackgroundClip||cs.backgroundClip;
+    if(clip==='text'){
+      const g=(cs.backgroundImage||'').match(/rgba?\([^)]*\)|#[0-9a-fA-F]{3,8}/);
+      let col=g?g[0]:'#1a1a1a';
+      el.style.setProperty('-webkit-background-clip','border-box','important');
+      el.style.setProperty('background-clip','border-box','important');
+      el.style.setProperty('background','none','important');
+      el.style.setProperty('-webkit-text-fill-color',col,'important');
+      el.style.setProperty('color',col,'important');
+    }
+  });
 }
 
 // بيقيس المحتوى الفعلي جوه الصفحة (أعلى/أسفل أول وآخر عنصر ظاهر) ويطلّع أكبر الفراغات بين العناصر
@@ -36432,7 +36508,7 @@ async function h2pRun(a){
   const base=doc.createElement('style');
   const ff=(font?"'"+font+"',":'')+"'Segoe UI',Tahoma,'Noto Naskh Arabic','Noto Sans Arabic',Arial,sans-serif";
   base.textContent='html,body{margin:0;padding:0;}html{background:'+bg+';}body{background:'+bg+';}'
-    +'#__h2p{box-sizing:border-box;width:'+pw+'px;padding:0 '+m+'px;direction:'+(rtl?'rtl':'ltr')+';text-align:'+(rtl?'right':'left')+';font-family:'+ff+';line-height:1.7;color:#111;overflow-wrap:anywhere;}'
+    +'#__h2p{box-sizing:border-box;width:'+pw+'px;padding:0 '+m+'px;direction:'+(rtl?'rtl':'ltr')+';text-align:'+(rtl?'right':'left')+';font-family:'+ff+';line-height:1.7;color:#111;overflow-wrap:break-word;word-break:normal;}#__h2p *{letter-spacing:normal!important;}'
     +'#__h2p img{max-width:100%;height:auto;}#__h2p table{max-width:100%;}'
     +(printBg?'':'#__h2p *{background:none!important;box-shadow:none!important;}');
   doc.head.insertBefore(base,doc.head.children[1]||null);
@@ -36454,13 +36530,14 @@ async function h2pRun(a){
     await h2pRace(Promise.all(Array.from(idoc.images).map(im=>im.complete?1:new Promise(r=>{im.onload=im.onerror=r}))),12000);
     await h2pWait(150);
     // 3) فواصل الصفحات والعناصر اللي مينفعش تتقطع
-    if(fit!=='content')h2pPaginate(fr,ch);
-    await h2pWait(50);
+    h2pFixText(fr,rtl);
+    await h2pWait(80);
     const meas=h2pMeasure(fr);
     const bcs=fr.contentWindow.getComputedStyle(idoc.body);
     const totalH=Math.max(20,Math.ceil(idoc.getElementById('__h2p').getBoundingClientRect().bottom+(parseFloat(bcs.paddingBottom)||0)+(parseFloat(bcs.marginBottom)||0)));
     const effH=fit==='none'?totalH:Math.max(20,Math.min(totalH,Math.ceil(meas.bottom)+2));
-    const pages=fit==='content'?1:Math.max(1,Math.ceil((effH-1)/ch));
+    const cuts=fit==='content'?[0,effH]:h2pCuts(fr,ch,effH);
+    const pages=fit==='content'?1:Math.max(1,cuts.length-1);
     if(pages>60)throw new Error('المحتوى طويل أوي ('+pages+' صفحة) — قسّمه لأكتر من ملف (الحد 60 صفحة)');
 
     // 4) تصوير كل صفحة
@@ -36473,7 +36550,7 @@ async function h2pRun(a){
       shots.push({url:cv.toDataURL('image/jpeg',0.92),h:h0});cv.width=cv.height=0;
     }else{
       for(let i=0;i<pages;i++){
-        const y=i*ch,h=Math.min(ch,effH-y);
+        const y=cuts[i],h=Math.max(20,cuts[i+1]-cuts[i]);
         const cv=await html2canvas(root,{backgroundColor:bg,scale:scale,useCORS:true,logging:false,x:0,y:y,width:pw,height:h,windowWidth:pw,windowHeight:totalH,scrollX:0,scrollY:0});
         shots.push({url:cv.toDataURL('image/jpeg',0.92),h:h});
         cv.width=cv.height=0;
@@ -36492,6 +36569,7 @@ async function h2pRun(a){
         if(i>0)pdf.addPage([wmm,heights[i]],wmm>heights[i]?'landscape':'portrait');
         pdf.setFillColor(br,bgc,bb);pdf.rect(0,0,wmm,heights[i],'F');
         pdf.addImage(s.url,'JPEG',0,mm,wmm,s.h*wmm/pw,undefined,'FAST');
+        if(a.page_numbers&&shots.length>1&&fit!=='content'){try{pdf.setFontSize(9);pdf.setTextColor(120,120,120);pdf.text((i+1)+' / '+shots.length,wmm/2,heights[i]-Math.min(5,Math.max(2.5,mm/2.5)),{align:'center'})}catch(e){}}
       });
       bytes=new Uint8Array(pdf.output('arraybuffer'));
     }else{
@@ -36510,7 +36588,7 @@ async function h2pRun(a){
     const file=await aiAddOutputFile(nm,'application/pdf',bytes);
     const f1=x=>Math.round(x*10)/10;
     const sizeTxt=fit==='content'?(wmm+'×'+f1(heights[0])+' مم (صفحة واحدة على قد المحتوى)'):((fit==='trim_last'&&pages===1)?(wmm+'×'+f1(heights[0])+' مم (صفحة واحدة مقصوصة من تحت على قد المحتوى)'):(wmm+'×'+hmm+' مم'+(fit==='trim_last'?' (آخر صفحة مقصوصة على قد المحتوى)':'')));
-    const lastFill=Math.round(((effH-(pages-1)*ch)/ch)*100);
+    const lastFill=Math.round(((effH-cuts[Math.max(0,pages-1)])/ch)*100);
     const diag=' تشخيص الفراغات: فراغ داخلي في الـ HTML فوق أول عنصر '+f1(meas.top/H2P_MMPX)+' مم وتحت آخر عنصر '+f1(Math.max(0,totalH-meas.bottom)/H2P_MMPX)+' مم'
       +(fit==='none'?('، آخر صفحة ممتلئة '+Math.min(100,lastFill)+'% بس'):'')
       +(meas.gaps.length?('. أكبر فراغات بين العناصر: '+meas.gaps.map(g=>f1(g.mm)+' مم بين '+g.before+' و '+g.after).join(' | ')):'')
@@ -36533,7 +36611,8 @@ if(!AA.html_to_pdf)reg('html_to_pdf','📄 بحوّل الـ HTML لـ PDF',
   font:E(H2P_FONTS,'خط جوجل عربي اختياري (محتاج إنترنت)'),
   background:d_(S,'لون خلفية الصفحة hex مثل #ffffff (الافتراضي أبيض)'),
   print_background:d_(B,'طباعة ألوان وخلفيات العناصر (الافتراضي true)'),
-  scale:d_(N,'جودة التصوير من 1 لـ 3 (الافتراضي 2، الأعلى أبطأ وأكبر حجمًا)')},
+  scale:d_(N,'جودة التصوير من 1 لـ 3 (الافتراضي 2، الأعلى أبطأ وأكبر حجمًا)'),
+  page_numbers:d_(B,'ترقيم الصفحات في الأسفل (1 / 5). استخدمه للتقارير الطويلة مع هامش 12مم أو أكتر')},
  [],async a=>{try{return await h2pRun(a)}catch(e){return aiFail(e)}});
 
 // =====================================================
@@ -37218,7 +37297,7 @@ try{
 // =====================================================================
 const AA=APP_ACTIONS,DECL=AI_TOOLS_DECLARATION[0].functionDeclarations,LB=AI_FN_STATUS_LABELS;
 const G={
- core:['close_project','navigate_to','get_current_datetime','web_search','web_find','web_scholar','web_read','web_images','web_show_images','web_lib','sandbox_run','files_list','file_read','file_write','create_artifact','build_document','calculate','memory_manage','chats_manage','undo_manage','request_tools'],
+ core:['close_project','navigate_to','get_current_datetime','web_search','web_find','web_research','web_scholar','web_read','web_images','web_show_images','web_lib','sandbox_run','files_list','file_read','file_write','create_artifact','build_document','calculate','memory_manage','chats_manage','undo_manage','request_tools'],
  tasks:['create_task','complete_task','delete_task','list_tasks','search_tasks','update_task','postpone_task','restore_postponed_task','add_subtask','toggle_subtask','bulk_tasks','tasks_overview','get_productivity_summary','plan_schedule','export_report','add_category','delete_category','update_category'],
  timer:['start_timer','pause_timer','reset_timer','set_timer_duration','get_timer_status','start_custom_duration_session','set_pomo_mode','attach_task_to_timer','toggle_focus_mode','set_daily_focus_goal','control_focus_audio','create_alarm','list_alarms','delete_alarm','link_alarm_to_task','refresh_smart_compass'],
  notes:['create_note','list_notes','search_notes','open_note','edit_note','delete_note','read_note_part','note_outline','search_in_note','patch_note','insert_in_note','save_last_image_to_note','manage_note_image'],
@@ -37246,7 +37325,7 @@ const GK={
  system:/(مكالمة|كلمني|صوتي|محادثات|محادثة|الحافظة|clipboard)/i
 };
 // أدوات قراءة فقط (آمنة تتنفذ مع بعض) / أدوات بتنتج ملف أو مخرج جديد (بتتنفذ مع بعض لو أسماء مخرجاتها مختلفة)
-const READ=new Set(['web_search','web_find','web_scholar','web_read','web_images','web_lib','youtube_search','files_list','file_read','file_read_lines','file_grep','pdf_read','analyze_pdf_shape','list_tasks','list_notes','list_alarms','list_task_tables','list_artifacts','search_tasks','search_notes','get_timer_status','get_current_datetime','get_productivity_summary','tasks_overview','calculate','text_stats','date_math','unit_convert','regex_extract','diff_texts','read_note_part','note_outline','search_in_note','read_artifact_part','color_palette','contrast_check']);
+const READ=new Set(['web_search','web_find','web_research','web_scholar','web_read','web_images','web_lib','youtube_search','files_list','file_read','file_read_lines','file_grep','pdf_read','analyze_pdf_shape','list_tasks','list_notes','list_alarms','list_task_tables','list_artifacts','search_tasks','search_notes','get_timer_status','get_current_datetime','get_productivity_summary','tasks_overview','calculate','text_stats','date_math','unit_convert','regex_extract','diff_texts','read_note_part','note_outline','search_in_note','read_artifact_part','color_palette','contrast_check']);
 const PROD=new Set(['docx_create','xlsx_tool','pptx_create','draw_svg','make_chart','file_write','create_artifact','build_document']);
 const S={groups:new Set(['core']),all:false,sticky:{},fail:{}};
 const mapped=new Set(Object.values(G).flat());
@@ -37346,7 +37425,7 @@ window.registerAppTile = function (o) {
 };
 </script>
 <script>window.__socialErrs=[];window.addEventListener('error',function(e){try{if(e&&e.filename&&/social\.js/.test(e.filename))window.__socialErrs.push((e.message||'خطأ')+(e.lineno?' @'+e.lineno:''))}catch(x){}},true);</script>
-<script src="webtools.js?v=3" onerror="window.__webtoolsFailed=1"></script>
+<script src="webtools.js?v=6" onerror="window.__webtoolsFailed=1"></script>
 <script src="onboarding.js?v=1" onerror="window.__onbLoadFailed=1"></script>
 <script src="social.js?v=19" onerror="window.__socialLoadFailed=1"></script>
 <script src="appctl.js?v=1" onerror="window.__appctlFailed=1"></script>
