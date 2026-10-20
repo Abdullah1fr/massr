@@ -15,7 +15,7 @@ const norm=t=>String(t||'').replace(/\s+/g,' ').trim();
 const hostOf=u=>{try{return new URL(u).hostname}catch(e){return String(u).slice(0,40)}};
 
 /* رابط وركر الويب (من غير / في الآخر). بعد ما ترفع sanjiz-web-worker.js على Cloudflare حط رابطه هنا. */
-const WEB_WORKER_DEFAULT='';
+const WEB_WORKER_DEFAULT='https://sanjiz-web.abdo-qptyg123.workers.dev';
 const workerUrl=()=>{const u=String(window.AI_WEB_WORKER_URL||WEB_WORKER_DEFAULT||'').trim().replace(/\/+$/,'');return /^https:\/\/[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)*\.workers\.dev$/i.test(u)?u:''};
 const token=()=>{try{if(typeof fbAuth!=='undefined'&&fbAuth&&fbAuth.currentUser)return fbAuth.currentUser.getIdToken()}catch(e){}return Promise.resolve('')};
 async function wcall(path,body,ms){
