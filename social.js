@@ -306,7 +306,8 @@ function listen() {
   S.timer = setInterval(tick, 30000);
   try { sgInboxStart(); } catch (e) { }
   try { convListen(d); } catch (e) { }
-  try { S.unsubs.push(d.collection('config').doc('social').onSnapshot(function (x) { S.cfg = x.exists ? (x.data() || {}) : {}; try { gcCfgCheck(); } catch (e) { } }, function () { })); } catch (e) { }
+  try { S.unsubs.push(d.collection('userState').doc(S.uid).onSnapshot(function (x) { S.us = x.exists ? (x.data() || {}) : {}; try { window.spUserState = S.us; } catch (e) { } try { usApply(); } catch (e) { } }, function () { })); } catch (e) { }
+  try { S.unsubs.push(d.collection('config').doc('social').onSnapshot(function (x) { S.cfg = x.exists ? (x.data() || {}) : {}; try { gcCfgCheck(); } catch (e) { } try { if (window.appCtl) window.appCtl.update(S.cfg, S.us); } catch (e) { } }, function () { })); } catch (e) { }
 }
 var tn = 0;
 function tick() { push(false); autoVerify(); if (++tn % 10 === 0) syncSent(); try { sgSyncProgress({}); } catch (e) { } render(); }
@@ -3193,7 +3194,7 @@ function ppIdbPut(k, v) {
 }
 var ppSig = '', ppAt = 0, ppBusy = false;
 function ppReg(force) {
-  if (!ppOk() || !S.uid || Notification.permission !== 'granted') return;
+  if (!ppOk() || !S.uid || Notification.permission !== 'granted' || (S.us && S.us.noPush === true)) return;
   var url = ppUrlFor(S.uid); if (!url) return;
   var seen = {}, ids = Object.keys(S.friends).concat((function () { try { return Object.keys(sentMap()); } catch (e) { return []; } })()).filter(function (x) { return x && !seen[x] && (seen[x] = 1); }).sort(), bl = Object.keys(S.blocked || {}).filter(sgSafeId).sort(), np = setGet().np, sig = S.uid + '|' + url + '|' + ids.join(',') + '|' + bl.join(',') + '|' + ['msg', 'grp', 'duel', 'prev'].map(function (k) { return np[k]; }).join('');
   if (!force && sig === ppSig && Date.now() - ppAt < 6 * HOUR) return;
@@ -3260,7 +3261,7 @@ function ppThumb() {
   });
 }
 function ppNotify(to, kind, preview, ref, extra) {
-  if (!ppOk() || !S.uid || !to) return;
+  if (!ppOk() || !S.uid || !to || (S.us && (S.us.noPush === true || (kind === 'call' && S.us.noCalls === true)))) return;
   var url = ppUrlFor(to); if (!url) return;
   var tpv = S.fp[to] && S.fp[to].data && S.fp[to].data.priv, tnp = tpv && tpv.np;
   if (tnp && kind !== 'call') { var nk = kind === 'msg' ? 'msg' : kind === 'gmsg' ? 'grp' : 'duel'; if (tnp[nk] === 0) return; if ((kind === 'msg' || kind === 'gmsg') && tnp.prev === 0) preview = 'رسالة جديدة'; }
@@ -3287,7 +3288,7 @@ function ppThumbSrc(src, key) {
 }
 /* رسالة في مجموعة/مجتمع: طلب واحد للـ Worker (هو اللي بيجيب الأعضاء من Firestore ويتأكد إنك عضو)، وبيتكرر لحد done */
 function ppGroupNotify(gid, preview, ring) {
-  if (!ppOk() || !S.uid || !isConv(gid)) return;
+  if (!ppOk() || !S.uid || !isConv(gid) || (S.us && (S.us.noPush === true || (ring && S.us.noCalls === true)))) return;
   var urls = ppUrls(); if (!urls.length) return;
   var c = convOf(gid) || {}, src = ''; try { src = picOf(gid); } catch (e) { }
   Promise.all([cfToken(), ppThumbSrc(src, gid)]).then(function (a) {
@@ -3683,7 +3684,28 @@ function convDelete(id, quiet) {
 /* ---------- تحكم من لوحة التحكم: config/social (بتكتبه اللوحة بالـ Admin SDK) ----------
    groupsOff · uploadsOff · videoOff · chatOff = true بيوقف الميزة | maxFileMB = رقم بيحدّد أقصى حجم ملف.
    ده تحكم من ناحية التطبيق (سريع). الحظر والكتم والتجميد الحقيقي بيتنفّذ من القواعد. */
-function cfgOff(k, msg) { if (S.cfg && S.cfg[k] === true) { snack(msg); return true; } return false; }
+function cfgOff(k, msg) { if (S.cfg && S.cfg[k] === true) { snack(msg); return true; } if (k === 'callsOff' && S.us && S.us.noCalls === true) { snack('المكالمات متوقفة على حسابك من الإدارة'); return true; } return false; }
+/* تقييد مستخدم واحد من لوحة التحكم: وثيقة userState/{uid} (بتكتبها اللوحة بالـ Admin SDK، والمستخدم بيقراها بس)
+   noPush = لا إشعارات خلفية · noCalls = لا مكالمات · noAlarms = لا منبهات خلفية (بيطبّقها index.html) · notice = {id, title, body} تحذير يظهر مرة لكل id */
+function usApply() {
+  var u = S.us || {};
+  try { if (window.appCtl) window.appCtl.update(S.cfg, u); } catch (e) { }
+  if (u.noCalls === true) { try { if (CALL) callHangup('ended'); } catch (e) { } try { if (GCALL) gcallLeave(); } catch (e) { } }
+  var n = u.notice; if (!n || typeof n !== 'object' || !n.id || !(n.title || n.body)) return;
+  var key = 'sp_usn:' + String(n.id).slice(0, 60); if (LS.getItem(key) === '1') return;
+  usWarn(n, key);
+}
+function usWarn(n, key) {
+  if (document.getElementById('spUsWarn')) return;
+  var o = document.createElement('div'); o.id = 'spUsWarn';
+  o.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px;direction:rtl;font-family:inherit';
+  var b = document.createElement('div'); b.style.cssText = 'background:var(--card,#fff);color:var(--text-primary,#111);border-radius:16px;max-width:360px;width:100%;padding:20px;box-shadow:0 10px 40px rgba(0,0,0,.4)';
+  var h = document.createElement('div'); h.style.cssText = 'font-weight:800;font-size:1.1rem;margin-bottom:10px'; h.textContent = '⚠️ ' + String(n.title || 'تنبيه من الإدارة').slice(0, 80);
+  var p = document.createElement('div'); p.style.cssText = 'line-height:1.7;white-space:pre-wrap;margin-bottom:16px'; p.textContent = String(n.body || '').slice(0, 600);
+  var k = document.createElement('button'); k.textContent = 'تم الاطلاع'; k.style.cssText = 'width:100%;border:0;border-radius:12px;padding:12px;font-weight:700;font-family:inherit;background:#00a884;color:#fff;cursor:pointer';
+  k.onclick = function () { try { LS.setItem(key, '1'); } catch (e) { } if (o.parentNode) o.parentNode.removeChild(o); };
+  b.appendChild(h); b.appendChild(p); b.appendChild(k); o.appendChild(b); document.body.appendChild(o);
+}
 /* كتم إشعارات محادثة (محلي على الجهاز) */
 function isMutedCid(cid) { var m = sgRead('mute', {}); return !!(m && m[cid]); }
 window.spMuteToggle = function (id) { id = sgSafeId(id); if (!id) return; var m = sgRead('mute', {}), c = sgChatId(id); if (m[c]) delete m[c]; else m[c] = Date.now(); sgWrite('mute', m); snack(m[c] ? '🔕 اتكتمت إشعارات المحادثة' : '🔔 رجعت الإشعارات'); };

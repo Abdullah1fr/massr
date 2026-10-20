@@ -35001,7 +35001,7 @@ updateAIThinkingButton();
 (function () {
     'use strict';
     var PUSH_URL_DEFAULT = 'https://alarms-push.abdo-k888888.workers.dev';
-    var VAPID_PUBLIC = 'BOGBUSE9xJWtNh-1So9PaktGro9cY8sgJc5shxMHGyh5m2R6EVERz3NT5zByHn_IjkLDrqrWvYjvc6pDTxgzWQk';
+    var VAPID_PUBLIC = 'BLWJGYAc9D0f7X9YD4aXd3uj1Te63LOz0S9Dn6gmruBTRJXf4nf5XPqde4YVv1lqio94HLeeMxDu2jyAIuRw-8w';
     var HORIZON_DAYS = 45, MAX_ITEMS = 300;
     var isNative = !!(window.AndroidNative && typeof AndroidNative.isBiometricAvailable === 'function'); // أندرويد حقيقي (المحاكي بتاع الويب مفيهوش الدالة دي)
     var okCtx = /^https?:$/.test(location.protocol) && 'serviceWorker' in navigator;
@@ -35107,6 +35107,8 @@ updateAIThinkingButton();
             if (!('PushManager' in window)) { setStatus('push-unsupported'); return; }
             var reg = await navigator.serviceWorker.ready;
             var sub = await reg.pushManager.getSubscription();
+            if (window.spUserState && window.spUserState.noAlarms === true) { try { if (sub) await fetch(url + '/unsubscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ endpoint: sub.endpoint }) }); } catch (e) { } localStorage.removeItem('app_push_sig'); setStatus('restricted'); return; }
+            try { if (sub && sub.options && sub.options.applicationServerKey) { var cu = b64uToU8(VAPID_PUBLIC), ou = new Uint8Array(sub.options.applicationServerKey); if (!(ou.length === cu.length && ou.every(function (b, i) { return b === cu[i]; }))) { await sub.unsubscribe(); sub = null; } } } catch (e) { }
             if (!sub) {
                 sub = await Promise.race([
                     reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64uToU8(VAPID_PUBLIC) }),
@@ -37216,7 +37218,8 @@ window.registerAppTile = function (o) {
 </script>
 <script>window.__socialErrs=[];window.addEventListener('error',function(e){try{if(e&&e.filename&&/social\.js/.test(e.filename))window.__socialErrs.push((e.message||'خطأ')+(e.lineno?' @'+e.lineno:''))}catch(x){}},true);</script>
 <script src="onboarding.js?v=1" onerror="window.__onbLoadFailed=1"></script>
-<script src="social.js?v=18" onerror="window.__socialLoadFailed=1"></script>
+<script src="social.js?v=19" onerror="window.__socialLoadFailed=1"></script>
+<script src="appctl.js?v=1" onerror="window.__appctlFailed=1"></script>
 <script id="socialGuardScript">
 /* حارس تحميل المنافسة والأصدقاء: لو social.js مجاش (كاش قديم/ملف مش واصل) بيحاول يجيبه تاني، ولو فشل بيظهر زرار يشرح السبب بدل ما القسم يختفي */
 (function(){
