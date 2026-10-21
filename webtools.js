@@ -13,6 +13,17 @@ const ok=o=>Object.assign({status:'ok'},o),er=m=>({status:'error',message:m});
 const act=t=>{try{appendAIBubble('action',t)}catch(e){}};
 const norm=t=>String(t||'').replace(/\s+/g,' ').trim();
 const hostOf=u=>{try{return new URL(u).hostname}catch(e){return String(u).slice(0,40)}};
+/* هل أي محرك بحث حقيقي (مش ويكيبيديا) رجّع نتايج؟ tried جاي من الوركر بشكل 'ddg:ok' */
+const engineOk=t=>(t||[]).some(x=>/^(google|brave|tavily|ddg|bing):ok$/.test(x));
+/* بحث جوجل الحي عبر Gemini: بديل/مكمّل لما محركات الوركر تتحجب أو الصفحات تتمنع. بيطلب الأسعار والمصادر صراحةً. */
+async function groundedSearch(q,region,n){
+  const isAr=/[\u0600-\u06FF]/.test(q),loc=/^eg/.test(region||'')||(!region&&isAr)?' ركّز على مصر والأسعار بالجنيه المصري لو الموضوع منتجات أو خدمات.':'';
+  try{
+    const g=await aiGeminiGrounded('دوّر في جوجل عن: "'+q+'". لخّص أهم الحقائق في 4 إلى 8 أسطر بالعربي المبسط. لو السؤال عن منتجات أو أسعار: اكتب اسم كل منتج وسعره بالعملة واسم المتجر، ولو السعر مش ظاهر قول "السعر مش ظاهر" ماتخمّنش. واذكر لو المعلومة مش مؤكدة.'+loc);
+    if(g.ok&&(g.text||(g.sources||[]).length))return{ok:true,text:g.text||'',sources:(g.sources||[]).slice(0,n||8)};
+    return{ok:false,note:'بحث Gemini: '+(g.error?aiGeminiErrorAr(g.error):'مرجعش حاجة')};
+  }catch(e){return{ok:false,note:'بحث Gemini فشل'}}
+}
 
 /* رابط وركر الويب (من غير / في الآخر). بعد ما ترفع sanjiz-web-worker.js على Cloudflare حط رابطه هنا. */
 const WEB_WORKER_DEFAULT='https://sanjiz-web.abdo-qptyg123.workers.dev';
@@ -70,7 +81,9 @@ reg('web_find','🔎 بدوّر في الإنترنت','بحث دقيق في ا�
   else if(r.net)notes.push('وركر الويب مش بيرد ('+r.err+').');
   else if(r.status===401||r.status===429)return er(wErr(r));
   else if(r.j&&r.j.ok){tried=r.j.tried||[];results=(r.j.results||[]).map(x=>{noteRef(x.url,x.ref);return{title:x.title,url:x.url,snippet:x.snippet,kind:x.kind,via:x.via}})}
-  if(a.grounded===true||results.length<3){
+  const weakEngines=!!(r.j&&r.j.ok)&&!engineOk(tried);
+  if(weakEngines)notes.push('محركات البحث العادية (DuckDuckGo/Bing) مردّتش من الوركر، فضفت بحث جوجل الحي مع ويكيبيديا.');
+  if(a.grounded===true||results.length<3||weakEngines){
     try{const g=await aiGeminiGrounded('دوّر في جوجل عن: "'+q+'". لخّص أهم الحقائق الدقيقة في 3 إلى 6 أسطر بالعربي المبسط، واذكر لو المعلومة مش مؤكدة أو مفيش مصدر واضح. من غير مقدمات.');
       if(g.ok&&(g.text||g.sources.length)){summary=g.text;g.sources.slice(0,n).forEach(s=>{if(!results.some(x=>x.url===s.url))results.push({title:s.title||hostOf(s.url),url:s.url,snippet:'',via:'google-grounded'})})}
       else if(!g.ok)notes.push('بحث Gemini: '+aiGeminiErrorAr(g.error))}catch(e){}
@@ -99,15 +112,22 @@ reg('web_research','🔎 بدوّر وبقرا','بحث + قراءة أفضل 3-
     return f;
   }
   const j=r.j;
+  const weak=!j.pages||!j.pages.length||!engineOk(j.tried);
+  let gs=null;
+  if(weak){act('🌐 بكمّل ببحث جوجل الحي');gs=await groundedSearch(q,a.region,8)}
   (j.more||[]).forEach(x=>noteRef(x.url,x.ref));
   (j.pages||[]).forEach(p=>(p.images||[]).forEach(i=>noteRef(i.url,i.ref)));
   taint();
-  if(!j.pages||!j.pages.length)return ok({query:q,found:j.found||0,pages:[],failed:j.failed||[],more:(j.more||[]).map(x=>({title:x.title,url:x.url,snippet:x.snippet})),message:'ملقتش صفحة اتقرت. '+(j.note||'')+' جرّب صياغة تانية أو web_read على رابط من القايمة.'});
+  const why=[];if(!engineOk(j.tried))why.push('محركات البحث العادية مردّتش من الوركر (غالبًا اتحجبت)');const fl=(j.failed||[]).filter(x=>/blocked|empty_page/.test(x.error||'')).length;if(fl)why.push(fl+' صفحة اتمنعت أو محتواها بيتحمّل بـ JavaScript');
+  const gsOut=gs&&gs.ok?{text:gs.text,sources:gs.sources}:undefined,gsNote=gs&&!gs.ok?gs.note:'';
+  if(gs&&gs.ok)(gs.sources||[]).forEach(s=>{if(s&&s.url&&!(j.more||[]).some(x=>x.url===s.url))(j.more=j.more||[]).push({title:s.title||hostOf(s.url),url:s.url,snippet:''})});
+  if(!j.pages||!j.pages.length)return ok({query:q,found:j.found||0,pages:[],google_summary:gsOut&&gsOut.text,failed:j.failed||[],more:(j.more||[]).slice(0,10).map(x=>({title:x.title,url:x.url,snippet:x.snippet})),why:why.join('؛ ')||undefined,message:(gsOut&&gsOut.text?'مفيش صفحة اتقرت مباشرة، بس فيه ملخص بحث جوجل الحي في google_summary (فيه الأسعار والمصادر لو اتوفرت). اعتمد عليه واذكر إنه ملخص مش قراءة مباشرة، وافتح أهم رابط من more بـ web_read لو محتاج تأكيد. ':'ملقتش صفحة اتقرت. '+(j.note||'')+' '+gsNote+' ')+(why.length?'السبب: '+why.join('؛ ')+'. قول للمستخدم السبب الحقيقي بصراحة. ':'')+UNTRUSTED});
   return ok({query:q,found:j.found,readCount:j.readCount,
    pages:j.pages.map((p,i)=>({n:i+1,url:p.url,title:p.title,kind:p.kind,type:p.type,published:p.published,description:p.description,structured:p.structured,excerpt:p.excerpt,textLen:p.textLen,images:(p.images||[]).map(m=>({url:m.url,alt:m.alt})),blocked:p.blocked||undefined,quality:p.quality,pdfNote:p.pdfNote})),
    failed:(j.failed||[]).map(x=>({url:x.url,title:x.title,error:x.error})),
    more:(j.more||[]).slice(0,8).map(x=>({title:x.title,url:x.url,snippet:x.snippet})),
-   message:'دي مقتطفات مضغوطة من صفحات اتقرت فعلًا، مش النص كله. اعتمد على الأرقام والنصوص اللي قدامك وstructured بس، ولو سعر أو معلومة مش ظاهرة قول كده ماتخمّنش. لو محتاج تفاصيل صفحة بعينها استخدم web_read بنفس الرابط. '+UNTRUSTED});
+   google_summary:gsOut&&gsOut.text||undefined,why:why.length?why.join('؛ '):undefined,
+   message:(gsOut&&gsOut.text?'فيه كمان ملخص بحث جوجل الحي في google_summary، استخدمه مع المقتطفات وقارن بينهم. ':'')+'دي مقتطفات مضغوطة من صفحات اتقرت فعلًا، مش النص كله. اعتمد على الأرقام والنصوص اللي قدامك وstructured بس، ولو سعر أو معلومة مش ظاهرة قول كده ماتخمّنش. لو محتاج تفاصيل صفحة بعينها استخدم web_read بنفس الرابط. '+UNTRUSTED});
  });
 
 // ============================ web_read ============================
