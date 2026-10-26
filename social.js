@@ -1,7 +1,7 @@
 (function () {
 if (window.__spV2) return; window.__spV2 = 1;
 var LS = localStorage, $ = function (i) { return document.getElementById(i); };
-var BASE = 'https://abdullah1fr.github.io/massr/';
+var BASE = 'https://sanjiz.web.app/';
 var DAY = 864e5, HOUR = 36e5, GRACE = 24 * HOUR, COOLDOWN = 45000, NUDGE_GAP = 3 * HOUR;
 var S = { uid: null, blocked: {}, name: '', code: '', friends: {}, fp: {}, duels: [], unsubs: [], tab: 'chats', seg: { comp: 'league', me: 'home', add: 'name' }, err: '', booting: false, form: null, qr: '', auto: {}, claim: null, dirty: false, reqs: {}, rFirst: true, res: null, qraw: '', fFirst: true, lastSeenW: 0, groups: {}, cmts: {}, gn: {}, gReady: false, cReady: false, gf: null, gnSync: {}, cfg: {} };
 var KINDS = {
@@ -3103,7 +3103,7 @@ window.spRankLine = function () {
 };
 window.spLgMode = function (m) { S.lgm = m === 'm' ? 'm' : 'w'; render(true); };
 function sgSafeId(id) { return /^[A-Za-z0-9_-]{1,128}$/.test(String(id)) ? String(id) : ''; }
-function sgSafeUrl(u) { u = String(u || ''); return /^https:\/\/(firebasestorage\.googleapis\.com|[a-z0-9.-]+\.firebasestorage\.app)\//i.test(u) ? u : ''; }
+function sgSafeUrl(u) { u = String(u || ''); return /^https:\/\/(firebasestorage\.googleapis\.com\/v0\/b\/my-productivity-app-da499\.(firebasestorage\.app|appspot\.com)\/|my-productivity-app-da499\.firebasestorage\.app\/)/i.test(u) ? u : ''; }
 function sgSafeImg(u) { u = String(u || ''); return (u.length < 600000 && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+\/=]+$/.test(u)) ? u : ''; }
 function sgChatId(uid) { if (isConv(uid)) return String(uid); return [String(S.uid), String(uid)].sort().join('__'); }
 

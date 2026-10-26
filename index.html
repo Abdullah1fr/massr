@@ -172,13 +172,13 @@ window.__isDesk=function(){return d.classList.contains('dev-desktop')};})();</sc
     <title>سأنجزها</title>
     <meta name="description" content="سأنجزها تطبيق عربي مجاني لإدارة المهام والملاحظات وجلسات التركيز مع مدرّب ذكاء اصطناعي ومصحف، يعمل على الجوال والكمبيوتر.">
     <meta name="application-name" content="سأنجزها">
-    <link rel="canonical" href="https://abdullah1fr.github.io/massr/">
+    <link rel="canonical" href="https://sanjiz.web.app/">
     <meta property="og:type" content="website">
     <meta property="og:locale" content="ar_AR">
     <meta property="og:site_name" content="سأنجزها">
     <meta property="og:title" content="سأنجزها | تطبيق مهام ومؤقت تركيز ومدرّب ذكي">
     <meta property="og:description" content="تطبيق عربي مجاني لإدارة المهام والملاحظات وجلسات التركيز مع مدرّب ذكاء اصطناعي.">
-    <meta property="og:url" content="https://abdullah1fr.github.io/massr/">
+    <meta property="og:url" content="https://sanjiz.web.app/">
 
     <style>
         /* ============================= */
@@ -7653,6 +7653,7 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check-compat.js"></script>
     <!-- مكتبات المزامنة عبر QR: PeerJS للاتصال المباشر، وQRCode لتوليد صورة الكود، وjsQR لقراءة الكود بالكاميرا -->
     <!-- jsQR بقت محفوظة جوه التطبيق نفسه (lib/jsQR.min.js) عشان تشتغل بدون إنترنت، بدل ما تتحمّل من الإنترنت في كل مرة -->
     <script src="lib/jsQR.min.js"></script>
@@ -18799,6 +18800,13 @@ let fbInitError = false;
 try {
     if (typeof firebase !== 'undefined' && firebaseConfig.apiKey.indexOf('ضع_') === -1) {
         firebase.initializeApp(firebaseConfig);
+        /* App Check: بيثبت إن الطلبات جاية من التطبيق الأصلي مش من سكريبت برة.
+           ما بيشتغل غير لما نحط مفتاح reCAPTCHA v3 (العام) في APP_CHECK_SITE_KEY. فاضي = مفيش أي تأثير.
+           فاضل إننا ما نفعّلش الإنفاذ (Enforce) على Firestore قبل ما نتأكد إن كل المسارات بتبعت التوكن (الـ Service Worker وتطبيق الأندرويد). */
+        try {
+            var APP_CHECK_SITE_KEY = '';
+            if (APP_CHECK_SITE_KEY && firebase.appCheck) firebase.appCheck().activate(APP_CHECK_SITE_KEY, true);
+        } catch (e) { }
         fbAuth = firebase.auth();
         fbDb = firebase.firestore();
         try { fbDb.enablePersistence({ synchronizeTabs: true }).catch(function () { }); } catch (e) { } /* كاش أوفلاين للمنافسة والأصدقاء (كان في حساب social المنفصل) */

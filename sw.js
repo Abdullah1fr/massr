@@ -4,7 +4,7 @@
    - طلبات الذكاء الاصطناعي ويوتيوب وفايربيز والسيرفرات التانية مابنلمسهاش.
    - إشعارات وهو مقفول: Web Push (سيرفر صغير بيصحّي الـ worker) + الجدول متخزّن في IndexedDB.
    لو رفعت نسخة جديدة وعايزها فورًا: غيّر رقم VERSION. */
-const VERSION = 'v27';
+const VERSION = 'v28';
 const CACHE = 'prod-platform-' + VERSION;
 const CORE = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 const CDN_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com', 'cdnjs.cloudflare.com'];
@@ -108,7 +108,7 @@ const DUEL_KINDS = ['nudge', 'duel', 'claim', 'verdict', 'duelacc'];
 const SAFE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const WORKER_URL = /^https:\/\/[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)*\.workers\.dev$/i;
 /* الصورة في الإشعار: data:image أو Firebase Storage بس (رابط خارجي = تتبّع لعنوان الجهاز) */
-const safePhoto = p => (typeof p === 'string' && (/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(p) || /^https:\/\/(firebasestorage\.googleapis\.com|[a-z0-9.-]+\.firebasestorage\.app)\//i.test(p))) ? p : '';
+const safePhoto = p => (typeof p === 'string' && (/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(p) || /^https:\/\/(firebasestorage\.googleapis\.com\/v0\/b\/my-productivity-app-da499\.(firebasestorage\.app|appspot\.com)\/|my-productivity-app-da499\.firebasestorage\.app\/)/i.test(p))) ? p : '';
 async function showInbox(visible) {
   const info = await idbGet('msgInbox');
   if (!info || !info.url || !info.endpoint || !WORKER_URL.test(String(info.url).replace(/\/+$/, ''))) return 0;
