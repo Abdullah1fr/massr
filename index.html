@@ -1756,6 +1756,12 @@ window.__isDesk=function(){return d.classList.contains('dev-desktop')};})();</sc
         .ai-rec-send { width: 44px; height: 44px; border-radius: 50%; border: none; background: #d9694f; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; padding: 0; }
         .ai-rec-stop:active, .ai-rec-send:active { transform: scale(0.92); }
         .ai-rec-wave i { background: var(--text-primary); opacity: 0.7; }
+        .ai-rec-send { position: relative; }
+        .ai-rec-strip.sending .ai-rec-send svg { opacity: 0; }
+        .ai-rec-strip.sending .ai-rec-send::after { content: ""; position: absolute; inset: 9px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.35); border-top-color: #fff; animation: aiRecSpin 0.8s linear infinite; }
+        .ai-rec-strip.sending .ai-rec-text { opacity: 0.6; }
+        .ai-rec-strip.sending .ai-rec-stop { opacity: 0.4; pointer-events: none; }
+        @keyframes aiRecSpin { to { transform: rotate(360deg); } }
         .ai-rec-strip.fixing .ai-rec-text { opacity: 0.38; animation: aiRecDim 1s ease-in-out infinite; }
         .ai-rec-strip.fixing .ai-rec-controls { opacity: 0.45; pointer-events: none; }
         @keyframes aiRecDim { 0%, 100% { opacity: 0.38; } 50% { opacity: 0.22; } }
@@ -24787,6 +24793,7 @@ function aiMicStart(engine) {
     aiMic.finalText = ''; aiMic.interim = ''; aiMic.buf = '';
     aiMic.levels = []; aiMic.level = 0; aiMic.errCount = 0;
     aiMic.segs = []; aiMic.lastChunkAt = 0; aiMic.sid = (aiMic.sid || 0) + 1;
+    aiMic.unsure = false; aiMic.sendAfter = false; aiMic.sendCtl = null; aiMicSendUi(false);
     aiMic.startedAt = Date.now();
     aiMicBuildWave(); aiMicPopulateLang(); aiMicShowStrip(true); aiMicRender(); aiMicTick();
     clearInterval(aiMic.timerId); aiMic.timerId = setInterval(aiMicTick, 1000);
@@ -24815,6 +24822,7 @@ function aiMicStopEngine() {
 // محرك فشل: نحوّل لمحرك تاني لو متاح، وإلا نوقف ونحفظ اللي اتكتب
 function aiMicEngineFailed(reason) {
     if (!aiMic.active) return;
+    aiMic.unsure = true;
     aiMicCommitBuf();
     aiMic.finalText = aiMicJoin(aiMic.finalText, aiMic.interim); aiMic.interim = '';
     aiMicStopEngine();
@@ -24826,6 +24834,7 @@ function aiMicEngineFailed(reason) {
         return;
     }
     showToast((reason || 'التسجيل وقف') + ' ⚠️');
+    aiMic.sendAfter = false;
     aiMicFinalize(true);
 }
 function aiMicSetLang(v) {
@@ -25021,6 +25030,7 @@ async function aiMicStartCapture() {
     }
     if (!aiMic.active || aiMic.genToken !== token) { stream.getTracks().forEach(t => t.stop()); return; }
     aiMic.stream = stream;
+    stream.getTracks().forEach(t => t.addEventListener('ended', () => { if (aiMic.active && aiMic.stream === stream && !aiMic.finishing) aiMicEngineFailed('الميكروفون اتقفل'); }));
     const AudioCtor = window.AudioContext || window.webkitAudioContext;
     aiMic.ctx = new AudioCtor();
     const source = aiMic.ctx.createMediaStreamSource(stream);
@@ -25058,10 +25068,24 @@ function aiMicTeardown() {
     cancelAnimationFrame(aiMic.rafId);
     aiMicShowStrip(false);
 }
+window.addEventListener('offline', () => {
+    if (!aiMic || !aiMic.active) return;
+    aiMic.unsure = true;
+    try { showToast('النت قطع 📡 — اللي اتفرّغ لحد دلوقتي محفوظ'); } catch (e) {}
+});
+function aiMicSendUi(on) {
+    const strip = document.getElementById('aiRecStrip'); if (!strip) return;
+    strip.classList.toggle('sending', !!on);
+    const b = strip.querySelector('.ai-rec-send');
+    if (b) { b.setAttribute('aria-busy', on ? 'true' : 'false'); b.title = on ? 'بيتفرّغ ويتبعت… اضغط لإيقاف الإرسال التلقائي' : 'تفريغ الكلام وإرساله للمساعد فورًا'; }
+}
 function aiMicSendNow() {
-    // ↑ = يفرّغ ويبعت للمساعد على طول (قواعد القاموس بس من غير انتظار التصحيح الذكي). ■ = يصحّح ويحط النص في الخانة للمراجعة
-    if (!aiMic.active || aiMic.finishing) return;
+    // ↑ = يفرّغ ويبعت للمساعد أول ما التفريغ يخلص (الزرار بيلف لحد ما يتبعت). ضغطة تانية وهو بيلف = يوقف الإرسال التلقائي ويسيب النص في الخانة
+    if (aiMic.sendCtl) { aiMic.sendCtl.cancel(); return; }
+    if (!aiMic.active) return;
+    if (aiMic.finishing) { aiMic.sendAfter = !aiMic.sendAfter; aiMicSendUi(aiMic.sendAfter); return; }
     aiMic.sendAfter = true;
+    aiMicSendUi(true);
     aiMicConfirm();
 }
 function aiMicCancel() {
@@ -25085,10 +25109,11 @@ function aiMicConfirm() {
         const tick = () => {
             if (!aiMic.active) return;
             const now = Date.now(), lc = aiMic.lastChunkAt || 0;
+            if (!aiMic.ws && navigator.onLine === false) aiMic.unsure = true;
             const need = lc ? ((t0 - lc) > 1200 ? 0 : 500) : 900;
             const sinceLast = now - Math.max(lc, t0);
             const turnDone = aiMic.turnDoneAt && now - aiMic.turnDoneAt >= 100 && now - lc >= 100;
-            if (now - t0 >= 120 && (!aiMic.ws || turnDone || sinceLast >= need) || now - t0 > 8000) aiMicFinalize(false); else setTimeout(tick, 60);
+            if (now - t0 >= 120 && (!aiMic.ws || turnDone || sinceLast >= need) || now - t0 > 8000) { if (now - t0 > 8000) aiMic.unsure = true; aiMicFinalize(false); } else setTimeout(tick, 60);
         };
         setTimeout(tick, 60);
         return;
@@ -25103,21 +25128,44 @@ function aiMicFinalize(noFix) {
     const segs = aiMic.segs; aiMic.segs = [];
     aiMicTeardown();
     aiMic.finalText = ''; aiMic.interim = ''; aiMic.buf = '';
-    if (!text) { showToast('مسمعتش حاجة 🎙️'); return; }
+    if (!text) { aiMicSendUi(false); showToast('مسمعتش حاجة 🎙️'); return; }
     const input = document.getElementById('aiChatInput');
     if (!input) return;
     const pend = segs.filter(x => x.state === 'pending');
     const waitPending = (cap) => pend.length ? Promise.race([Promise.all(pend.map(x => x.p)), new Promise(r => setTimeout(r, cap))]) : Promise.resolve();
     if (sendNow) {
+        // الزرار يفضل بيلف لحد ما آخر جملة تتنسّق، وبعدها يتبعت. أي حاجة غير طبيعية = النص يفضل في الخانة من غير إرسال
+        const unsure = !!aiMic.unsure;
+        const myTok = aiChatSessionToken, myConv = aiActiveConvId;
+        const sbar = document.getElementById('aiChatBottomBar'), sstrip = document.getElementById('aiRecStrip'), sbox = document.getElementById('aiRecText');
+        if (pend.length && sstrip && sbox) {
+            sbox.textContent = aiBidiIso(text); sbox.classList.remove('empty');
+            sstrip.style.display = 'flex'; aiMicSendUi(true);
+            if (sbar) sbar.classList.add('recording');
+        }
         aiMic.fixing = true;
-        waitPending(6500).catch(() => {}).then(() => {
-            aiMic.fixing = false;
+        const ctl = { done: false, cancelled: false };
+        const finish = () => {
+            if (ctl.done) return; ctl.done = true; aiMic.sendCtl = null; aiMic.fixing = false;
+            if (sstrip) { aiMicSendUi(false); sstrip.style.display = 'none'; }
+            if (sbar) sbar.classList.remove('recording');
             let sendText = aiMicApplySegs(text, segs);
             if (!segs.length) { try { sendText = AI_DICT_RULES.apply(sendText).text; } catch (e) {} }
             input.value = (input.value ? input.value + ' ' : '') + aiBidiIso(sendText);
             updateAIChatInputRowState();
-            try { sendAIChatMessage(); } catch (e) { showToast('تعذر الإرسال ⚠️ — النص في الخانة'); }
-        });
+            const keep = (msg) => { showToast(msg); try { input.focus(); } catch (e) {} };
+            if (ctl.cancelled) return keep('اتوقف الإرسال التلقائي ✋ — النص في الخانة');
+            if (unsure) return keep('التفريغ ما اتأكدش (النت أو الميكروفون) ⚠️ — راجع النص وابعته');
+            if (navigator.onLine === false) return keep('مفيش نت 📡 — النص في الخانة، ابعته لما النت يرجع');
+            if (aiChatSessionToken !== myTok || aiActiveConvId !== myConv) return keep('المحادثة اتغيّرت — النص في الخانة');
+            if (aiRequestInProgress) return keep('المساعد لسه بيرد — النص في الخانة، ابعته بعد ما يخلّص');
+            try { sendAIChatMessage(); } catch (e) { return keep('تعذر الإرسال ⚠️ — النص في الخانة'); }
+            // sendAIChatMessage بيفضّي الخانة فورًا لو ابتدى الإرسال فعلًا؛ لو لسه فيها نص يبقى اتمنع (مفتاح/مرفقات بترفع)
+            if (input.value.trim()) keep('الإرسال ما تمّش — النص في الخانة');
+        };
+        ctl.cancel = () => { ctl.cancelled = true; finish(); };
+        aiMic.sendCtl = ctl;
+        waitPending(6500).catch(() => {}).then(finish);
         return;
     }
     const strip = document.getElementById('aiRecStrip'), bar = document.getElementById('aiChatBottomBar'), box = document.getElementById('aiRecText');
