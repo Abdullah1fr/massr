@@ -8020,6 +8020,72 @@ let categories = JSON.parse(localStorage.getItem('app_categories')) || ['📚 د
     let aiLiveCallMinimized = false;
     let aiLiveDragStartY = null;
     let aiLiveDragCurrentY = 0;
+// <<AI_LIVE_HELPERS_BEGIN>>
+// ===== تحسينات المكالمة الصوتية ضد تكرار الكلام =====
+// بوابة الصدى: وقت ما صوت المساعد شغّال (+ ذيل قصير) مابنبعتش صوت الميكروفون لجيميني (بنبعت صمت رقمي)،
+// إلا لو صوتك أعلى بوضوح من مستوى الصدى اللي الجهاز بيلتقطه — وده بيحافظ على المقاطعة بالصوت.
+// تقدر تقفلها من الكونسول لو لزم: localStorage.setItem('app_ai_live_gate','0')
+const AI_LIVE_GATE_ON = (function () { try { return localStorage.getItem('app_ai_live_gate') !== '0'; } catch (e) { return true; } })();
+const AI_LIVE_GATE_TAIL_MS = 350;     // ذيل بعد آخر صوت للمساعد (صدى الأوضة)
+const AI_LIVE_ONSET_FRAMES = 6;       // أول ~نص ثانية من كل رد: بنتعلّم فيها مستوى الصدى ومابنبعتش
+const AI_LIVE_BARGE_FLOOR = 0.03;     // أقل مستوى صوت يعتبر مقاطعة
+const AI_LIVE_BARGE_RATIO = 3;        // لازم صوتك يبقى كام ضعف مستوى الصدى المتعلَّم
+const AI_LIVE_BARGE_FRAMES = 3;       // وبيستمر كام إطار ورا بعض (~0.25 ثانية)
+let aiLiveGateState = { until: 0, ema: 0, frames: 0, onset: 0, wasPlaying: false };
+let aiLiveMicStarting = false;
+let aiLiveMsgChain = Promise.resolve();
+let aiLiveSilenceBuf = null;
+
+// true = ابعت صوت الميكروفون الحقيقي، false = ابعت صمت
+function aiLiveGateDecide(st, rms, playing, nowMs) {
+    if (!AI_LIVE_GATE_ON) return true;
+    if (playing) {
+        if (!st.wasPlaying) { st.onset = 0; st.frames = 0; }
+        st.until = nowMs + AI_LIVE_GATE_TAIL_MS;
+    }
+    st.wasPlaying = playing;
+    if (!playing && nowMs >= st.until) { st.frames = 0; return true; }
+    if (playing && st.onset < AI_LIVE_ONSET_FRAMES) { st.onset++; st.ema += (rms - st.ema) * 0.35; return false; }
+    const thr = AI_LIVE_BARGE_FLOOR + AI_LIVE_BARGE_RATIO * st.ema;
+    if (rms > thr) { st.frames++; st.ema += (rms - st.ema) * 0.02; }
+    else { st.frames = 0; st.ema += (rms - st.ema) * 0.1; }
+    return st.frames >= AI_LIVE_BARGE_FRAMES;
+}
+
+// رسائل جيميني Live بتيجي كـ binary: بنقراها بالترتيب (مش Blob.text() لأنه ممكن يخلّص بترتيب مختلف ويلخبط الصوت والنص)
+function aiLiveWsDataToText(d) {
+    if (typeof d === 'string') return d;
+    if (d instanceof ArrayBuffer) return new TextDecoder('utf-8').decode(d);
+    if (typeof Blob !== 'undefined' && d instanceof Blob) return d.text();
+    return '';
+}
+
+function ensureAILivePlaybackContext() {
+    if (!aiLivePlaybackContext) {
+        const AudioCtor = window.AudioContext || window.webkitAudioContext;
+        aiLivePlaybackContext = new AudioCtor();
+        aiLiveNextPlayTime = 0;
+    }
+    if (aiLivePlaybackContext.state === 'suspended') { try { aiLivePlaybackContext.resume(); } catch (e) {} }
+    return aiLivePlaybackContext;
+}
+
+// تفريغ الميكروفون (Web Speech): منع تكرار النتائج النهائية (مشكلة معروفة في كروم أندرويد)
+function aiMicPushFinal(arr, t) {
+    const last = arr.length ? arr[arr.length - 1] : '';
+    if (last) {
+        if (t === last && t.length >= 8) return;
+        if (t.length > last.length && last.length >= 3 && t.startsWith(last)) { arr[arr.length - 1] = t; return; }
+        if (last.length >= 8 && t.length >= 8 && last.endsWith(t)) return;
+    }
+    arr.push(t);
+}
+function aiMicStripLead(interim, lastFinal) {
+    interim = (interim || '').trim();
+    if (lastFinal && lastFinal.length >= 3 && interim.length > lastFinal.length && interim.startsWith(lastFinal)) return interim.slice(lastFinal.length).trim();
+    return interim;
+}
+// <<AI_LIVE_HELPERS_END>>
 
     // متغيرات المؤقت المركزية
     let activeTaskId = null;
@@ -24648,19 +24714,26 @@ function aiMicStartWeb() {
     if (!Ctor) { aiMicEngineFailed('Web Speech مش متاح'); return; }
     const rec = new Ctor();
     aiMic.rec = rec;
+    const base = aiMic.finalText; // الكلام اللي اتثبّت قبل جلسة التعرف دي
     rec.lang = aiMic.lang === 'auto' ? 'ar-EG' : aiMic.lang;
     rec.continuous = true;
     rec.interimResults = true;
     rec.maxAlternatives = 1;
     rec.onresult = (ev) => {
         if (aiMic.rec !== rec) return;
+        // بنبني نص الجلسة من القايمة كاملة كل مرة (مش بالتراكم): لو المتصفح رجّع نفس النتيجة تاني
+        // أو نتيجة تراكمية (مشكلة معروفة في كروم أندرويد) الكلام ما يتكررش
+        const parts = [];
         let interim = '';
-        for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        for (let i = 0; i < ev.results.length; i++) {
             const r = ev.results[i];
-            const t = (r[0] && r[0].transcript) || '';
-            if (r.isFinal) aiMic.finalText = aiMicJoin(aiMic.finalText, t); else interim += t;
+            const t = ((r[0] && r[0].transcript) || '').trim();
+            if (!t) continue;
+            if (r.isFinal) aiMicPushFinal(parts, t); else interim = aiMicJoin(interim, t);
         }
-        aiMic.interim = interim; aiMic.errCount = 0; aiMic.level = 0.9;
+        aiMic.finalText = aiMicJoin(base, parts.join(' '));
+        aiMic.interim = aiMicStripLead(interim, parts[parts.length - 1]);
+        aiMic.errCount = 0; aiMic.level = 0.9;
         aiMicRender();
     };
     rec.onerror = (ev) => {
@@ -24687,7 +24760,12 @@ function aiMicStartNative() {
     window.onAndroidVoiceStart = function () {};
     window.onAndroidVoiceResult = function (transcript) {
         if (!aiMic.active || aiMic.engine !== 'native' || aiMic.genToken !== token) return;
-        if (transcript) { aiMic.finalText = aiMicJoin(aiMic.finalText, transcript); aiMic.errCount = 0; aiMic.level = 0.9; aiMicRender(); }
+        if (transcript) {
+            const nowMs = Date.now();
+            if (aiMic._lastNative === transcript && nowMs - (aiMic._lastNativeAt || 0) < 1000) return; // نفس النتيجة اتبعتت مرتين ورا بعض
+            aiMic._lastNative = transcript; aiMic._lastNativeAt = nowMs;
+            aiMic.finalText = aiMicJoin(aiMic.finalText, transcript); aiMic.errCount = 0; aiMic.level = 0.9; aiMicRender();
+        }
     };
     window.onAndroidVoiceError = function (code) {
         if (!aiMic.active || aiMic.engine !== 'native' || aiMic.genToken !== token) return;
@@ -24720,6 +24798,7 @@ function aiMicGeminiConnect(attempt) {
     try { ws = new WebSocket(AI_LIVE_WS_URL + '?key=' + encodeURIComponent(ctx.key)); }
     catch (e) { aiMicGeminiRetry(ctx, attempt, 'تعذر الاتصال'); return; }
     aiMic.ws = ws; aiMic.wsReady = false; aiMicSetStatus();
+    try { ws.binaryType = 'arraybuffer'; } catch (e) {}
     clearTimeout(aiMic.wsSetupTimer);
     aiMic.wsSetupTimer = setTimeout(() => {
         if (aiMic.ws !== ws || aiMic.genToken !== token) return;
@@ -24741,7 +24820,7 @@ function aiMicGeminiConnect(attempt) {
     ws.onmessage = async (event) => {
         if (aiMic.ws !== ws || aiMic.genToken !== token) return;
         let msg;
-        try { msg = JSON.parse((event.data instanceof Blob) ? await event.data.text() : event.data); } catch (e) { return; }
+        try { msg = JSON.parse(await aiLiveWsDataToText(event.data)); } catch (e) { return; }
         if (aiMic.ws !== ws || aiMic.genToken !== token) return;
         if (msg.error) {
             clearTimeout(aiMic.wsSetupTimer);
@@ -25732,7 +25811,9 @@ function buildAILiveSystemInstructionText() {
     return buildAISystemInstructionText() +
         ' ملحوظة مهمة: إنت دلوقتي في مكالمة صوتية حقيقية مش شات كتابي. ردودك لازم تكون قصيرة جدًا ' +
         '(جملة أو جملتين) ومباشرة وطبيعية زي ما لو كنت بتتكلم مع حد على التليفون، من غير أي رموز ' +
-        '(إيموجي) أو نجوم أو تعداد نقطي أو تنسيق مارك داون، لأن اللي بيتقال هيتحول صوت فعليًا.';
+        '(إيموجي) أو نجوم أو تعداد نقطي أو تنسيق مارك داون، لأن اللي بيتقال هيتحول صوت فعليًا. ' +
+        'قواعد منع التكرار: ما تقولش نفس الجملة أو نفس التأكيد مرتين في نفس الرد. لو هتنفّذ دالة ما تقولش قبلها غير كلمة قصيرة جدًا أو اسكت، وبعد التنفيذ قول تأكيد واحد قصير من غير ما تعيد اللي قلته. ' +
+        'لو اللي سمعته هو نفس كلامك اللي لسه قايله (صدى من السماعة) أو مفيش كلام واضح، تجاهله ومترُدّش عليه. ما تعيدش التحية أو المقدمة بعد أول رد، وما ترجعش تكرر إجابة سابقة إلا لو المستخدم طلب ده صراحة.';
 }
 
 // -------- بدء المكالمة (زرار 📞 جنب الميكروفون) --------
@@ -25779,6 +25860,8 @@ function openAIVoiceCallModal(opts) {
     aiLiveInputFlushed = false;
     aiLiveNextPlayTime = 0;
     aiLiveActiveSources = [];
+    aiLiveGateState = { until: 0, ema: 0, frames: 0, onset: 0, wasPlaying: false };
+    try { ensureAILivePlaybackContext(); } catch (e) {}
 
     const modal = document.getElementById('aiVoiceCallModal');
     if (modal) modal.style.display = 'flex';
@@ -26137,6 +26220,7 @@ function connectAILiveSession(attempt) {
         return;
     }
     aiLiveWs = ws;
+    try { ws.binaryType = 'arraybuffer'; } catch (e) {}
 
     // مهلة أمان: لو السيرفر ما ردش بـ setupComplete خلال المدة دي، نعتبر المحاولة فاشلة
     // وننتقل للمفتاح اللي بعده بدل ما نسيب المستخدم واقف على "بيتصل..." للأبد
@@ -26162,12 +26246,13 @@ function connectAILiveSession(attempt) {
         try { ws.send(JSON.stringify(setupMsg)); } catch (e) {}
     };
 
-    ws.onmessage = async (event) => {
+    // الرسايل بتتعالج بالترتيب بالظبط اللي وصلت بيه (صوت + ترانسكريبت)
+    ws.onmessage = (event) => { aiLiveMsgChain = aiLiveMsgChain.then(() => onLiveMsg(event)).catch(() => {}); };
+    const onLiveMsg = async (event) => {
         if (!aiLiveCallActive || aiLiveWs !== ws) return;
         let msg;
         try {
-            const raw = (event.data instanceof Blob) ? await event.data.text() : event.data;
-            msg = JSON.parse(raw);
+            msg = JSON.parse(await aiLiveWsDataToText(event.data));
         } catch (e) { return; /* رسالة غير متوقعة الشكل — بنتجاهلها من غير ما نكسر المكالمة */ }
 
         // معالجة صريحة لرسائل الخطأ الراجعة من السيرفر (مفتاح مرفوض، حصة خلصت، إلخ)
@@ -26255,6 +26340,7 @@ function handleAILiveServerMessage(msg) {
 
     // barge-in: المستخدم قاطع المساعد وهو بيتكلم — نوقف تشغيل صوته فورًا ونرجع نسمعه هو
     if (content.interrupted) {
+        aiLiveGateState.until = 0;
         stopAILivePlayback();
         flushAILiveOutputTranscript();
         aiLiveUiTurnDone = true;
@@ -26395,16 +26481,19 @@ async function handleAILiveToolCalls(functionCalls) {
 
 // -------- التقاط صوت الميكروفون وتحويله لـ PCM 16kHz وبعته على الـ WebSocket --------
 async function startAILiveMicCapture() {
-    if (aiLiveMicStream || aiLiveMicProcessor) return; // إعادة الاتصال (تغيير الصوت مثلًا) ماتفتحش ميكروفون تاني
+    if (aiLiveMicStream || aiLiveMicProcessor || aiLiveMicStarting) return; // إعادة الاتصال (تغيير الصوت مثلًا) ماتفتحش ميكروفون تاني
+    aiLiveMicStarting = true;
     try {
         aiLiveMicStream = await navigator.mediaDevices.getUserMedia({
             audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }
         });
     } catch (e) {
+        aiLiveMicStarting = false;
         showToast('تعذر فتح الميكروفون ⚠️');
         endAIVoiceCall();
         return;
     }
+    aiLiveMicStarting = false;
     // المستخدم ممكن يكون قفل المكالمة وهو لسه مستنيين موافقة الميكروفون من النظام
     if (!aiLiveCallActive) {
         aiLiveMicStream.getTracks().forEach(t => t.stop());
@@ -26426,7 +26515,18 @@ async function startAILiveMicCapture() {
         const input = e.inputBuffer.getChannelData(0);
         if (aiLiveMicMuted) { aiLiveMicLevel = 0; return; } // الميكروفون مكتوم: مفيش صوت بيتبعت
         { let sm = 0; for (let k = 0; k < input.length; k += 8) sm += input[k] * input[k]; aiLiveMicLevel = Math.max(aiLiveMicLevel, Math.min(1, Math.sqrt(sm / (input.length / 8)) * 9)); }
-        const pcmBase64 = downsampleFloat32To16kPCMBase64(input, inputSampleRate);
+        if (aiLiveCallState === 'connecting' || aiLiveCallState === 'idle') return; // مفيش إرسال قبل setupComplete
+        let frame = input;
+        if (AI_LIVE_GATE_ON) {
+            let s2 = 0; for (let k = 0; k < input.length; k += 4) s2 += input[k] * input[k];
+            const rmsNow = Math.sqrt(s2 / Math.ceil(input.length / 4));
+            const playing = !!(aiLivePlaybackContext && aiLiveNextPlayTime > aiLivePlaybackContext.currentTime + 0.02);
+            if (!aiLiveGateDecide(aiLiveGateState, rmsNow, playing, Date.now())) {
+                if (!aiLiveSilenceBuf || aiLiveSilenceBuf.length !== input.length) aiLiveSilenceBuf = new Float32Array(input.length);
+                frame = aiLiveSilenceBuf; // صمت رقمي بدل صدى صوت المساعد
+            }
+        }
+        const pcmBase64 = downsampleFloat32To16kPCMBase64(frame, inputSampleRate);
         if (!pcmBase64) return;
         try {
             aiLiveWs.send(JSON.stringify({
@@ -26509,12 +26609,7 @@ function base64ToInt16ArrayAILive(base64) {
 
 // -------- تشغيل صوت رد المساعد (PCM 24kHz راجع من جوجل) بشكل متصل من غير فجوات --------
 function playAILiveAudioChunk(base64) {
-    if (!aiLivePlaybackContext) {
-        const AudioCtor = window.AudioContext || window.webkitAudioContext;
-        aiLivePlaybackContext = new AudioCtor();
-        aiLiveNextPlayTime = 0;
-    }
-    const ctx = aiLivePlaybackContext;
+    const ctx = ensureAILivePlaybackContext();
     let pcm16;
     try { pcm16 = base64ToInt16ArrayAILive(base64); } catch (e) { return; }
     if (!pcm16.length) return;
@@ -26529,7 +26624,7 @@ function playAILiveAudioChunk(base64) {
     source.connect(aiLiveAnalyser);
 
     const now = ctx.currentTime;
-    if (aiLiveNextPlayTime < now) aiLiveNextPlayTime = now;
+    if (aiLiveNextPlayTime < now) aiLiveNextPlayTime = now + 0.06; // فاصل أمان صغير أول كل رد عشان الصوت ما يتقطعش
     source.start(aiLiveNextPlayTime);
     aiLiveNextPlayTime += buffer.duration;
 
