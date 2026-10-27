@@ -21,6 +21,7 @@
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function toast(m) { try { if (typeof showToast === 'function') showToast(m); } catch (e) { } }
   function errMsg(e) {
+    if (e && e.code === 'auth/unauthorized-domain') return 'الرابط ده مش معتمد في Firebase ⚠ (لازم يتضاف في Authorized domains)';
     try { if (typeof emailAuthErrorMessage === 'function') return emailAuthErrorMessage(e); } catch (x) { }
     return 'حصل خطأ، حاول تاني (' + ((e && e.code) || 'unknown') + ')';
   }
@@ -32,9 +33,18 @@
     'app_today_sessions', 'app_today_focus', 'app_today_focus_seconds', 'app_streak', 'app_last_active_date', 'app_daily_goal_minutes',
     'app_ai_conversations', 'app_ai_artifacts', 'app_ai_projects', 'app_ai_chat_history', 'app_ai_user_name', 'app_user_name',
     'sp_name', 'sp_pic', 'sp_pic_big', 'sp_on', 'sp_sess'];
+  /* التطبيق بيعمل صفحة ملاحظات فاضية اسمها «صفحة جديدة» أول ما يتحمّل (initNotes)، فما تتعدّش بيانات: وإلا أي جهاز جديد كان هيشوف «لقينا بيانات في الحالتين» أول ما Firebase يتأخر شوية */
+  function realNotes(n) {
+    if (!Array.isArray(n)) return false;
+    return n.some(function (p) {
+      if (!p) return false;
+      var txt = String(p.content || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').trim(), title = String(p.title || '').trim();
+      return txt.length > 0 || (title !== '' && !/^صفحة جديدة( \d+)?$/.test(title));
+    });
+  }
   function hasLocalData() {
     var t = jget('app_tasks', []), c = jget('app_completed_history', []), n = jget('app_note_pages', []), h = jget('app_daily_history', {}), ai = jget('app_ai_conversations', []);
-    return (Array.isArray(t) && t.length) || (Array.isArray(c) && c.length) || (Array.isArray(n) && n.length) ||
+    return (Array.isArray(t) && t.length) || (Array.isArray(c) && c.length) || realNotes(n) ||
       (h && typeof h === 'object' && Object.keys(h).length > 0) || (Array.isArray(ai) && ai.length > 0);
   }
   function backupLocal() {
@@ -48,7 +58,13 @@
       setTimeout(function () { try { URL.revokeObjectURL(a.href); a.remove(); } catch (e) { } }, 2000); return true;
     } catch (e) { return false; }
   }
-  function wipeLocal() { DATA_KEYS.forEach(function (k) { try { LS.removeItem(k); } catch (e) { } }); }
+  /* الجهاز كان مربوط بمجموعة أجهزة الحساب القديم: نفكّ الربط الأول (بهدوء) عشان المسح ما يتحسبش «حذف» ويوصل لباقي الأجهزة، ولا الجهاز يسحب بيانات المجموعة القديمة تاني */
+  function detachLink() {
+    try { if (typeof window.__dlDetach === 'function') window.__dlDetach(); } catch (e) { }
+    ['app_link_state', 'app_link_meta', 'app_link_ctr', 'app_link_backup_before_merge', 'app_link_pending_secrets'].forEach(function (k) { try { LS.removeItem(k); } catch (e) { } });
+  }
+  /* نسخة «قبل الاستبدال» بتاعة الحساب القديم بتتمسح مع تبديل الحساب، عشان زرار الاسترجاع ما يرجّعش بيانات حساب في حساب تاني */
+  function wipeLocal() { detachLink(); DATA_KEYS.forEach(function (k) { try { LS.removeItem(k); } catch (e) { } }); ['app_pre_replace_backup', 'app_pre_replace_at'].forEach(function (k) { try { LS.removeItem(k); } catch (e) { } }); }
   function cloudHas(doc) { return !!(doc && doc.exists && doc.data() && doc.data().updated_at); }
   function uploadLocal(uid) {
     var d = D(); if (!d || typeof buildDataBundle !== 'function') return Promise.resolve();
@@ -145,15 +161,18 @@
       '#onbRoot .av img{width:100%;height:100%;object-fit:cover}' +
       '#onbRoot .spin{width:34px;height:34px;border-radius:50%;border:3px solid var(--card-border,#d9deea);border-top-color:var(--accent,#1b8a5a);animation:onbs 1s linear infinite;margin:0 auto}' +
       '@keyframes onbs{to{transform:rotate(360deg)}}@media (prefers-reduced-motion:reduce){#onbRoot .spin{animation:none}}' +
-      '#onbRoot .steps{display:flex;gap:6px}#onbRoot .steps i{flex:1;height:4px;border-radius:2px;background:var(--card-border,#d9deea)}#onbRoot .steps i.on{background:var(--accent,#1b8a5a)}';
+      '#onbRoot .steps{display:flex;gap:6px}#onbRoot .steps i{flex:1;height:4px;border-radius:2px;background:var(--card-border,#d9deea)}#onbRoot .steps i.on{background:var(--accent,#1b8a5a)}' +
+      '#onbRoot .warn{background:rgba(230,160,30,.12);border:1px solid rgba(230,160,30,.5);border-radius:12px;padding:10px 12px;font-size:.82rem;line-height:1.7;display:flex;flex-direction:column;gap:4px}#onbRoot .warn .lnk{padding:4px;font-size:.84rem}';
     document.head.appendChild(st);
   }
+  function coverOff() { try { if (window.__onbCoverOff) window.__onbCoverOff(); } catch (e) { } }
   function mount() {
     css();
     if (!root) { root = document.createElement('div'); root.id = 'onbRoot'; root.setAttribute('role', 'dialog'); root.setAttribute('aria-modal', 'true'); document.body.appendChild(root); }
+    coverOff();
     return root;
   }
-  function paint(html) { mount().innerHTML = '<div class="ob">' + html + '</div>'; }
+  function paint(html) { ctx.busy = false; mount().innerHTML = '<div class="ob">' + html + '</div>'; }
   function setMsg(t, bad) { var m = document.getElementById('onbMsg'); if (m) { m.textContent = t || ''; m.className = 'msg ' + (t ? (bad ? 'err' : 'ok') : ''); } }
   function stepsBar(n) { var h = '<div class="steps" aria-hidden="true">'; for (var i = 1; i <= 3; i++) h += '<i class="' + (i <= n ? 'on' : '') + '"></i>'; return h + '</div>'; }
   function busy(b) { ctx.busy = b; var bs = root ? root.querySelectorAll('button') : []; for (var i = 0; i < bs.length; i++) bs[i].disabled = !!b; }
@@ -162,11 +181,65 @@
   function logo(sm) { return '<img class="logo' + (sm ? ' sm' : '') + '" src="icon-192.png" alt="سأنجزها" onerror="this.style.display=\'none\'">'; }
 
   function closeGate() {
-    gateOpen = false; phase = 'done';
+    gateOpen = false; phase = 'done'; coverOff(); gateEvt();
     if (root) { root.remove(); root = null; }
     try { if (typeof window.spActivate === 'function') window.spActivate(); } catch (e) { }
   }
-  function openGate() { gateOpen = true; }
+  /* بيبلّغ باقي الملفات (الربط بين الأجهزة) إن البوابة اتفتحت أو اتقفلت، عشان يوقفوا ويكمّلوا في الوقت الصح */
+  function gateEvt() { try { window.dispatchEvent(new Event('onb-gate')); } catch (e) { } }
+  function openGate() { var was = gateOpen; gateOpen = true; if (!was) gateEvt(); }
+
+  /* ---------- المتصفح الداخلي والتخزين (واتساب/إنستجرام بيخزّنوا بعيد عن المتصفح العادي، فالحساب والدعوة بيضيعوا بينهم) ---------- */
+  function inApp() {
+    if (window.AndroidNative && !window.AndroidNative.__web) return false;   /* تطبيق الأندرويد الحقيقي (مش بديل الويب) */
+    var ua = navigator.userAgent || '';
+    if (/FBAN|FBAV|FB_IAB|Instagram|Line\/|MicroMessenger|Snapchat|TikTok|musical_ly|BytedanceWebview|Pinterest|LinkedInApp/i.test(ua)) return true;
+    if (/; wv\)/.test(ua)) return true;
+    if (/iPhone|iPad|iPod/i.test(ua) && !/Safari\//.test(ua) && !navigator.standalone && !/CriOS|FxiOS|EdgiOS|OPiOS/.test(ua)) return true;
+    return false;
+  }
+  function storageOk() { try { var k = '__onb_t'; LS.setItem(k, '1'); LS.removeItem(k); return true; } catch (e) { return false; } }
+  /* كود دعوة صديق مستني (social.js بيخزّنه JSON، ولو لسه ما اتحمّلش بنقراه من الرابط نفسه) */
+  function pendCode() {
+    try {
+      var v = LS.getItem('sp_pending');
+      if (v) { var o = v.charAt(0) === '{' ? JSON.parse(v) : { c: v }; if (o && /^[A-Za-z0-9]{6,8}$/.test(o.c || '')) return String(o.c).toUpperCase(); }
+      var m = location.search.match(/[?&]f=([A-Za-z0-9]{6,8})(?![A-Za-z0-9])/); if (m) return m[1].toUpperCase();
+    } catch (e) { }
+    return '';
+  }
+  function shareUrl() { try { var c = pendCode(); return location.origin + location.pathname + (c ? '?f=' + c : ''); } catch (e) { return location.href; } }
+  function fallbackCopy(t) {
+    try { var ta = document.createElement('textarea'); ta.value = t; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:0;opacity:0'; document.body.appendChild(ta); ta.select(); var ok = document.execCommand('copy'); ta.remove(); return !!ok; } catch (e) { return false; }
+  }
+  function copyText(t) {
+    return new Promise(function (res) {
+      try { if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(t).then(function () { res(true); }, function () { res(fallbackCopy(t)); }); return; } } catch (e) { }
+      res(fallbackCopy(t));
+    });
+  }
+  function warnHtml() {
+    var h = '';
+    if (!storageOk()) h += '<div class="warn">⚠️ التخزين مقفول في المتصفح ده (غالبًا وضع التصفح الخاص)، فالدخول والبيانات مش هيتحفظوا بعد ما تقفله.</div>';
+    if (inApp()) h += '<div class="warn"><span>⚠️ إنت فاتح التطبيق من متصفح داخلي (واتساب/إنستجرام/...). هنا الدخول بجوجل ممكن ما يشتغلش، وحسابك ودعوتك ممكن ما يظهروش لما تفتح التطبيق من متصفحك العادي.</span><button type="button" class="lnk" id="onbCopyUrl">📋 انسخ الرابط وافتحه في Chrome أو Safari</button></div>';
+    return h;
+  }
+  function bindWarn() {
+    var b = $('onbCopyUrl'); if (!b) return;
+    b.onclick = function () { copyText(shareUrl()).then(function (ok) { b.textContent = ok ? '✅ اتنسخ، الصقه في المتصفح بتاعك' : 'انسخ الرابط يدويًا: ' + shareUrl(); }); };
+  }
+  /* خروج / تغيير الحساب من جوه شاشات الاسم والصورة (ضغطتين عشان ما يحصلش بالغلط) */
+  function outLink() { return '<button type="button" class="lnk" id="onbOut2">مش حسابك؟ سجّل خروج</button>'; }
+  function bindOut() {
+    var b = $('onbOut2'); if (!b) return; var armed = false, t;
+    b.onclick = function () {
+      if (ctx.busy) return;
+      if (!armed) { armed = true; b.textContent = 'اضغط تاني للتأكيد'; t = setTimeout(function () { armed = false; try { b.textContent = 'مش حسابك؟ سجّل خروج'; } catch (e) { } }, 4000); return; }
+      clearTimeout(t); busy(true);
+      try { A().signOut().then(null, function () { busy(false); }); } catch (e) { busy(false); }
+    };
+  }
+  function backBtn(id) { return '<button type="button" class="lnk" id="' + id + '" style="align-self:flex-start;padding:4px 0">‹ رجوع</button>'; }
 
   /* --- splash --- */
   function showSplash() { phase = 'splash'; paint('<div style="text-align:center;padding:60px 0">' + logo() + '<h1 style="margin:16px 0 18px">سأنجزها</h1><div class="spin" role="status" aria-label="جاري التحميل"></div></div>'); }
@@ -177,25 +250,26 @@
   function showWelcome() {
     openGate(); phase = 'welcome';
     var offline = navigator.onLine === false;
-    paint('<div class="hero">' + logo() + '<h1>أهلًا في سأنجزها</h1><p>سجّل دخولك عشان بياناتك تتحفظ على حسابك، وتقدر تدخل من أي جهاز وتنافس أصحابك.</p></div>' +
+    paint('<div class="hero">' + logo() + '<h1>أهلًا في سأنجزها</h1><p>سجّل دخولك عشان بياناتك تتحفظ على حسابك، وتقدر تدخل من أي جهاز وتنافس أصحابك.</p></div>' + warnHtml() +
       '<button type="button" class="pri" id="onbNew">إنشاء حساب</button>' +
       '<button type="button" class="sec" id="onbHave">تسجيل الدخول</button>' +
       (offline ? '<p style="text-align:center">مفيش نت دلوقتي، أول دخول محتاج اتصال بالإنترنت.</p>' : '') +
       (offline && hasLocalData() ? '<button type="button" class="lnk" id="onbBypass">افتح بياناتي على الجهاز مؤقتًا لحد ما النت يرجع</button>' : ''));
+    bindWarn();
     $('onbNew').onclick = function () { mode = 'register'; showAuth(); };
     $('onbHave').onclick = function () { mode = 'login'; showAuth(); };
     bindBypass();
   }
   function bindBypass() {
     var b = $('onbBypass'); if (!b) return;
-    b.onclick = function () { tempBypass = true; gateOpen = false; if (root) { root.remove(); root = null; } toast('شغّال بدون حساب مؤقتًا، هنطلب الدخول لما النت يرجع'); };
+    b.onclick = function () { tempBypass = true; gateOpen = false; gateEvt(); if (root) { root.remove(); root = null; } toast('شغّال بدون حساب مؤقتًا، هنطلب الدخول لما النت يرجع'); };
   }
   /* --- نموذج الإنشاء / الدخول (بعد ما يختار من الشاشة اللي فوق) --- */
   function showAuth(note) {
     openGate(); phase = 'auth';
     var offline = navigator.onLine === false, google = !isApk(), reg = mode === 'register';
     var h = '<button type="button" class="lnk" id="onbBack" style="align-self:flex-start;padding:4px 0">‹ رجوع</button>' +
-      '<div class="hero">' + logo(true) + '<h1>' + (reg ? 'إنشاء حساب جديد' : 'تسجيل الدخول') + '</h1></div>' +
+      '<div class="hero">' + logo(true) + '<h1>' + (reg ? 'إنشاء حساب جديد' : 'تسجيل الدخول') + '</h1></div>' + warnHtml() +
       '<input type="email" id="onbEmail" placeholder="الإيميل" autocomplete="email" inputmode="email" dir="ltr" style="text-align:left">' +
       '<input type="password" id="onbPass" placeholder="كلمة المرور' + (reg ? ' (6 خانات على الأقل)' : '') + '" autocomplete="' + (reg ? 'new-password' : 'current-password') + '" dir="ltr" style="text-align:left">' +
       '<div id="onbMsg" class="msg" role="alert"></div>' +
@@ -205,7 +279,7 @@
       '<button type="button" class="lnk" id="onbSwitch">' + (reg ? 'عندي حساب بالفعل' : 'معنديش حساب، إنشاء حساب جديد') + '</button>' +
       (offline ? '<p>مفيش نت دلوقتي، أول دخول محتاج اتصال بالإنترنت.</p>' : '') +
       (offline && hasLocalData() ? '<button type="button" class="lnk" id="onbBypass">افتح بياناتي على الجهاز مؤقتًا لحد ما النت يرجع</button>' : '');
-    paint(h);
+    paint(h); bindWarn();
     if (note) setMsg(note, true);
     $('onbBack').onclick = showWelcome;
     $('onbSwitch').onclick = function () { mode = reg ? 'login' : 'register'; showAuth(); };
@@ -264,14 +338,28 @@
       $('onbLocal').onclick = function () { backupLocal(); res('local'); };
     });
   }
+  /* السحابة أحدث من آخر مزامنة للجهاز ده؟ (جهاز تاني رفع بعدنا) */
+  function cloudNewer(doc) {
+    try {
+      var t = doc.data().updated_at, ms = (t && t.toMillis) ? t.toMillis() : 0;
+      if (!ms) return true; /* توقيت مش مفهوم: نعتبر السحابة أحدث ونسأل، ما نرفعش فوقها بصمت */
+      var last = Date.parse(LS.getItem('app_cloud_last_sync') || '') || 0;
+      return ms > last + 90000;
+    } catch (e) { return true; }
+  }
+  /* بيرجّع { ok:true } لو خلّص، أو { fail:true } لو ما قدرناش نقرا/نكتب على السحابة (ما نكمّلش وإحنا مش عارفين إيه عليها) */
   function resolveData(user) {
     var d = D(), uid = user.uid, owner = LS.getItem(OWNER) || '';
     var fresh = ctx.fresh || (Date.now() - parseInt(LS.getItem(FRESH) || '0', 10) < 600000);
-    if (!d) return Promise.resolve();
+    if (!d) return Promise.resolve({ fail: true });
     return d.collection('users').doc(uid).get().then(function (doc) {
       var cloudName = doc.exists ? cleanName(doc.data().acctName) : '';
       if (validName(cloudName)) { LS.setItem('app_user_name', cloudName); LS.setItem('sp_name', cloudName); LS.setItem('app_ai_user_name', cloudName); }
       var has = cloudHas(doc), local = hasLocalData();
+      /* حساب قديم (عليه بيانات على السحابة، أو مستخدم قديم قبل البوابة): ما نعرضلوش الصورة والقفل تاني، بيلاقيهم في الإعدادات */
+      ctx.returning = !!(has || (!owner && !fresh));
+      /* القفل محلي لكل جهاز: مستخدم قديم دخل دلوقتي على جهاز جديد بيتعرض عليه خطوة القفل الاختيارية (مش بيورثه من الحساب). مستخدم قديم على جهازه الأصلي (من غير ضغطة دخول) ما بيتسألش */
+      ctx.askLock = !!(ctx.returning && fresh);
       /* جهاز كان عليه حساب تاني: بيانات حد تاني، منقلهاش للحساب ده */
       if (owner && owner !== uid) {
         backupLocal(); wipeLocal(); LS.setItem(OWNER, uid); LS.removeItem(FRESH);
@@ -279,6 +367,8 @@
       }
       if (!owner && !fresh) { LS.setItem(OWNER, uid); return; }     /* مستخدم قديم كان مسجّل أصلًا: بياناته بتاعته */
       if (local && has) {
+        /* الجهاز أصلًا بتاع نفس الحساب والسحابة مش أحدث منه: مفيش تعارض، بيانات الجهاز هي الأحدث */
+        if (owner === uid && !cloudNewer(doc)) return uploadLocal(uid);
         return askConflict(doc).then(function (c) {
           showData('جاري تجهيز حسابك...');
           if (c === 'cloud') { restoreCloud(doc); return; }
@@ -287,19 +377,35 @@
       }
       if (local && !has) return uploadLocal(uid);
       if (!local && has) { restoreCloud(doc); return; }
-    }).then(function () { LS.setItem(OWNER, uid); LS.removeItem(FRESH); }, function (e) {
-      /* مفيش نت/خطأ قراءة: ما نحجبش المستخدم، بنكمّل ونحاول لاحقًا */
+    }).then(function () { LS.setItem(OWNER, uid); LS.removeItem(FRESH); return { ok: true }; }, function (e) {
       try { console.warn('onb data', e && e.code); } catch (x) { }
-      if (!owner) LS.setItem(OWNER, uid);
+      return { fail: true };
     });
+  }
+  /* ما قدرناش نوصل لبيانات الحساب: ما نكمّلش ولا نرفع حاجة فوقها */
+  function showRetry(user) {
+    phase = 'retry';
+    var owner = LS.getItem(OWNER) || '', mine = !owner || owner === user.uid;
+    paint('<div class="hero">' + logo(true) + '<h1>تعذّر الوصول لبيانات حسابك</h1><p>لازم نقرا بيانات حسابك قبل ما نكمّل عشان ما نكتبش فوقها بالغلط. اتأكد من النت وحاول تاني.</p></div>' +
+      '<div id="onbMsg" class="msg" role="alert"></div>' +
+      '<button type="button" class="pri" id="onbRetry">حاول تاني</button>' +
+      (mine && hasLocalData() ? '<button type="button" class="sec" id="onbOfflineOpen">افتح بيانات الجهاز من غير مزامنة مؤقتًا</button>' : '') +
+      '<button type="button" class="lnk" id="onbOut">تسجيل الخروج</button>');
+    $('onbRetry').onclick = function () { handleUser(user); };
+    if ($('onbOfflineOpen')) $('onbOfflineOpen').onclick = function () {
+      window.__noCloudPush = true; closeGate();
+      toast('شغّال من غير مزامنة مؤقتًا، هنكمّل لما النت يرجع');
+    };
+    $('onbOut').onclick = function () { try { A().signOut(); } catch (e) { } };
   }
 
   /* --- الاسم --- */
   function showName() {
     phase = 'name'; var u = ctx.user, pre = storedName() || cleanName(u.displayName || '');
-    paint(stepsBar(1) + '<div><h1>اسمك إيه؟</h1><p>اكتب اسمك من كلمتين على الأقل. هيظهر لأصحابك في المنافسة، والمدرب الذكي هيناديك بيه، ومش هنسألك عنه تاني.</p></div>' +
+    paint(stepsBar(1) + '<div><h1>اسمك إيه؟</h1><p>اكتب اسمك من كلمتين على الأقل. هيظهر لأصحابك في المنافسة، والمدرب الذكي هيناديك بيه، ومش هنسألك عنه تاني.</p>' + (pre && nameError(pre) ? '<p style="margin-top:6px">الاسم اللي جه من حسابك محتاج يتكمّل: ' + esc(nameError(pre)) + '</p>' : '') + '</div>' +
       '<input type="text" id="onbName" maxlength="30" placeholder="مثلًا: محمد أحمد" autocomplete="name" value="' + esc(pre) + '">' +
-      '<div id="onbMsg" class="msg" role="alert"></div><button type="button" class="pri" id="onbNext">متابعة</button>');
+      '<div id="onbMsg" class="msg" role="alert"></div><button type="button" class="pri" id="onbNext">متابعة</button>' + outLink());
+    bindOut();
     var inp = $('onbName'); setTimeout(function () { try { inp.focus(); } catch (e) { } }, 150);
     function go() {
       var er = nameError(inp.value); if (er) { setMsg(er, true); return; }
@@ -310,10 +416,11 @@
   /* --- الصورة --- */
   function showPhoto() {
     phase = 'photo'; var cur = LS.getItem('sp_pic') || '';
-    paint(stepsBar(2) + '<div><h1>تحب تضيف صورة؟</h1><p>اختياري. أصحابك هيشوفوها جنب اسمك، وتقدر تغيّرها بعدين من المنافسة.</p></div>' +
+    paint(backBtn('onbBackStep') + stepsBar(2) + '<div><h1>تحب تضيف صورة؟</h1><p>اختياري. أصحابك هيشوفوها جنب اسمك، وتقدر تغيّرها بعدين من المنافسة.</p></div>' +
       '<label class="av" id="onbAv" tabindex="0">' + (cur ? '<img alt="صورتك" src="' + esc(cur) + '">' : '📷') + '<input type="file" id="onbFile" accept="image/*" hidden></label>' +
       '<div id="onbMsg" class="msg" role="alert"></div>' +
-      '<button type="button" class="pri" id="onbNext">' + (cur ? 'متابعة' : 'اختار صورة') + '</button><button type="button" class="lnk" id="onbSkip">تخطي</button>');
+      '<button type="button" class="pri" id="onbNext">' + (cur ? 'متابعة' : 'اختار صورة') + '</button><button type="button" class="lnk" id="onbSkip">تخطي</button>' + outLink());
+    bindOut(); $('onbBackStep').onclick = function () { if (!ctx.busy) showName(); };
     var f = $('onbFile');
     f.onchange = function () {
       var file = f.files && f.files[0]; f.value = ''; if (!file) return;
@@ -328,11 +435,13 @@
   /* --- القفل --- */
   function showLock() {
     phase = 'lock';
-    paint(stepsBar(3) + '<div><h1>تحب تقفل التطبيق؟</h1><p>اختياري. لو فعّلته، التطبيق هيطلب بصمة أو كلمة مرور كل ما تفتحه. تقدر تفعّله أو تلغيه بعدين من الإعدادات.</p></div>' +
+    var ret = !!ctx.returning;
+    paint((ret ? '' : backBtn('onbBackStep') + stepsBar(3)) + '<div><h1>' + (ret ? 'تحب تقفل التطبيق على الجهاز ده؟' : 'تحب تقفل التطبيق؟') + '</h1><p>اختياري. لو فعّلته، التطبيق هيطلب بصمة أو كلمة مرور كل ما تفتحه. القفل بيتحفظ على الجهاز ده بس (مش بيتنقل مع حسابك)، فكل جهاز بتظبطه لوحده. تقدر تفعّله أو تلغيه بعدين من الإعدادات.</p></div>' +
       (bioAvailable() ? '<button type="button" class="sec" id="onbBio"><span aria-hidden="true">👆</span> بصمة أو قفل الجهاز</button>' : '') +
       '<button type="button" class="sec" id="onbPw"><span aria-hidden="true">🔒</span> كلمة مرور</button>' +
       '<div id="onbPwBox" style="display:none;flex-direction:column;gap:10px"><input type="password" id="onbP1" placeholder="كلمة المرور" autocomplete="new-password"><input type="password" id="onbP2" placeholder="أعد كتابة كلمة المرور" autocomplete="new-password"><p>6 خانات على الأقل، وفيها حرف ورقم ورمز. لو نسيتها هنرجّعها على إيميل حسابك.</p><button type="button" class="pri" id="onbPwSave">حفظ كلمة المرور</button></div>' +
       '<div id="onbMsg" class="msg" role="alert"></div><button type="button" class="lnk" id="onbSkip">' + (lockOn() ? 'متابعة' : 'تخطي') + '</button>');
+    if ($('onbBackStep')) $('onbBackStep').onclick = function () { if (!ctx.busy) showPhoto(); };
     if ($('onbBio')) $('onbBio').onclick = function () {
       busy(true);
       Promise.resolve(onBiometricLockToggleChange(true)).then(function () {
@@ -344,7 +453,7 @@
         }, 500);
       }).catch(function () { busy(false); });
     };
-    $('onbPw').onclick = function () { $('onbPwBox').style.display = 'flex'; $('onbPw').style.display = 'none'; setTimeout(function () { $('onbP1').focus(); }, 50); };
+    $('onbPw').onclick = function () { $('onbPwBox').style.display = 'flex'; $('onbPw').style.display = 'none'; setTimeout(function () { var e = $('onbP1'); if (e) e.focus(); }, 50); };
     $('onbPwSave').onclick = function () {
       var p1 = $('onbP1').value || '', p2 = $('onbP2').value || '', er = pwError(p1);
       if (er) { setMsg(er, true); return; } if (p1 !== p2) { setMsg('كلمتا المرور مش متطابقتين', true); return; }
@@ -367,9 +476,18 @@
     if (ctx.verifySent) setTimeout(function () { toast('بعتنالك رسالة تأكيد على إيميلك 📧'); }, 2500);
   }
   function next() {
+    if (ctx.returning) { if (ctx.askLock && phase !== 'lock' && !lockOn()) { showLock(); return; } finish(); return; }
     if (phase === 'name') { if (!LS.getItem('sp_pic')) { showPhoto(); return; } if (!lockOn()) { showLock(); return; } finish(); return; }
     if (phase === 'photo') { if (!lockOn()) { showLock(); return; } finish(); return; }
     finish();
+  }
+
+  /* النت بطيء ومستخدم مسجّل قبل كده: ما نعرضلوش شاشة التسجيل، نستنى الرد */
+  function showSlow() {
+    phase = 'slow';
+    paint('<div class="hero">' + logo() + '<h1>سأنجزها</h1><div class="spin" role="status" aria-label="جاري التحميل"></div><p>بنتأكد من حسابك... النت شكله بطيء، هنكمّل أول ما يرد.</p></div>' +
+      (hasLocalData() ? '<button type="button" class="sec" id="onbSlowOpen">افتح التطبيق دلوقتي من غير مزامنة</button>' : ''));
+    if ($('onbSlowOpen')) $('onbSlowOpen').onclick = function () { window.__noCloudPush = true; closeGate(); toast('شغّال من غير مزامنة لحد ما الحساب يتأكد'); };
   }
 
   /* --- نقطة الدخول: بعد ما الحساب يتأكد --- */
@@ -379,32 +497,98 @@
     if (done && validName(storedName())) {
       /* مستخدم خلّص الشاشة قبل كده: مفيش حاجة تتعرض */
       if (!LS.getItem(OWNER)) LS.setItem(OWNER, user.uid);
+      window.__noCloudPush = false;
       closeGate(); return;
     }
     showData('جاري تجهيز حسابك...');
-    resolveData(user).then(function () {
+    resolveData(user).then(function (r) {
+      if (r && r.fail) { showRetry(user); return; }
+      window.__noCloudPush = false;
       if (!validName(storedName())) { showName(); return; }
       phase = 'name'; next();
     });
   }
 
-  function start() {
-    var a = A();
-    if (!a) {
-      /* Firebase مش متاح (أوفلاين تمامًا أو خطأ تهيئة): ما نقفلش المستخدم برا */
-      gateOpen = false; if (root) { root.remove(); root = null; } return;
+  /* ---------- مكتبات Firebase ما اتحمّلتش (13) ---------- */
+  function loadFbProbe() {
+    return new Promise(function (res) {
+      var el = document.querySelector('script[src*="firebase-app-compat"]');
+      var s = document.createElement('script'), done = false;
+      function fin(ok) { if (done) return; done = true; try { s.remove(); } catch (e) { } res(ok); }
+      s.onload = function () { fin(true); }; s.onerror = function () { fin(false); };
+      setTimeout(function () { fin(false); }, 12000);
+      s.src = (el && el.src) || 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js';
+      document.head.appendChild(s);
+    });
+  }
+  function fbReloadOk() {
+    try { var n = parseInt(sessionStorage.getItem('onb_fb_rl') || '0', 10); if (n >= 2) return false; sessionStorage.setItem('onb_fb_rl', String(n + 1)); } catch (e) { }
+    return true;
+  }
+  function showNoFb() {
+    openGate(); phase = 'nofb';
+    paint('<div class="hero">' + logo() + '<h1>محتاجين اتصال بالإنترنت</h1><p>لازم نحمّل خدمة الحساب عشان تسجّل أول مرة. اتأكد من النت وحاول تاني.</p></div>' + warnHtml() +
+      '<div id="onbMsg" class="msg" role="alert"></div><button type="button" class="pri" id="onbRetryFb">حاول تاني</button>');
+    bindWarn();
+    $('onbRetryFb').onclick = function () {
+      busy(true); setMsg('بنحاول نوصل للخدمة...', false);
+      loadFbProbe().then(function (ok) { if (ok) { location.reload(); return; } busy(false); setMsg('لسه مش قادرين نوصل. جرّب شبكة تانية أو حاول بعد شوية.', true); });
+    };
+  }
+  function noFirebase() {
+    var known = !!(LS.getItem(DONE) || LS.getItem(OWNER)) || hasLocalData();
+    if (!known) {
+      /* زائر جديد من غير أي بيانات: مينفعش يسجّل من غير الخدمة، نوضّحله بدل ما يدخل التطبيق من غير حساب */
+      showNoFb();
+      window.addEventListener('online', function () { if (phase === 'nofb' && fbReloadOk()) loadFbProbe().then(function (ok) { if (ok) location.reload(); }); });
+      return;
     }
+    /* عنده حساب أو بيانات على الجهاز: ما نقفلش عليه، بس نقوله ونحاول تاني لما النت يرجع */
+    gateOpen = false; gateEvt(); coverOff(); if (root) { root.remove(); root = null; }
+    setTimeout(function () { toast('خدمة الحساب مش متاحة دلوقتي، شغّال ببيانات الجهاز من غير مزامنة ⚠️'); }, 1200);
+    window.addEventListener('online', function once() {
+      loadFbProbe().then(function (ok) { if (ok) { try { window.removeEventListener('online', once); } catch (e) { } toast('خدمة الحساب رجعت ✅ اقفل التطبيق وافتحه تاني عشان المزامنة تشتغل'); } });
+    });
+  }
+  /* فشل الرجوع من جوجل (redirect) وصل متأخر: نعرضه بدل ما المستخدم يتلخبط */
+  window.__onbRedirectErr = function (e) {
+    try {
+      var c = e && e.code; if (!c || /popup-closed|cancelled/.test(c)) return;
+      if (!gateOpen || ctx.user || (A() && A().currentUser)) return;
+      busy(false); mode = 'login'; showAuth(errMsg(e));
+    } catch (x) { }
+  };
+
+  function start() {
+    /* نسخة احتياطية من حساب سابق: بتتمسح بعد 14 يوم عشان ما تفضلش بيانات حد على الجهاز للأبد */
+    try { var pb = JSON.parse(LS.getItem('app_pre_account_backup') || 'null'); if (pb && pb.at && Date.now() - pb.at > 14 * 864e5) LS.removeItem('app_pre_account_backup'); } catch (e) { }
+    try { var pr = parseInt(LS.getItem('app_pre_replace_at') || '0', 10); if (pr && Date.now() - pr > 14 * 864e5) { LS.removeItem('app_pre_replace_backup'); LS.removeItem('app_pre_replace_at'); } } catch (e) { }
+    var a = A();
+    if (!a || !D()) { noFirebase(); return; }
     showSplash();
     var resolved = false, prev;
-    var timer = setTimeout(function () { if (!resolved) { resolved = true; showWelcome(); } }, 8000);
+    var timer = setTimeout(function () {
+      if (resolved) return;
+      /* فيه حساب خلّص التسجيل على الجهاز ده: ما نقولوش «إنشاء حساب»، نستنى Firebase يرد */
+      if (LS.getItem(DONE)) { showSlow(); return; }
+      resolved = true; showWelcome();
+    }, 8000);
     a.onAuthStateChanged(function (u) {
       resolved = true; clearTimeout(timer);
       var uid = u ? u.uid : '';
       if (u) { if (uid !== prev || gateOpen) { prev = uid; handleUser(u); } else prev = uid; }
-      else { prev = ''; ctx.user = null; busy(false); if (!tempBypass) showWelcome(); }
+      else {
+        prev = ''; ctx.user = null; busy(false);
+        if (!tempBypass) {
+          var re = window.__redirectErr; window.__redirectErr = null;
+          if (re && re.code && !/popup-closed|cancelled/.test(re.code)) { mode = 'login'; showAuth(errMsg(re)); } else showWelcome();
+        }
+      }
     });
     window.addEventListener('online', function () {
-      if (tempBypass && !(A() && A().currentUser)) { tempBypass = false; showAuth('رجع النت. سجّل دخولك عشان تكمّل'); }
+      if (tempBypass && !(A() && A().currentUser)) { tempBypass = false; showAuth('رجع النت. سجّل دخولك عشان تكمّل'); return; }
+      /* كنا فاتحين بيانات الجهاز من غير مزامنة: نكمّل تجهيز الحساب دلوقتي */
+      if (window.__noCloudPush && !gateOpen && A() && A().currentUser) { toast('رجع النت، بنكمّل تجهيز حسابك'); handleUser(A().currentUser); }
     });
   }
 
@@ -414,6 +598,6 @@
     window.afterCloudLogin = function (u) { if (gateOpen) return Promise.resolve(); return typeof origAfter === 'function' ? origAfter(u) : Promise.resolve(); };
   } catch (e) { }
 
-  function boot() { try { start(); } catch (e) { try { console.warn('onboarding failed', e); } catch (x) { } gateOpen = false; if (root) { root.remove(); root = null; } } }
+  function boot() { try { start(); } catch (e) { try { console.warn('onboarding failed', e); } catch (x) { } gateOpen = false; gateEvt(); coverOff(); if (root) { root.remove(); root = null; } } }
   if (document.body) boot(); else document.addEventListener('DOMContentLoaded', boot);
 })();

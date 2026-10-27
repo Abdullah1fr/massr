@@ -1,10 +1,10 @@
 /* Service Worker — منصة الإنتاجية
    - الصفحة الرئيسية والأيقونات بتتخزّن وبتفتح أوفلاين.
    - النسخة الجديدة بتتحمّل في الخلفية وتظهر في ثاني فتحة.
-   - طلبات الذكاء الاصطناعي ويوتيوب وفايربيز والسيرفرات التانية مابنلمسهاش.
+   - طلبات الذكاء الاصطناعي ويوتيوب وفايربيز والسيرفرات التانية مابنلمسهاش، ما عدا مكتبات Firebase نفسها (ملفات JS ثابتة النسخة في الرابط) فبتتخزّن عشان الحساب يفتح أوفلاين.
    - إشعارات وهو مقفول: Web Push (سيرفر صغير بيصحّي الـ worker) + الجدول متخزّن في IndexedDB.
    لو رفعت نسخة جديدة وعايزها فورًا: غيّر رقم VERSION. */
-const VERSION = 'v28';
+const VERSION = 'v37';
 const CACHE = 'prod-platform-' + VERSION;
 const CORE = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 const CDN_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com', 'cdnjs.cloudflare.com'];
@@ -24,7 +24,8 @@ self.addEventListener('fetch', e => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   const sameOrigin = url.origin === self.location.origin;
-  if (!sameOrigin && !CDN_HOSTS.includes(url.hostname)) return;
+  const fbLib = url.hostname === 'www.gstatic.com' && url.pathname.indexOf('/firebasejs/') === 0;
+  if (!sameOrigin && !fbLib && !CDN_HOSTS.includes(url.hostname)) return;
   if (req.mode === 'navigate') {
     e.respondWith((async () => {
       const cache = await caches.open(CACHE);
@@ -47,6 +48,17 @@ self.addEventListener('fetch', e => {
       } catch (err) {
         return (await cache.match(req)) || (await cache.match(url.pathname.split('/').pop())) || Response.error();
       }
+    })());
+    return;
+  }
+  if (fbLib) {
+    /* مكتبات Firebase (رقم النسخة في الرابط ثابت): من الكاش الأول، والنت بس لو مش متخزّنة. من غيرها الحساب مش بيفتح أوفلاين */
+    e.respondWith((async () => {
+      const cache = await caches.open(CACHE);
+      const hit = await cache.match(req);
+      if (hit) return hit;
+      try { const r = await fetch(req); if (r && (r.ok || r.type === 'opaque')) cache.put(req, r.clone()); return r; }
+      catch (err) { return Response.error(); }
     })());
     return;
   }

@@ -111,20 +111,36 @@ function fail(e) {
   S.err = (c === 'permission-denied' || /auth\//.test(c)) ? 'الخدمة مش جاهزة حاليًا، حاول بعد شوية ⚠️ (' + c + ')' : 'مفيش اتصال أو حصل خطأ، حاول تاني ⚠️';
   S.booting = false; render(true); if (UI.open && S.code) snack(S.err);
 }
-function gen() { var a = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', s = '', i; for (i = 0; i < 6; i++) s += a[Math.floor(Math.random() * a.length)]; return s; }
+/* كود الصداقة: 8 خانات من حروف/أرقام (32 رمز) بـ crypto بدل Math.random. الأكواد القديمة (6) لسه شغالة */
+function gen() { var a = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', s = '', i, r = new Uint8Array(8); try { crypto.getRandomValues(r); } catch (e) { for (i = 0; i < 8; i++) r[i] = Math.floor(Math.random() * 256); } for (i = 0; i < 8; i++) s += a[r[i] % 32]; return s; }
 function fname(id) { if (isConv(id)) return convName(id); var p = S.fp[id]; return (p && p.data && p.data.name) || (S.friends[id] && S.friends[id].name) || (S.gn && S.gn[id]) || 'صديق'; }
 function parseCode(t) {
   t = String(t || '').trim();
-  var m = t.match(/[?&#]f=([A-Za-z0-9]{6})(?![A-Za-z0-9])/) || t.match(/^MSR1:([A-Za-z0-9]{6})$/i) || t.match(/^([A-Za-z0-9]{6})$/);
+  var m = t.match(/[?&#]f=([A-Za-z0-9]{6,8})(?![A-Za-z0-9])/) || t.match(/^MSR1:([A-Za-z0-9]{6,8})$/i) || t.match(/^([A-Za-z0-9]{6,8})$/);
   return m ? m[1].toUpperCase() : '';
 }
 
-/* ---------- رابط الدعوة (?f=CODE) — لو صاحبك فتح اللينك أو مسح الـ QR بكاميرا الموبايل ---------- */
+/* ---------- رابط الدعوة (?f=CODE) — لو صاحبك فتح اللينك أو مسح الـ QR بكاميرا الموبايل ----------
+   الدعوة بتتخزن {c: الكود، at: وقت الفتح، sn: «مش دلوقتي» لحد إمتى، u: الحساب اللي أجّلها} وبتنتهي بعد 7 أيام،
+   وما بتتمسح غير بعد ما الطلب يتبعت فعلًا (أو المستخدم يتجاهلها). نص قديم (الكود بس) بيتقري زي ما هو. */
+var INV_TTL = 7 * 864e5;
+function frInvDrop() { try { LS.removeItem('sp_pending'); } catch (e) { } }
+function frInvWrite(c, at, sn, u) { try { LS.setItem('sp_pending', JSON.stringify({ c: c, at: at || Date.now(), sn: sn || 0, u: u || '' })); } catch (e) { } }
+function frInvRead() {
+  var v = null, o = null, legacy = false;
+  try { v = LS.getItem('sp_pending'); } catch (e) { }
+  if (!v) return null;
+  try { if (v.charAt(0) === '{') o = JSON.parse(v); else { o = { c: v, at: Date.now() }; legacy = true; } } catch (e) { o = null; }
+  var c = o ? String(o.c || '').toUpperCase() : '';
+  if (!o || !/^[A-Z0-9]{6,8}$/.test(c) || !(o.at > 0) || Date.now() - o.at > INV_TTL) { frInvDrop(); return null; }
+  if (legacy) frInvWrite(c, o.at, 0, '');
+  return { c: c, at: o.at, sn: o.sn || 0, u: o.u || '' };
+}
 try {
-  var pm = location.search.match(/[?&]f=([A-Za-z0-9]{6})(?![A-Za-z0-9])/);
+  var pm = location.search.match(/[?&]f=([A-Za-z0-9]{6,8})(?![A-Za-z0-9])/);
   if (pm) {
-    LS.setItem('sp_pending', pm[1].toUpperCase());
-    var nu = location.pathname + location.search.replace(/([?&])f=[A-Za-z0-9]{6}&?/, '$1').replace(/[?&]$/, '') + location.hash;
+    frInvWrite(pm[1].toUpperCase(), Date.now(), 0, '');
+    var nu = location.pathname + location.search.replace(/([?&])f=[A-Za-z0-9]{6,8}&?/, '$1').replace(/[?&]$/, '') + location.hash;
     history.replaceState(null, '', nu);
   }
 } catch (e) { }
@@ -241,7 +257,7 @@ function init() {
   if (S.booting) return Promise.resolve();
   if (S.hyd && S.code && navigator.onLine === false) return Promise.resolve(); /* أوفلاين: كمّل من النسخة المحفوظة، والتحقق لما النت يرجع */
   S.booting = true; S.err = '';
-  return whenUser(a).then(function (u) { if (S.uid === u.uid && S.code) { S.booting = false; S.verified = true; sessSave(); return; } teardown(); S.uid = u.uid; return boot(); }).catch(fail);
+  return whenUser(a).then(function (u) { if (S.uid === u.uid && S.code) { S.booting = false; S.verified = true; sessSave(); consumePending(); return; } teardown(); S.uid = u.uid; return boot(); }).catch(fail);
 }
 function autoActivate() {
   if (S.code || S.booting || !mainAuth()) return;
@@ -358,9 +374,78 @@ function notices() {
 function standingsOf(d, now) {
   return d.members.map(function (u) { var t = tally(d, u, now); return { u: u, ok: t.ok, p: t.p, no: t.no, acc: accepted(d, u) }; }).sort(function (a, b) { return b.ok - a.ok || a.no - b.no; });
 }
+var FINV = { busy: false, shown: false, sending: false, retry: 0, c: '', tw: 0 };
+function frInvRetry(ms) { if (FINV.retry++ < 120) setTimeout(consumePending, ms); }
+/* الجولة التعريفية الأولى (#rpTour) بتتفتح فوق أي نافذة: نستنى لحد ما تخلص، ولو لسه ما بدأتش نديها فرصة ~12 ثانية */
+function tourBusy() {
+  try {
+    if (document.getElementById('rpTour')) return true;
+    if (LS.getItem('rp_tour_done2') !== '1' && FINV.tw < 8) { FINV.tw++; return true; }
+  } catch (e) { }
+  return false;
+}
+function appLocked() { try { var e = document.getElementById('appLockScreen'); return !!(e && e.classList.contains('show')); } catch (x) { return false; } }
+/* اسم صاحب الدعوة: codes/{code} ← uid ← profiles/{uid}.name. لو الكود مش موجود بيرجّع {gone}، ولو النت وقع بيرفض (والدعوة تفضل محفوظة) */
+function frInvLookup(c) {
+  var d = db();
+  return d.collection('codes').doc(c).get().then(function (s) {
+    if (!s.exists) return { gone: true };
+    var fu = s.data().uid; if (!sgSafeId(fu)) return { gone: true };
+    return d.collection('profiles').doc(fu).get().then(function (p) {
+      return { uid: fu, name: (p.exists && p.data().name) ? String(p.data().name).slice(0, 40) : '' };
+    }, function () { return { uid: fu, name: '' }; });
+  });
+}
+function frInvClose() { var s = $('spInv'); if (s) s.style.display = 'none'; FINV.shown = false; FINV.sending = false; FINV.c = ''; }
+function frInvSheet(c, r) {
+  css(); FINV.shown = true; FINV.c = c; FINV.sending = false;
+  var s = $('spInv');
+  if (!s) { s = document.createElement('div'); s.id = 'spInv'; s.className = 'sp-over'; s.setAttribute('role', 'dialog'); s.setAttribute('aria-modal', 'true'); document.body.appendChild(s); }
+  s.innerHTML = '<div class="sp-box"><div style="font-weight:800;font-size:1.05rem;margin-bottom:8px;">🤝 دعوة صداقة</div>' +
+    '<div style="line-height:1.8;margin-bottom:4px;">' + (r.name ? '<b>' + esc(r.name) + '</b> بيدعوك' : 'صديق بيدعوك') + ' تنضم لأصحابه في «سأنجزها» وتنافسوا سوا.</div>' +
+    '<div class="sp-sm" style="margin-bottom:6px;">لما تبعتله الطلب، هو اللي بيقبله، وبعدها تبقوا أصحاب.</div>' +
+    '<div id="spInvMsg" class="sp-sm" style="color:#e74c3c;min-height:1.3em;opacity:1;"></div>' +
+    '<div style="display:flex;gap:6px;"><button class="btn" id="spInvGo" style="flex:1;" onclick="spInvSend()">إرسال طلب صداقة</button><button class="btn btn-secondary" style="flex:1;" onclick="spInvLater()">مش دلوقتي</button></div>' +
+    '<div style="text-align:center;margin-top:12px;"><a href="#" class="sp-sm" onclick="spInvIgnore();return false;">تجاهل الدعوة</a></div></div>';
+  s.style.display = 'flex';
+}
+window.spInvSend = function () {
+  var c = FINV.c, b = $('spInvGo'), m = $('spInvMsg'); if (!c || FINV.sending) return;
+  FINV.sending = true; if (b) { b.disabled = true; b.textContent = '⏳ جاري الإرسال...'; } if (m) m.textContent = '';
+  addByCode(c).then(function (st) {
+    if (st === 'sent' || st === 'accepted') { frInvDrop(); frInvClose(); return; }
+    if (st === 'dup') { frInvDrop(); frInvClose(); toast('إنتوا أصحاب بالفعل، أو الطلب اتبعت قبل كده'); return; }
+    if (st === 'self') { frInvDrop(); frInvClose(); return; }
+    if (st === 'bad') { frInvDrop(); frInvClose(); toast('الكود ده مش شغال'); return; }
+    /* فشل (نت/خدمة): الدعوة فاضلة محفوظة وتقدر تحاول تاني */
+    FINV.sending = false; if (b) { b.disabled = false; b.textContent = 'حاول تاني'; } if (m) m.textContent = 'تعذّر الإرسال، اتأكد من النت وحاول تاني ⚠️';
+  }).catch(function () { FINV.sending = false; if (b) { b.disabled = false; b.textContent = 'حاول تاني'; } if (m) m.textContent = 'تعذّر الإرسال، اتأكد من النت وحاول تاني ⚠️'; });
+};
+window.spInvLater = function () {
+  var p = frInvRead(); if (p) frInvWrite(p.c, p.at, Date.now() + DAY, S.uid || p.u);
+  frInvClose(); toast('تمام، هنفكّرك بالدعوة بكرة 👍');
+};
+window.spInvIgnore = function () { frInvDrop(); frInvClose(); };
 function consumePending() {
-  var p = LS.getItem('sp_pending');
-  if (p && S.code) { LS.removeItem('sp_pending'); if (!confirm('تبعت طلب صداقة لصاحب الكود ' + p + '؟')) return; openAdd('code'); addByCode(p); }
+  var p = frInvRead(); if (!p || FINV.busy || FINV.shown) return;
+  if (window.__onbPending && window.__onbPending()) return;
+  if (!S.code || !S.uid) return;
+  if (p.u && p.u !== S.uid) return;                       /* الدعوة اتأجّلت من حساب تاني على الجهاز ده */
+  if (p.sn && Date.now() < p.sn) return;                  /* اختار «مش دلوقتي» */
+  if (appLocked()) { frInvRetry(1500); return; }            /* قفل التطبيق شغّال: نستنى لحد ما يتفتح */
+  if (tourBusy()) { frInvRetry(1500); return; }             /* الجولة التعريفية شغّالة */
+  if (S.fFirst) { frInvRetry(1000); return; }               /* قايمة الأصدقاء لسه ما وصلتش */
+  if (p.c === S.code) { frInvDrop(); return; }              /* كودك إنت */
+  FINV.busy = true;
+  frInvLookup(p.c).then(function (r) {
+    FINV.busy = false;
+    var cur = frInvRead(); if (!cur || cur.c !== p.c) return;
+    if (r.gone) { frInvDrop(); toast('رابط الدعوة ده مش شغال (الكود غلط)'); return; }
+    if (r.uid === S.uid) { frInvDrop(); return; }
+    if (S.friends[r.uid]) { frInvDrop(); toast('إنتوا أصحاب بالفعل 👍'); return; }
+    if (sentMap()[r.uid]) { frInvDrop(); toast('بعتله طلب قبل كده، مستني رده ⏳'); return; }
+    frInvSheet(p.c, r);
+  }).catch(function () { FINV.busy = false; frInvRetry(15000); });   /* مفيش نت: الدعوة محفوظة وهنحاول تاني */
 }
 
 
@@ -604,7 +689,7 @@ window.spBlockedList = function () {
   sheetOpen('المحظورين', ids.length ? ids.map(function (id) { return '<div style="display:flex;align-items:center;gap:10px;padding:8px 6px;border-bottom:1px solid var(--card-border)"><span style="flex:1">' + esc(fname(id)) + '</span><button class="btn btn-secondary" onclick="spUnblock(\'' + sgSafeId(id) + '\')">إلغاء الحظر</button></div>'; }).join('') : '<div class="sp-sm" style="padding:8px 6px">مفيش حد محظور.</div>');
 };
 /* ---------- دعوة صديق (لحد مش على التطبيق) ---------- */
-function inviteText() { return 'انضم لي على «سأنجزها» 🏆 بنتنافس على المهام والتركيز ونتحدى بعض. افتح اللينك وسجّل وهنبقى أصحاب تلقائي:\n' + BASE + '?f=' + S.code; }
+function inviteText() { return 'انضم لي على «سأنجزها» 🏆 بنتنافس على المهام والتركيز ونتحدى بعض. افتح اللينك وسجّل، وابعتلي طلب صداقة وأنا هقبله:\n' + BASE + '?f=' + S.code; }
 window.spInvite = function () {
   sheetClose(); if (!S.code) { snack('فعّل المنافسة والأصدقاء الأول'); return; }
   sheetOpen('دعوة صديق',
@@ -1735,7 +1820,7 @@ function addPageHtml() {
     } else h += '<div class="sx-hint">ابحث بالاسم اللي صاحبك مسجّل بيه. لو مش لاقيه، اطلب منه كوده أو الـ QR.</div>';
     h += '<div class="sx-card" style="margin-top:16px"><div class="sx-sw" onclick="spDisc()"><div><b>ظهوري في البحث</b><small>' + (nd ? 'مخفي — محدش يقدر يلاقيك بالاسم' : 'ظاهر — أصحابك يقدروا يلاقوك بالاسم') + '</small></div><span class="sx-tg ' + (nd ? '' : 'on') + '"></span></div></div></div>';
   } else if (seg === 'code') {
-    h += '<div class="sx-pad"><label class="sx-lbl">كود صاحبك (6 حروف/أرقام)</label><input type="text" id="spCodeIn" class="sp-in" maxlength="6" placeholder="••••••" autocomplete="off" style="text-align:center;font-family:monospace;font-size:1.4rem;letter-spacing:6px;text-transform:uppercase" onkeydown="if(event.key===\'Enter\')spAdd()"><div class="sx-btnrow"><button class="btn" onclick="spAdd()">إرسال طلب</button></div>' +
+    h += '<div class="sx-pad"><label class="sx-lbl">كود صاحبك (6 أو 8 حروف/أرقام)</label><input type="text" id="spCodeIn" class="sp-in" maxlength="8" placeholder="••••••••" autocomplete="off" style="text-align:center;font-family:monospace;font-size:1.4rem;letter-spacing:6px;text-transform:uppercase" onkeydown="if(event.key===\'Enter\')spAdd()"><div class="sx-btnrow"><button class="btn" onclick="spAdd()">إرسال طلب</button></div>' +
       '<div class="sx-hint" style="text-align:center;margin:18px 0 8px">— أو —</div><button class="btn btn-secondary" style="width:100%" onclick="spScan()">' + ic('camera', 20) + ' مسح QR بالكاميرا</button></div>';
   } else {
     var qr = S.qr ? '<img src="' + S.qr + '" width="200" height="200" alt="QR">' : '<div id="spQR"></div>';
@@ -1789,9 +1874,9 @@ function duelPageHtml(id) { var d = duelById(id); return d ? '<div class="sx-pad
 
 /* ---------- شاشة البداية (قبل تفعيل الخدمة) ---------- */
 function onboardHtml() {
-  var pend = LS.getItem('sp_pending'), signed = !!(mainAuth() && mainAuth().currentUser);
+  var pend = frInvRead(), signed = !!(mainAuth() && mainAuth().currentUser);
   return '<div class="sx-onb"><div class="logo">🏆</div><h2>المنافسة والأصدقاء</h2><p>نافس صحابك على المهام والتركيز، وادردش معاهم. الأصدقاء بيشوفوا أرقامك بس (نقاط، مهام، تركيز، streak) — مش عناوين مهامك ولا ملاحظاتك، وتقدر تخفيها في أي وقت.</p>' +
-    (S.err ? '<div class="sp-sm" style="color:#e74c3c">' + esc(S.err) + '</div>' : '') + (pend ? '<div class="sp-card" style="width:100%;max-width:320px">🎉 وصلك كود صديق (<b>' + esc(pend) + '</b>) — ابدأ وهنضيفه تلقائيًا.</div>' : '') +
+    (S.err ? '<div class="sp-sm" style="color:#e74c3c">' + esc(S.err) + '</div>' : '') + (pend ? '<div class="sp-card" style="width:100%;max-width:320px">🎉 وصلتك دعوة صديق — ابدأ وهتقدر تبعتله طلب صداقة.</div>' : '') +
     (signed ? '<div class="sp-sm">هتظهر لأصحابك باسم <b>' + esc(acctName() || 'صديق') + '</b> (نفس اسم حسابك)</div><button class="btn" onclick="spStart()">' + (S.booting ? '⏳ جاري التجهيز...' : '🚀 ابدأ') + '</button>'
       : '<div class="sp-sm">سجّل دخولك بحسابك الأول.</div>') + '</div>';
 }
@@ -2758,27 +2843,36 @@ window.spEdSend = function () {
 };
 
 /* ---------- الأوامر ---------- */
+/* بيرجّع: 'sent' اتبعت الطلب | 'accepted' هو كان طالبك فاتقبل | 'dup' صاحبك أو الطلب متبعت قبل كده | 'self' كودك | 'bad' الكود غلط | 'fail' تعذّر | 'nostart' الخدمة لسه ما بدأتش */
+/* طلب صداقة: القواعد بتقارن اسم الطلب باسم بروفايلك، فبنحدّث اسم البروفايل الأول (من غير ما يعتمد على push المتأخر) وبعدين نكتب الطلب */
+function reqWrite(to) {
+  var d = db(), nm = String(S.name || 'صديق').slice(0, 40);
+  return d.collection('profiles').doc(S.uid).set({ name: nm, nameLower: nm.toLowerCase() }, { merge: true }).then(function () {
+    return d.collection('profiles').doc(to).collection('requests').doc(S.uid).set({ name: nm, at: Date.now() });
+  });
+}
 function addByCode(raw) {
   var c = parseCode(raw), d = db();
-  if (c.length !== 6) { msg('الكود 6 حروف/أرقام'); return Promise.resolve(); }
-  if (!S.code || !d) { msg('ابدأ الخدمة الأول 🚀'); return Promise.resolve(); }
-  if (c === S.code) { msg('ده كودك إنت 😄'); return Promise.resolve(); }
+  if (c.length !== 6 && c.length !== 8) { msg('الكود 6 أو 8 حروف/أرقام'); return Promise.resolve('bad'); }
+  if (!S.code || !d) { msg('ابدأ الخدمة الأول 🚀'); return Promise.resolve('nostart'); }
+  if (c === S.code) { msg('ده كودك إنت 😄'); return Promise.resolve('self'); }
   msg('جاري البحث...');
   return d.collection('codes').doc(c).get().then(function (s) {
-    if (!s.exists) { msg('الكود غلط ⚠️'); return; }
-    var fu = s.data().uid; if (!sgSafeId(fu)) { msg('الكود غلط ⚠️'); return; } if (fu === S.uid) { msg('ده كودك إنت 😄'); return; }
-    if (S.friends[fu]) { msg('هو صاحبك بالفعل'); return; }
-    if (S.reqs[fu]) { spAcceptReq(fu); return; }
-    if (sentMap()[fu]) { msg('بعتله طلب قبل كده، مستني رده ⏳'); return; }
-    return d.collection('profiles').doc(fu).collection('requests').doc(S.uid).set({ name: S.name, at: Date.now() }).then(function () {
+    if (!s.exists) { msg('الكود غلط ⚠️'); return 'bad'; }
+    var fu = s.data().uid; if (!sgSafeId(fu)) { msg('الكود غلط ⚠️'); return 'bad'; } if (fu === S.uid) { msg('ده كودك إنت 😄'); return 'self'; }
+    if (S.friends[fu]) { msg('هو صاحبك بالفعل'); return 'dup'; }
+    if (S.reqs[fu]) { spAcceptReq(fu); return 'accepted'; }
+    if (sentMap()[fu]) { msg('بعتله طلب قبل كده، مستني رده ⏳'); return 'dup'; }
+    return reqWrite(fu).then(function () {
       setSent(fu, { name: 'صديق', at: Date.now() });
       var ci = $('spCodeIn'); if (ci) ci.value = '';
       msg('📨 اتبعت طلب الصداقة — لما يقبله هتتضافوا'); toast('📨 اتبعت طلب الصداقة'); render(true);
-      return d.collection('profiles').doc(fu).get().then(function (p) {
+      d.collection('profiles').doc(fu).get().then(function (p) {
         if (p.exists && p.data().name) { setSent(fu, { name: p.data().name, at: Date.now() }); msg('📨 اتبعت طلب لـ ' + p.data().name + ' — مستني قبوله'); render(true); }
       }).catch(function () { });
+      return 'sent';
     });
-  }).catch(function () { msg('تعذّر إرسال الطلب ⚠️'); });
+  }).catch(function () { msg('تعذّر إرسال الطلب ⚠️'); return 'fail'; });
 }
 function syncSent() {
   var d = db(), m = sentMap(); if (!d || !S.uid) return;
@@ -2797,7 +2891,7 @@ window.spStart = function () {
 window.spHide = function () { LS.setItem('sp_hide', LS.getItem('sp_hide') === '1' ? '0' : '1'); push(true); render(true); };
 window.spCopy = function () { try { navigator.clipboard.writeText(S.code); msg('اتنسخ الكود ✅'); } catch (e) { msg(S.code); } };
 window.spShare = function () {
-  var t = 'تعالى نتنافس على "سأنجزها" 💪 كودي: ' + S.code + '\nأو افتح الرابط ده وهتتضاف تلقائي:\n' + BASE + '?f=' + S.code;
+  var t = 'تعالى نتنافس على "سأنجزها" 💪 كودي: ' + S.code + '\nأو افتح الرابط ده وابعتلي طلب صداقة وأنا هقبله:\n' + BASE + '?f=' + S.code;
   if (navigator.share) navigator.share({ text: t }).catch(function () { }); else { try { navigator.clipboard.writeText(t); msg('اتنسخت رسالة الدعوة ✅'); } catch (e) { msg(t); } }
 };
 window.spAdd = function () { addByCode(($('spCodeIn') || {}).value); };
@@ -2815,7 +2909,7 @@ function setSent(id, v) { var m = sentMap(); if (v) m[id] = v; else delete m[id]
 window.spSendReq = function (id) {
   var name = ((S.res || []).filter(function (r) { return r.id === id; })[0] || {}).name || 'صديق';
   if (S.friends[id]) return; if (S.reqs[id]) { spAcceptReq(id); return; }
-  db().collection('profiles').doc(id).collection('requests').doc(S.uid).set({ name: S.name, at: Date.now() })
+  reqWrite(id)
     .then(function () { setSent(id, { name: name, at: Date.now() }); try { ppNotify(id, 'req', ''); ppReg(false); } catch (e) { } toast('📨 اتبعت طلب الصداقة'); render(true); })
     .catch(function () { msg('تعذّر إرسال الطلب ⚠️ (غالبًا محتاج تحديث قواعد Firestore)'); });
 };
@@ -3616,9 +3710,9 @@ function invMake(id) {
   }, function () { snack('تعذّر إنشاء الكود ⚠️'); return ''; });
 }
 function invDrop(code) { if (code) { try { db().collection('invites').doc(code).delete().catch(function () { }); } catch (e) { } } }
-window.spConvInvOn = function (id) { var c = convOf(id); if (!c || !isAdminOf(c)) return; var old = c.joinCode; invMake(id).then(function (code) { if (code) { invDrop(old); setTimeout(function () { spConvInvite(id); }, 350); } }); };
-window.spConvInvNew = function (id) { var c = convOf(id); if (!c || !isAdminOf(c)) return; var old = c.joinCode; invMake(id).then(function (code) { if (code) { invDrop(old); snack('✅ كود جديد'); setTimeout(function () { spConvInvite(id); }, 350); } }); };
-window.spConvInvOff = function (id) { var c = convOf(id); if (!c || !isAdminOf(c)) return; var old = c.joinCode; convUpd(id, { joinOn: false }).then(function (ok) { if (ok) { invDrop(old); sheetClose(); snack('اتوقف كود الدعوة'); } }); };
+window.spConvInvOn = function (id) { var c = convOf(id); if (!c || !isAdminOf(c)) return; var old = c.joinCode; invMake(id).then(function (code) { if (code) { frInvDrop(old); setTimeout(function () { spConvInvite(id); }, 350); } }); };
+window.spConvInvNew = function (id) { var c = convOf(id); if (!c || !isAdminOf(c)) return; var old = c.joinCode; invMake(id).then(function (code) { if (code) { frInvDrop(old); snack('✅ كود جديد'); setTimeout(function () { spConvInvite(id); }, 350); } }); };
+window.spConvInvOff = function (id) { var c = convOf(id); if (!c || !isAdminOf(c)) return; var old = c.joinCode; convUpd(id, { joinOn: false }).then(function (ok) { if (ok) { frInvDrop(old); sheetClose(); snack('اتوقف كود الدعوة'); } }); };
 window.spConvInvCopy = function (id) { var c = convOf(id); if (c && c.joinCode) copyText(c.joinCode); };
 window.spConvInvShare = function (id) {
   var c = convOf(id); if (!c || !c.joinCode) return; var tx = 'ادخل ' + (isCid(id) ? 'مجتمع «' : 'مجموعة «') + c.name + '» في تطبيق سأنجزها.\nكود الدعوة: ' + c.joinCode + '\n(المزيد ← انضمام بكود دعوة)\n' + BASE;
@@ -3674,7 +3768,7 @@ function convPurge(id, sub, n) {
 }
 function convDelete(id, quiet) {
   var c = convOf(id); if (!c) return; snack('⏳ جاري الحذف...');
-  invDrop(c.joinCode);
+  frInvDrop(c.joinCode);
   convPurge(id, 'messages', 0).then(function () { return convPurge(id, 'blobs', 0); }).then(function () { return chatRef(id).delete(); }).then(function () {
     try { var m = lockMap(); if (m[id]) { delete m[id]; sgWrite('lock', m); lkSyncSw(); } setArch(id, false); } catch (e) { }
     snack('اتحذفت ✅'); goMain('chats');
@@ -4210,7 +4304,8 @@ setTimeout(function () {
   css();
   try { hydrate(); } catch (e) { }
   try { sgSyncProgress({}); } catch (e) { }
-  if (LS.getItem('sp_pending')) { spOpen(); }
+  /* دعوة صديق: ما نفتحش صفحة المنافسة فجأة. لو شاشة البداية شغالة هي اللي هتنده spActivate بعد ما تخلص، وإلا نشغّل الخدمة وبعدها تظهر نافذة الدعوة */
+  if (frInvRead()) { if (!(window.__onbPending && window.__onbPending())) init(); }
   else if (LS.getItem('sp_on') === '1') init();
   else autoActivate();
 }, 2500);

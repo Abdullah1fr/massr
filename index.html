@@ -4662,6 +4662,30 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
 
 <body>
 
+    <!-- غطاء البداية: بيغطي التطبيق من أول لحظة لحد ما شاشة التسجيل (onboarding.js) تتحمّل وتاخد مكانه، عشان ما يظهرش التطبيق ثانيتين وبعدين التسجيل.
+         لو الملف ما اتحمّلش أو حصل أي حاجة بيتشال لوحده بعد 15 ثانية. زائر جديد (مفيش حساب اتسجّل على الجهاز ده قبل كده) بنتخطّى له سبلاش الأنيميشن. -->
+    <style>
+        #onbCover{position:fixed;inset:0;z-index:9000;background:var(--bg-main,#060911);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:18px}
+        #onbCover img{width:96px;height:96px;border-radius:22px;object-fit:cover;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+        #onbCover i{width:32px;height:32px;border-radius:50%;border:3px solid rgba(128,128,128,.3);border-top-color:var(--accent,#3bb3ff);animation:onbCvSpin 1s linear infinite}
+        @keyframes onbCvSpin{to{transform:rotate(360deg)}}
+        html.onb-new #webSplashScreen{display:none!important}
+    </style>
+    <div id="onbCover" aria-hidden="true"><img src="icon-192.png" alt="" onerror="this.style.display='none'"><i></i></div>
+    <script>
+        (function () {
+            try { var l = localStorage; if (!(l.getItem('app_onb_done') || l.getItem('app_data_owner'))) document.documentElement.classList.add('onb-new'); } catch (e) { }
+            window.__onbCoverOff = function () { var c = document.getElementById('onbCover'); if (c) c.remove(); };
+            /* __onbWait: «شاشة البداية لسه شغّالة أو لسه ما اتحمّلتش؟». بتتعرّف من أول لحظة، فنتيجة redirect جوجل (اللي ممكن توصل قبل ما onboarding.js يتحمّل)
+               ما تعدّيش على شاشة التسجيل. لو الملف فشل أو عدّت 15 ثانية من غير ما يتحمّل بترجع false والتطبيق يكمّل عادي. */
+            window.__onbWait = function () {
+                try { if (typeof window.__onbPending === 'function') return !!window.__onbPending(); } catch (e) { }
+                return !(window.__onbLoadFailed || window.__onbOff);
+            };
+            setTimeout(function () { window.__onbOff = true; window.__onbCoverOff(); }, 15000);
+        })();
+    </script>
+
     <!-- ============= شاشة السبلاش المتحركة عند فتح الموقع ============= -->
     <div id="webSplashScreen" class="web-splash-screen">
         <canvas id="webSplashCanvas"></canvas>
@@ -6527,6 +6551,7 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
                         <button class="btn btn-secondary" onclick="document.getElementById('importBackupFile').click()">⬆️ استيراد نسخة</button>
                     </div>
                     <input type="file" id="importBackupFile" accept="application/json,.json" style="display:none;" onchange="importBackupFile(event)">
+                    <div class="settings-row" id="preReplaceRow" style="display:none;"><button class="btn btn-secondary" onclick="restorePreReplaceBackup()">↩️ ارجع لبياناتك قبل آخر استبدال</button></div>
                     <div class="settings-section-desc" style="margin-top:14px;">ملفات المحادثات الكبيرة (أكبر من 8 ميجا) بتتحفظ على جهازك تلقائي وبتفضل موجودة حتى بعد ما السيرفر يمسح نسخته. النسخة الاحتياطية العادية (JSON) مابتشملهاش، فصدّرها هنا كملف ZIP.</div>
                     <div class="settings-row">
                         <button class="btn" onclick="exportChatFilesZip()">⬇️ تصدير ملفات المحادثات (ZIP)</button>
@@ -7775,6 +7800,7 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
     document.addEventListener('visibilitychange', () => { if (!document.hidden) rearmAllFromStorage(); });
 
     window.AndroidNative = {
+        __web: true, // علامة: ده بديل الويب للمنبهات مش تطبيق الأندرويد الحقيقي (onboarding.js بيعتمد عليها)
         scheduleAlarm: (id, label, timestamp) => scheduleEntry('alarm', id, '⏰ ' + (label || 'منبه'), 'حان وقت المنبه اللي ضبطته', timestamp),
         cancelAlarm: (id) => cancelEntry('alarm', id),
         scheduleTaskReminder: (id, title, timestamp) => scheduleEntry('taskReminder', id, '🔔 تذكير بمهمة', title || 'عندك مهمة قربت معادها', timestamp),
@@ -16456,8 +16482,8 @@ function restoreTimerState() {
         try {
             const backup = { app: 'منصة الإنتاجية المتقدمة', version: 2, exportDate: new Date().toISOString(), data: buildDataBundle('file') };
             try {
-                if (typeof fbAuth !== 'undefined' && fbAuth && fbAuth.currentUser && fbAuth.currentUser.email) { backup.data.app_account_email = fbAuth.currentUser.email; if (window.quietCloudPush) window.quietCloudPush(); }
-                else if (localStorage.getItem('app_lock_hash')) setTimeout(function () { showToast('ملحوظة: قفل التطبيق مش في الملف. سجّل دخول بحسابك قبل التصدير عشان يرجع على الجهاز الجديد 🔐'); }, 2600);
+                /* إيميل الحساب بيتحط في الملف عشان الاستيراد يقارنه بالحساب الحالي (40). قفل التطبيق محلي لكل جهاز ومش بيتصدّر */
+                if (typeof fbAuth !== 'undefined' && fbAuth && fbAuth.currentUser && fbAuth.currentUser.email) backup.data.app_account_email = fbAuth.currentUser.email;
             } catch (e) { }
             const jsonText = JSON.stringify(backup, null, 2);
             const fileName = `نسخة-احتياطية-${getDateKey()}.json`;
@@ -16531,6 +16557,64 @@ function restoreTimerState() {
         } catch (e) { showToast('ملف ZIP غير صالح ⚠️'); }
     }
 
+    /* ============ حماية الاستبدال (38/39/40) ============
+       أي مسار بيستبدل بيانات الجهاز (استيراد ملف، نقل QR، استرجاع درايف): نسخة احتياطية الأول + فحص الحساب.
+       النسخة بتتحفظ في app_pre_replace_backup (خارج المزامنة والربط)، وبترجع من الإعدادات. */
+    function backupBeforeReplace(why) {
+        var K = 'app_pre_replace_backup', M = 'app_pre_replace_at', json;
+        try { json = JSON.stringify({ at: Date.now(), why: why || '', data: buildDataBundle('file') }); } catch (e) { return false; }
+        try { localStorage.setItem(K, json); localStorage.setItem(M, String(Date.now())); return true; } catch (e) { }
+        try { localStorage.removeItem(K); localStorage.setItem(K, json); localStorage.setItem(M, String(Date.now())); return true; } catch (e) { }
+        try { localStorage.removeItem(K); localStorage.removeItem(M); } catch (e) { }
+        try { /* التخزين مليان: ننزّل النسخة كملف بدل ما نكمّل من غير حماية */
+            var name = 'نسخة-قبل-الاستبدال-' + Date.now() + '.json';
+            if (window.AndroidNative && typeof AndroidNative.saveFileBase64 === 'function') return !!AndroidNative.saveFileBase64(btoa(unescape(encodeURIComponent(json))), name, 'application/json');
+            var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' })); a.download = name;
+            document.body.appendChild(a); a.click(); setTimeout(function () { try { URL.revokeObjectURL(a.href); a.remove(); } catch (e) { } }, 2000);
+            return true;
+        } catch (e) { return false; }
+    }
+    /* لو النسخة الاحتياطية فشلت خالص: ما نكمّلش بالصمت */
+    function replaceGuardOk(why) {
+        if (backupBeforeReplace(why)) return true;
+        try { return confirm('تعذّر حفظ نسخة احتياطية من بياناتك الحالية قبل الاستبدال. تكمّل من غير نسخة احتياطية؟'); } catch (e) { return false; }
+    }
+    /* بصمة الحساب (نفس خوارزمية الربط): أول 16 حرف من SHA-256 لـ dl-acct:uid. فاضية لو مفيش تسجيل دخول */
+    async function acctFpGlobal() {
+        var u = null; try { u = (typeof fbAuth !== 'undefined' && fbAuth) ? fbAuth.currentUser : null; } catch (e) { }
+        if (!u || !u.uid) return '';
+        try {
+            var b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('dl-acct:' + u.uid));
+            return Array.prototype.map.call(new Uint8Array(b), function (x) { return x.toString(16).padStart(2, '0'); }).join('').slice(0, 16);
+        } catch (e) { return ''; }
+    }
+    /* هل الكائن ده شكله نسخة بيانات للتطبيق؟ (عشان ملف غلط أو JSON فاضي ما يستبدلش حاجة) */
+    function looksLikeBundle(d) {
+        if (!d || typeof d !== 'object' || Array.isArray(d)) return false;
+        return ['app_tasks', 'app_categories', 'app_history_logs', 'app_daily_history', 'app_completed_history', 'app_note_pages', 'app_extra', 'app_streak', 'app_today_sessions']
+            .some(function (k) { return d[k] !== undefined && d[k] !== null; });
+    }
+    function updatePreReplaceBtn() {
+        var row = document.getElementById('preReplaceRow'); if (!row) return;
+        var at = 0, has = false;
+        try { at = parseInt(localStorage.getItem('app_pre_replace_at') || '0', 10) || 0; has = localStorage.getItem('app_pre_replace_backup') !== null; } catch (e) { }
+        if (!has || !at) { row.style.display = 'none'; return; }
+        var btn = row.querySelector('button');
+        if (btn) { var when = ''; try { when = new Date(at).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' }); } catch (e) { when = new Date(at).toLocaleString(); } btn.textContent = '↩️ ارجع لبياناتك قبل آخر استبدال (' + when + ')'; }
+        row.style.display = '';
+    }
+    function restorePreReplaceBackup() {
+        var b = null; try { b = JSON.parse(localStorage.getItem('app_pre_replace_backup') || 'null'); } catch (e) { }
+        if (!b || !looksLikeBundle(b.data)) { showToast('مفيش نسخة قبل الاستبدال محفوظة على الجهاز ده ⚠️'); updatePreReplaceBtn(); return; }
+        var when = ''; try { when = new Date(b.at).toLocaleString('ar-EG'); } catch (e) { }
+        if (!confirm('هترجّع بيانات الجهاز زي ما كانت وقت ' + when + ' (قبل آخر استبدال). بياناتك الحالية هتتحفظ كنسخة احتياطية بداله، فتقدر ترجع تاني. نكمّل؟')) return;
+        var data = b.data;
+        if (!replaceGuardOk('restore-pre-replace')) return;
+        try { applyImportedDataBundle(data); closeSettingsModal(); showToast('رجّعنا بياناتك لحالتها قبل الاستبدال ✅'); }
+        catch (e) { showToast('تعذّر الاسترجاع ⚠️'); }
+        updatePreReplaceBtn();
+    }
+
     function importBackupFile(event) {
         const file = event.target.files[0];
         if (!file) return;
@@ -16539,10 +16623,19 @@ function restoreTimerState() {
             try {
                 const parsed = JSON.parse(e.target.result);
                 const data = parsed.data || parsed; // دعم استيراد ملف بالصيغة الجديدة أو أي JSON قديم مباشر
-                if (!confirm('سيتم استبدال كل بياناتك الحالية (المهام، الملاحظات، الإحصائيات) بالنسخة المستوردة. هل تريد المتابعة؟')) {
+                if (!looksLikeBundle(data)) { showToast('الملف ده مش نسخة احتياطية من التطبيق ⚠️'); event.target.value = ''; return; }
+                /* (40) الملف من حساب تاني؟ بنقارن إيميل الملف بإيميل الحساب الداخل دلوقتي */
+                let warn = '';
+                try {
+                    const fileEm = String(data.app_account_email || '').trim().toLowerCase();
+                    const curEm = String((typeof fbAuth !== 'undefined' && fbAuth && fbAuth.currentUser && fbAuth.currentUser.email) || '').trim().toLowerCase();
+                    if (fileEm && curEm && fileEm !== curEm) warn = '\n\n⚠️ الملف ده من حساب (' + data.app_account_email + ') وإنت دلوقتي داخل بحساب (' + curEm + '). لو كمّلت، بيانات الحساب التاني هتتحط على الجهاز، وبعدها هتتزامن مع حسابك الحالي.';
+                } catch (x) { }
+                if (!confirm('سيتم استبدال كل بياناتك الحالية (المهام، الملاحظات، الإحصائيات) بالنسخة المستوردة. هنحفظ نسخة احتياطية من بياناتك الحالية الأول، وتقدر ترجعلها من الإعدادات.' + warn + '\n\nهل تريد المتابعة؟')) {
                     event.target.value = '';
                     return;
                 }
+                if (!replaceGuardOk('file-import')) { event.target.value = ''; return; }
                 applyImportedDataBundle(data);
                 closeSettingsModal();
                 showToast('تم استيراد النسخة الاحتياطية بنجاح ✅');
@@ -16624,6 +16717,7 @@ function restoreTimerState() {
         renderAIKeySettingsUI();
         try { aiUkRefresh(); } catch (e) { }
         renderHomeShortcutsSettings();
+        try { updatePreReplaceBtn(); } catch (e) { }
         document.getElementById('settingsModal').style.display = 'flex';
     }
     function closeSettingsModal() { document.getElementById('settingsModal').style.display = 'none'; }
@@ -16798,6 +16892,7 @@ function restoreTimerState() {
 
     async function sendSyncData(conn) {
         const bundle = buildDataBundle();
+        try { bundle.__acct = await acctFpGlobal(); } catch (e) { bundle.__acct = ''; } /* (39) بصمة حساب المرسل: الطرف التاني يقارنها بحسابه */
         const key = await deriveSyncKey(syncPeerCode + '::' + syncPin);
         if (key) {
             const payload = await encryptSyncPayload(key, bundle);
@@ -16850,20 +16945,38 @@ function restoreTimerState() {
     }
 
     let syncApplied = false;
-    function handleIncomingSyncData(data) {
+    async function handleIncomingSyncData(data) {
         if (syncApplied) return; // نطبّق مرة واحدة فقط لكل جلسة اتصال
         syncApplied = true;
-        const proceed = confirm('استلمنا بيانات من الجهاز التاني. سيتم استبدال بياناتك الحالية (المهام، الملاحظات، الإحصائيات) بها. هل تريد المتابعة؟');
-        if (!proceed) {
-            showToast('تم إلغاء النقل');
+        try {
+            if (!looksLikeBundle(data)) { showToast('البيانات المستلمة مش صالحة ⚠️'); closeSyncModal(); return; }
+            /* (39) نفس الحساب؟ حساب مختلف = رفض (البيانات هتتزامن بعد كده مع حساب الجهاز ده). غير معروف = تنبيه في السؤال */
+            const mine = await acctFpGlobal();
+            const theirs = (typeof data.__acct === 'string') ? data.__acct : '';
+            let note = '';
+            if (mine) {
+                if (theirs && theirs !== mine) {
+                    showToast('الجهاز التاني مسجّل بحساب مختلف. سجّل الدخول بنفس الحساب على الجهازين الأول، أو استخدم نسخة احتياطية بملف 🔐');
+                    closeSyncModal();
+                    return;
+                }
+                if (!theirs) note = '\n\n⚠️ مش قادرين نتأكد إن الجهاز التاني على نفس حسابك (غالبًا مش مسجّل دخول أو نسخته قديمة).';
+            }
+            const proceed = confirm('استلمنا بيانات من الجهاز التاني. سيتم استبدال بياناتك الحالية (المهام، الملاحظات، الإحصائيات) بها. هنحفظ نسخة احتياطية من بياناتك الحالية الأول، وتقدر ترجعلها من الإعدادات.' + note + '\n\nهل تريد المتابعة؟');
+            if (!proceed) {
+                showToast('تم إلغاء النقل');
+                closeSyncModal();
+                return;
+            }
+            if (!replaceGuardOk('qr-transfer')) { showToast('تم إلغاء النقل'); closeSyncModal(); return; }
+            applyImportedDataBundle(data);
+            showToast('تم نقل البيانات بنجاح ✅');
             closeSyncModal();
+        } catch (e) {
+            try { showToast('تعذّر تطبيق البيانات المستلمة ⚠️'); closeSyncModal(); } catch (x) { }
+        } finally {
             syncApplied = false;
-            return;
         }
-        applyImportedDataBundle(data);
-        showToast('تم نقل البيانات بنجاح ✅');
-        closeSyncModal();
-        syncApplied = false;
     }
 
     // =============================
@@ -17844,6 +17957,8 @@ function restoreTimerState() {
             });
             if (!res.ok) throw new Error('download failed');
             const data = await res.json();
+            if (!looksLikeBundle(data)) { showToast('النسخة اللي على درايف مش صالحة ⚠️'); return; }
+            if (!replaceGuardOk('drive-restore')) return;
             applyImportedDataBundle(data);
             showToast('تم استرجاع بياناتك بنجاح ✅');
         } catch (e) {
@@ -18899,6 +19014,8 @@ function handleEmailLogin() {
 
 // بعد أي تسجيل دخول (جوجل أو إيميل): استرجاع النسخة السحابية لو موجودة
 function afterCloudLogin(user) {
+    /* لو شاشة البداية شغّالة (أو لسه بتتحمّل) هي اللي بتقرّر في بيانات الجهاز والسحابة، فما نعرضش confirm هنا */
+    if (window.__onbWait && window.__onbWait()) return Promise.resolve();
     return fbDb.collection('users').doc(user.uid).get().then(function (doc) {
         if (doc.exists && doc.data().updated_at) {
             if (confirm('تم العثور على نسخة بيانات محفوظة لحسابك. هل تريد استرجاعها؟ (هيتم استبدال بيانات هذا الجهاز الحالية)')) {
@@ -18936,7 +19053,11 @@ function handleGoogleLogin() {
 }
 try {
     if (fbAuth && fbAuth.getRedirectResult) {
-        fbAuth.getRedirectResult().then(function (cred) { if (cred && cred.user) return afterCloudLogin(cred.user); }).catch(function () { });
+        fbAuth.getRedirectResult().then(function (cred) { if (cred && cred.user) return afterCloudLogin(cred.user); }).catch(function (e) {
+            /* فشل الرجوع من جوجل: نحتفظ بالخطأ عشان شاشة البداية تعرضه بدل ما المستخدم يلاقي نفسه راجع للترحيب من غير سبب */
+            window.__redirectErr = e;
+            try { if (typeof window.__onbRedirectErr === 'function') window.__onbRedirectErr(e); } catch (x) { }
+        });
     }
 } catch (e) { }
 
@@ -18980,6 +19101,7 @@ function handleEmailLogout() {
 
 function manualCloudSyncNow() {
     if (!fbAuth || !fbAuth.currentUser) { showToast('لازم تسجل دخول الأول ⚠️'); return; }
+    if (cloudPushBlocked()) { showToast('كمّل شاشة البداية أو تأكد من الاتصال الأول، المزامنة متوقفة مؤقتًا ⏳'); return; }
     fbDb.collection('users').doc(fbAuth.currentUser.uid).set(
         Object.assign({}, buildDataBundle('cloud'), { updated_at: firebase.firestore.FieldValue.serverTimestamp() }),
         { merge: true }
@@ -18993,9 +19115,16 @@ function manualCloudSyncNow() {
 }
 
 // مزامنة تلقائية دورية بعد تسجيل الدخول (كل دقيقتين) + مزامنة لما المستخدم يسيب التطبيق
+/* حارس الرفع للسحابة: ممنوع الرفع طول ما شاشة البداية شغالة (لسه ما اتحسمش بيانات الجهاز ولا السحابة)،
+   أو لو قراءة السحابة فشلت ولسه ما اتأكدناش إيه اللي عليها (window.__noCloudPush من onboarding.js) */
+function cloudPushBlocked() {
+    try { if (window.__onbPending && window.__onbPending()) return true; } catch (e) { }
+    return window.__noCloudPush === true;
+}
 function startCloudAutoSync() {
     stopCloudAutoSync();
     cloudAutoSyncTimer = setInterval(function () {
+        if (cloudPushBlocked()) return;
         if (fbAuth && fbAuth.currentUser) {
             fbDb.collection('users').doc(fbAuth.currentUser.uid).set(
                 Object.assign({}, buildDataBundle('cloud'), { updated_at: firebase.firestore.FieldValue.serverTimestamp() }),
@@ -19012,7 +19141,7 @@ function stopCloudAutoSync() {
 }
 
 function cloudSyncOnHide() {
-    if (document.visibilityState === 'hidden' && fbAuth && fbAuth.currentUser) {
+    if (document.visibilityState === 'hidden' && fbAuth && fbAuth.currentUser && !cloudPushBlocked()) {
         fbDb.collection('users').doc(fbAuth.currentUser.uid).set(
             Object.assign({}, buildDataBundle('cloud'), { updated_at: firebase.firestore.FieldValue.serverTimestamp() }),
             { merge: true }
@@ -37761,8 +37890,8 @@ window.registerAppTile = function (o) {
 <script>window.__socialErrs=[];window.addEventListener('error',function(e){try{if(e&&e.filename&&/social\.js/.test(e.filename))window.__socialErrs.push((e.message||'خطأ')+(e.lineno?' @'+e.lineno:''))}catch(x){}},true);</script>
 <script src="webtools.js?v=7" onerror="window.__webtoolsFailed=1"></script>
 <script src="filetools.js?v=1" onerror="window.__filetoolsFailed=1"></script>
-<script src="onboarding.js?v=1" onerror="window.__onbLoadFailed=1"></script>
-<script src="social.js?v=19" onerror="window.__socialLoadFailed=1"></script>
+<script src="onboarding.js?v=9" onerror="window.__onbLoadFailed=1;window.__onbCoverOff&&window.__onbCoverOff()"></script>
+<script src="social.js?v=22" onerror="window.__socialLoadFailed=1"></script>
 <script src="appctl.js?v=1" onerror="window.__appctlFailed=1"></script>
 <script id="socialGuardScript">
 /* حارس تحميل المنافسة والأصدقاء: لو social.js مجاش (كاش قديم/ملف مش واصل) بيحاول يجيبه تاني، ولو فشل بيظهر زرار يشرح السبب بدل ما القسم يختفي */
@@ -37862,7 +37991,7 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
     }
     function saveState() { if (st) jset(STATE_KEY, st); else LS.removeItem(STATE_KEY); }
     var saveT = null;
-    function saveSoon() { if (saveT) return; saveT = setTimeout(function () { saveT = null; jset(META_KEY, meta); jset(CTR_KEY, ctr); }, 800); }
+    function saveSoon() { if (saveT) return; saveT = setTimeout(function () { saveT = null; if (!st) return; jset(META_KEY, meta); jset(CTR_KEY, ctr); }, 800); }
 
     /* ---------- مهايئات البيانات ---------- */
     function arrById(get, key, kind, guard) {
@@ -37917,17 +38046,27 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
 
     /* ---------- مزامنة شاملة لباقي المفاتيح (شات الذكاء، منبهات، قرآن، إعدادات...) ---------- */
     var KV_ADAPTED = /^(app_tasks|app_note_pages|app_categories|app_planned_days|app_history_logs|app_completed_history|app_daily_history|app_today_sessions|app_today_focus|app_today_focus_seconds|app_streak|app_last_active_date|app_daily_goal_minutes)$/;
-    var KV_EXC = /^(app_link_|app_lock_|webauthn|app_push_|app_gemini_api_key|app_gdrive_|app_ai_default_key_pointer|app_ai_key_exhausted_|app_ai_usage_|app_battery|app_cloud_last_sync|app_last_local_backup|app_quran_downloaded_index|app_quran_dl|quranTajweedDownloadedAll|quranTajweedStruck|quranFont|quranTafsirDownloaded|quranTranslationDownloaded|quranDl|web_native_alarms|app_timer_alarm_sound|sp_|app_theme_tab|app_ai_live_voice|app_ai_mic_|app_ai_active_conv|ai_last_err|ai_rl_|ai_fb_models|ai_img_models|app_tbl_last_cell_color)/;
+    var KV_EXC = /^(app_link_|app_onb_|app_data_owner|app_user_name|app_ai_user_name|app_pre_account_backup|app_pre_replace_|app_lock_|webauthn|app_push_|app_gemini_api_key|app_gdrive_|app_ai_default_key_pointer|app_ai_key_exhausted_|app_ai_usage_|app_battery|app_cloud_last_sync|app_last_local_backup|app_quran_downloaded_index|app_quran_dl|quranTajweedDownloadedAll|quranTajweedStruck|quranFont|quranTafsirDownloaded|quranTranslationDownloaded|quranDl|web_native_alarms|app_timer_alarm_sound|sp_|app_theme_tab|app_ai_live_voice|app_ai_mic_|app_ai_active_conv|ai_last_err|ai_rl_|ai_fb_models|ai_img_models|app_tbl_last_cell_color)/;
     var KV_THEME = /^(app_theme_color|app_theme_mode|app_theme_custom_active|app_custom_theme|app_ai_custom_theme)$/;
     var KV_PART = 300000, KV_MAXP = 12;
     function kvOk(k) { return (/^(app_|ai_|quran|homeShortcuts)/.test(k) || /^rp_(khatma|ayah_goal|read_|q_baseline|tiers_seen)/.test(k)) && !KV_EXC.test(k) && !KV_ADAPTED.test(k); }
     var SEC_RE = /^(app_lock_(hash|salt|recovery_hash|recovery_salt|email))$/;
-    function kvSyncOk(k) { return kvOk(k) || SEC_RE.test(k); }
+    /* (34) مفاتيح قفل التطبيق ما بتتزامنش على الربط (مجموعة الربط مفتوحة من غير تسجيل دخول). القفل بيرجع من الحساب نفسه (app_secrets) لما الجهاز يكون ناقصه. SEC_RE فاضل بس عشان نمسح أي نسخة قديمة اترفعت */
+    function kvSyncOk(k) { return kvOk(k); }
+    function purgeSecDoc(doc) {
+        try {
+            var x = doc.data();
+            if (x && x.c === 'kv' && SEC_RE.test(String(x.k || ''))) { itemsCol().doc(doc.id).delete().catch(function () { }); return true; }
+        } catch (e) { }
+        return false;
+    }
     function kvCls() { try { return (window.__isDesk && window.__isDesk()) ? 'd' : 'm'; } catch (e) { return 'm'; } }
     function timerBusy() { try { return !!isTimerRunning; } catch (e) { return false; } }
     function scanKV(out) {
         var m = meta.kv || (meta.kv = {}), cls = kvCls(), seen = {}, now = Date.now(), i, key, v, g, id, cur, h, tombs = [];
         if (!rt.kvv) rt.kvv = {};
+        /* (34) سجل قديم لمفاتيح القفل: نشيله من غير ما نبعت حذف (الحذف كان هيمسح القفل من الأجهزة القديمة) */
+        Object.keys(m).forEach(function (id0) { if (SEC_RE.test(id0.split('@')[0])) { delete m[id0]; if (rt.kvv) delete rt.kvv[id0]; saveSoon(); } });
         for (i = 0; i < LS.length; i++) {
             key = LS.key(i);
             if (!kvSyncOk(key)) continue;
@@ -37971,7 +38110,10 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
         });
         return res;
     }
+    /* الربط واقف طول ما شاشة البداية شغالة أو المزامنة موقوفة (البيانات لسه ما اتحسمتش)، ولو خرج المستخدم بيرجع يشتغل لما الحساب يتأكد */
+    function gated() { try { return !!cloudPushBlocked(); } catch (e) { return false; } }
     function canReloadNow() {
+        if (gated()) return false;
         try { if (isTimerRunning) return false; } catch (e) { }
         try { if (aiRequestInProgress) return false; } catch (e) { }
         var a = document.activeElement;
@@ -38025,54 +38167,18 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
         }
         return o;
     }
-    var SEC_KEYS = ['app_lock_hash', 'app_lock_salt', 'app_lock_recovery_hash', 'app_lock_recovery_salt', 'app_lock_email'];
-    function collectSecrets(blanks) {
-        var o = {}; SEC_KEYS.forEach(function (k) { var v = LS.getItem(k); if (v) o[k] = v; else if (blanks) o[k] = ''; }); if (blanks) o.app_gemini_api_key = ''; /* بيمسح أي نسخة قديمة من المفتاح كانت اترفعت للحساب */ return o;
-    }
-    // onlyMissing: ما يكتبش فوق حاجة موجودة على الجهاز (القفل بيتعامل كمجموعة واحدة)
-    function applySecrets(sec, onlyMissing) {
-        if (!sec || typeof sec !== 'object') return 0;
-        var n = 0, lock = false, hadLock = !!LS.getItem('app_lock_hash');
-        SEC_KEYS.forEach(function (k) {
-            var v = sec[k]; if (typeof v !== 'string' || !v) return;
-            var isLock = k.indexOf('app_lock_') === 0;
-            if (onlyMissing && (isLock ? hadLock : !!LS.getItem(k))) return;
-            if (LS.getItem(k) === v) return;
-            try { LS.setItem(k, v); n++; if (isLock) lock = true; } catch (e) { }
-        });
-        if (n) { toast('رجّعنا إعدادات الأمان 🔐'); try { renderAIKeySettingsUI(); } catch (e) { } if (lock) scheduleReload(); }
-        return n;
-    }
-    function pullSecrets(u) {
-        try {
-            fbDb.collection('users').doc(u.uid).get().then(function (doc) {
-                var sec = doc.exists ? doc.data().app_secrets : null, n = sec ? applySecrets(sec, true) : 0;
-                if (LS.getItem('app_link_pending_secrets')) { LS.removeItem('app_link_pending_secrets'); if (!n) toast('مفيش مفاتيح محفوظة على الحساب ده، أو موجودة بالفعل على الجهاز'); }
-            }).catch(function () { toast('تعذّر استرجاع المفاتيح، تأكد من الإنترنت ⚠️'); });
-        } catch (e) { }
-    }
-    // ملف النسخة الاحتياطية بيحمل إيميل الحساب بس. أول ما يتستورد، بنطلب تسجيل الدخول عشان المفاتيح ترجع من الحساب
-    function checkPendingSecrets() {
-        var em = LS.getItem('app_link_pending_secrets'); if (!em) return;
-        if (typeof fbAuth === 'undefined' || !fbAuth || typeof fbDb === 'undefined') return;
-        var un = fbAuth.onAuthStateChanged(function (u) {
-            try { un(); } catch (e) { }
-            if (u) { pullSecrets(u); return; }
-            setTimeout(function () {
-                if (confirm('الملف ده كان من حساب ' + em + '\nسجّل دخول بنفس الحساب عشان نرجّع قفل التطبيق وباقي إعداداتك الأمنية؟')) { try { handleGoogleLogin(); } catch (e) { } }
-                else LS.removeItem('app_link_pending_secrets');
-            }, 800);
-        });
-    }
+    /* (قرار 4د) قفل التطبيق محلي لكل جهاز (زي واتساب وتيليجرام): ما بيتحطش على الحساب، ولا بيتسحب منه، ولا بيتبعت في نقل QR أو نسخة درايف أو الربط.
+       الحقل app_secrets القديم بيتمسح من السحابة مع أي رفع جديد (جهاز قديم ممكن يرفعه تاني لحد ما يتحدّث، والرفعة اللي بعدها بتمسحه). مفاتيح الـ AI ليها آلية تانية (aiUk) ومش متأثرة. */
+    function cloudSecretsClear() { try { return firebase.firestore.FieldValue.delete(); } catch (e) { return undefined; } }
     window.quietCloudPush = function () {
-        try { if (fbAuth && fbAuth.currentUser) fbDb.collection('users').doc(fbAuth.currentUser.uid).set(Object.assign({}, buildDataBundle('cloud'), { updated_at: firebase.firestore.FieldValue.serverTimestamp() }), { merge: true }); } catch (e) { }
+        try { if (fbAuth && fbAuth.currentUser && !cloudPushBlocked()) fbDb.collection('users').doc(fbAuth.currentUser.uid).set(Object.assign({}, buildDataBundle('cloud'), { updated_at: firebase.firestore.FieldValue.serverTimestamp() }), { merge: true }); } catch (e) { }
     };
     (function wrapBackup() {
-        var b0 = window.buildDataBundle, a0 = window.applyImportedDataBundle, al0 = window.afterCloudLogin;
+        var b0 = window.buildDataBundle, a0 = window.applyImportedDataBundle;
         if (typeof b0 === 'function') window.buildDataBundle = function (mode) {
             var d = b0.apply(this, arguments);
             try { d.app_extra = collectExtra(mode === 'cloud'); } catch (e) { }
-            if (mode !== 'file') { try { d.app_secrets = collectSecrets(mode === 'cloud'); } catch (e) { } }
+            if (mode === 'cloud') { try { var del = cloudSecretsClear(); if (del !== undefined) d.app_secrets = del; } catch (e) { } }
             return d;
         };
         if (typeof a0 === 'function') window.applyImportedDataBundle = function (data) {
@@ -38084,18 +38190,11 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
                     try { if (typeof window.rpQDrop === 'function') window.rpQDrop(); } catch (e) { }
                     toast('تم استرجاع كل البيانات، هيتحدّث التطبيق 🔄'); scheduleReload();
                 }
-                if (data && data.app_secrets) applySecrets(data.app_secrets, false);
-                else if (data && data.app_account_email) { LS.setItem('app_link_pending_secrets', String(data.app_account_email)); if (!hasExtra) setTimeout(checkPendingSecrets, 1500); }
+                try { LS.removeItem('app_link_pending_secrets'); } catch (e) { }
             } catch (e) { }
             return r;
         };
-        // أي تسجيل دخول جديد: لو الجهاز ناقصه مفتاح أو قفل وفي حسابك نسخة منه، بيرجع لوحده
-        if (typeof al0 === 'function') window.afterCloudLogin = function (user) {
-            var r = al0.apply(this, arguments);
-            try { Promise.resolve(r).then(function () { pullSecrets(user); }); } catch (e) { }
-            return r;
-        };
-        setTimeout(checkPendingSecrets, 3000);
+        try { LS.removeItem('app_link_pending_secrets'); } catch (e) { }
     })();
 
 
@@ -38148,7 +38247,7 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
 
     /* ---------- فحص التغييرات المحلية ---------- */
     function scan(noPush) {
-        if (!st || !st.initialized || !rt.ready) return;
+        if (!st || !st.initialized || !rt.ready || gated()) return;
         var now = Date.now(), out = [];
         Object.keys(ADAPT).forEach(function (c) {
             var ad = ADAPT[c];
@@ -38370,7 +38469,7 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
         if (!st.initialized) {
             if (fromCache) return;
             backup();
-            snap.docs.forEach(function (d) { applyDoc(d.data(), true); });
+            snap.docs.forEach(function (d) { if (purgeSecDoc(d)) return; applyDoc(d.data(), true); });
             st.initialized = true; saveState();
             rt.synced = true;
             finishApply();
@@ -38379,7 +38478,7 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
             return;
         }
         scan(true);   // نسجّل التعديلات المحلية الأول (من غير رفع) عشان المقارنة بالتوقيت تبقى عادلة
-        snap.docChanges().forEach(function (ch) { if (ch.type !== 'removed') applyDoc(ch.doc.data(), false); });
+        snap.docChanges().forEach(function (ch) { if (ch.type !== 'removed') { if (purgeSecDoc(ch.doc)) return; applyDoc(ch.doc.data(), false); } });
         finishApply();
         if (!fromCache && !rt.synced) { rt.synced = true; rt.lastSync = Date.now(); setStatus('ok'); }
         scan();
@@ -38415,7 +38514,7 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
 
     /* ---------- التشغيل والإيقاف ---------- */
     function start() {
-        if (!st || rt.on) return;
+        if (!st || rt.on || gated()) return;
         var ok = false; try { ok = !!fbDb; } catch (e) { }
         if (!ok) { setStatus('nofb'); setTimeout(start, 6000); return; }
         rt.on = true; setStatus('connecting');
@@ -38431,6 +38530,12 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
         if (rt.scanTimer) clearInterval(rt.scanTimer);
         if (rt.hbTimer) clearInterval(rt.hbTimer);
     }
+    /* إيقاف مؤقت (من غير فك الربط): لما شاشة البداية تفتح، مثلًا بعد تسجيل الخروج */
+    function halt() {
+        if (!rt.on) return;
+        stop(); rt.on = false; rt.unsubs = []; rt.scanTimer = null; rt.hbTimer = null;
+    }
+    window.addEventListener('onb-gate', function () { try { if (gated()) halt(); else if (st) start(); } catch (e) { } });
     function disconnect(msg) {
         stop(); cleanupPair();
         st = null; meta = {}; ctr = {};
@@ -38439,15 +38544,38 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
         render();
         if (msg) toast(msg);
     }
+    /* فكّ الربط بهدوء (من غير رسائل ولا حذف عن بُعد): شاشة البداية بتناديه قبل ما تمسح بيانات حساب تاني، عشان الجهاز ما يفضلش مربوط بمجموعة الحساب القديم ولا يشوف المسح كأنه «حذف» ويعرضه على باقي الأجهزة */
+    window.__dlDetach = function () {
+        try { stop(); } catch (e) { }
+        try { st = null; meta = {}; ctr = {}; rt = freshRt(); rt.ready = true; rt.status = 'off'; } catch (e) { }
+        ['app_link_state', 'app_link_meta', 'app_link_ctr', 'app_link_backup_before_merge', 'app_link_pending_secrets'].forEach(function (k) { try { LS.removeItem(k); } catch (e) { } });
+        try { render(); } catch (e) { }
+    };
 
     /* ---------- الربط بكود ---------- */
     function defaultName() { return platform(); }
+    /* (35) بصمة الحساب: SHA-256 للـ uid مقصوصة 16 حرف، بتتحط في by بالشكل «deviceId~بصمة» (من غير ما الـ uid نفسه يتكشف). الجهازين لازم يكونوا على نفس الحساب قبل الدمج */
+    function acctFp() {
+        var u = null; try { u = (typeof fbAuth !== 'undefined' && fbAuth) ? fbAuth.currentUser : null; } catch (e) { }
+        if (!u || !u.uid) return Promise.resolve('');
+        var str = 'dl-acct:' + u.uid;
+        var h = (typeof sha256Hex === 'function') ? sha256Hex(str)
+            : crypto.subtle.digest('SHA-256', new TextEncoder().encode(str)).then(function (b) { return Array.prototype.map.call(new Uint8Array(b), function (x) { return x.toString(16).padStart(2, '0'); }).join(''); });
+        return Promise.resolve(h).then(function (x) { return String(x).slice(0, 16); }).catch(function () { return ''; });
+    }
+    function byOf(devId, fp) { return (devId || '') + '~' + fp; }
+    function fpOf(by) { var p = String(by || '').split('~'); return p.length > 1 ? p[p.length - 1] : ''; }
+    function acctCmp(mine, theirs) { if (!theirs) return 'unknown'; return mine === theirs ? 'same' : 'diff'; }
+    var MSG_DIFF = 'الجهاز التاني مسجّل بحساب مختلف. سجّل الدخول بنفس الحساب على الجهازين الأول وبعدين اربطهم 🔐';
+    var MSG_NOAUTH = 'سجّل دخولك بحسابك الأول عشان تربط الأجهزة 🔐';
+    var MSG_UNK = 'مش قادرين نتأكد إن الجهاز التاني على نفس حسابك (غالبًا نسخته قديمة). اتأكد إنه نفس الحساب قبل ما تكمّل. نكمّل؟';
     function T(p) { return new Promise(function (res, rej) { var id = setTimeout(function () { rej({ code: 'timeout' }); }, 12000); p.then(function (v) { clearTimeout(id); res(v); }, function (e) { clearTimeout(id); rej(e); }); }); }
     function helpBoxes(show) { var l = document.querySelectorAll('#dlModal .dl-rules-help'); for (var i = 0; i < l.length; i++) l[i].style.display = show ? 'block' : 'none'; }
     function showFail(e) {
         var code = (e && e.code) || '', status = $('dlShowStatus'), box = $('dlQrBox'), codeEl = $('dlCodeText');
         var msg, boxMsg;
         if (code === 'permission-denied') { msg = 'خدمة الربط مش جاهزة حاليًا، حاول بعد شوية ⚠️'; boxMsg = '⚠ الخدمة مش جاهزة حاليًا'; setStatus('rules'); }
+        else if (code === 'noauth') { msg = MSG_NOAUTH; boxMsg = '⚠ لازم تسجّل دخول'; }
         else if (code === 'timeout' || code === 'unavailable') { msg = 'مفيش اتصال بـ Firebase (أو بيرد ببطء). تأكد من النت وحاول تاني ⚠️'; boxMsg = '⚠ تعذّر الاتصال'; }
         else { msg = 'حصل خطأ (' + (code || (e && e.message) || 'unknown') + ') — دوس "كود جديد" ⚠️'; boxMsg = '⚠ حصل خطأ'; }
         if (status) status.innerText = msg;
@@ -38458,7 +38586,10 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
     function createLink() {
         if (st) return Promise.resolve();
         if (typeof fbDb === 'undefined' || !fbDb) { toast('خدمة Firebase مش متاحة دلوقتي ⚠️'); return Promise.reject(new Error('nofb')); }
-        var s = { linkId: randHex(24), deviceId: randHex(6), name: defaultName(), initialized: true, joinedAt: Date.now() };
+        /* (22) id الرابط الجديد = uid~عشوائي: القواعد بتسمح بيه لصاحب الحساب بس. لازم تسجيل دخول */
+        var cu = null; try { cu = (typeof fbAuth !== 'undefined' && fbAuth) ? fbAuth.currentUser : null; } catch (e) { }
+        if (!cu || !cu.uid) return Promise.reject({ code: 'noauth' });
+        var s = { linkId: cu.uid + '~' + randHex(12), deviceId: randHex(6), name: defaultName(), initialized: true, joinedAt: Date.now() };
         return T(fbDb.collection('links').doc(s.linkId).set({ createdAt: Date.now(), v: 1 })).then(function () {
             st = s; saveState(); start();
         });
@@ -38472,9 +38603,12 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
         if (!st) pre = Promise.resolve().then(function () { return confirm('الربط هيرفع بياناتك (مهام، ملاحظات، إنجازات) لقاعدة بيانات Firebase الخاصة بتطبيقك عشان تتزامن بين أجهزتك. نكمّل؟'); });
         return pre.then(function (ok) {
             if (!ok) { closeModal(); return; }
-            return createLink().then(function () {
+            return acctFp().then(function (fp) {
+                if (!fp) throw { code: 'noauth' };
+                return createLink().then(function () { return fp; });
+            }).then(function (fp) {
                 var code = genCode();
-                return T(fbDb.collection('pairs').doc(code).set({ linkId: st.linkId, exp: Date.now() + 300000, by: st.deviceId })).then(function () {
+                return T(fbDb.collection('pairs').doc(code).set({ linkId: st.linkId, exp: Date.now() + 300000, by: byOf(st.deviceId, fp) })).then(function () {
                     cleanupPair(true);
                     rt.pair = { code: code, exp: Date.now() + 300000 };
                     if (codeEl) codeEl.innerText = code.slice(0, 4) + '-' + code.slice(4);
@@ -38506,15 +38640,24 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
         }
     }
     /* الجهاز الجديد بيعرض كود طلب، والجهاز اللي معاك (بالكاميرا) بيمسحه ويوافق — زي واتساب ويب */
-    function approveRequest(code, say) {
+    function approveRequest(code, say, pdata) {
         if (st && !st.initialized) { say('استنى لحد ما الجهاز ده يخلص ربطه الأول ⏳'); return Promise.resolve(false); }
+        return acctFp().then(function (fp) {
+            if (!fp) { say(MSG_NOAUTH); return false; }
+            var cmp = acctCmp(fp, fpOf(pdata && pdata.by));
+            if (cmp === 'diff') { say(MSG_DIFF); return false; }
+            if (cmp === 'unknown' && !confirm(MSG_UNK)) { say(''); return false; }
+            return approveGo(code, say, fp);
+        });
+    }
+    function approveGo(code, say, fp) {
         var pre = Promise.resolve(true);
         if (!st) pre = Promise.resolve().then(function () { return confirm('الربط هيرفع بيانات الجهاز ده (مهام، ملاحظات، إنجازات) لقاعدة Firebase الخاصة بتطبيقك عشان تتزامن مع الجهاز التاني. نكمّل؟'); });
         return pre.then(function (ok) {
             if (!ok) { say(''); return false; }
             stopCam();
             return createLink().then(function () {
-                return fbDb.collection('pairs').doc(code).update({ linkId: st.linkId, by: st.deviceId });
+                return fbDb.collection('pairs').doc(code).update({ linkId: st.linkId, by: byOf(st.deviceId, fp) });
             }).then(function () {
                 closeModal(); toast('تم ✅ الجهاز التاني بيكمّل الربط دلوقتي...'); return true;
             });
@@ -38524,8 +38667,12 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
         var status = $('dlShowStatus'), box = $('dlQrBox'), codeEl = $('dlCodeText');
         cleanupPair(); if (status) status.innerText = 'جاري تجهيز الكود...'; helpBoxes(false);
         if (typeof fbDb === 'undefined' || !fbDb) { if (status) status.innerText = 'خدمة Firebase مش متاحة ⚠️'; return Promise.resolve(); }
-        var code = genCode();
-        return T(fbDb.collection('pairs').doc(code).set({ req: true, exp: Date.now() + 300000 })).then(function () {
+        var code = genCode(), myFp = '';
+        return acctFp().then(function (fp) {
+            if (!fp) throw { code: 'noauth' };
+            myFp = fp;
+            return T(fbDb.collection('pairs').doc(code).set({ req: true, exp: Date.now() + 300000, by: byOf('', fp) }));
+        }).then(function () {
             cleanupPair(true);
             rt.pair = { code: code, exp: Date.now() + 300000 };
             if (codeEl) codeEl.innerText = code.slice(0, 4) + '-' + code.slice(4);
@@ -38538,6 +38685,9 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
                 var data = d.exists && d.data();
                 if (!data || !data.linkId || !rt.pair || rt.pair.code !== code || st) return;
                 var linkId = data.linkId;
+                var cmp = acctCmp(myFp, fpOf(data.by));
+                if (cmp === 'diff') { cleanupPair(); if (status) status.innerText = MSG_DIFF; toast(MSG_DIFF); return; }
+                if (cmp === 'unknown' && !confirm(MSG_UNK)) { cleanupPair(); if (status) status.innerText = 'تم إلغاء الربط'; return; }
                 if (!confirm('الجهاز التاني وافق على الربط. هيتم دمج بيانات الجهاز ده مع الأجهزة المربوطة (وهنعمل نسخة احتياطية من بياناتك الأول). نكمّل؟')) { cleanupPair(); if (status) status.innerText = 'تم إلغاء الربط'; return; }
                 st = { linkId: linkId, deviceId: randHex(6), name: defaultName(), initialized: false, joinedAt: Date.now() };
                 saveState(); start();
@@ -38566,9 +38716,16 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
         return fbDb.collection('pairs').doc(code).get().then(function (doc) {
             if (!doc.exists || !doc.data() || doc.data().exp < Date.now()) { say('الكود غلط أو انتهت صلاحيته ⚠️'); return false; }
             var linkId = doc.data().linkId;
-            if (!linkId) return approveRequest(code, say);
+            if (!linkId) return approveRequest(code, say, doc.data());
             if (st) { say('الجهاز ده مربوط بالفعل. فك الربط الأول لو عايز تربطه بمجموعة تانية.'); return false; }
-            return fbDb.collection('links').doc(linkId).get().then(function (l) {
+            return acctFp().then(function (fp) {
+                if (!fp) { say(MSG_NOAUTH); return null; }
+                var cmp = acctCmp(fp, fpOf(doc.data().by));
+                if (cmp === 'diff') { say(MSG_DIFF); return null; }
+                if (cmp === 'unknown' && !confirm(MSG_UNK)) { say(''); return null; }
+                return fbDb.collection('links').doc(linkId).get();
+            }).then(function (l) {
+                if (!l) return false;
                 if (!l.exists) { say('مجموعة الربط دي اتحذفت ⚠️'); return false; }
                 if (!confirm('هيتم دمج بيانات الجهاز ده مع الأجهزة المربوطة. لو عنصر موجود على الاتنين بشكل مختلف هتاخد نسخة الجهاز التاني، وهنعمل نسخة احتياطية من بياناتك الأول. نكمّل؟')) { say(''); return false; }
                 stopCam();
@@ -40426,6 +40583,7 @@ window.aiSpeakMessage = speak;
         rl = setInterval(function () {
             var last = 0; try { last = parseInt(sessionStorage.getItem('sp_acct_rl') || '0'); } catch (e) { }
             if (Date.now() - last < 30000) return;
+            try { if (typeof cloudPushBlocked === 'function' && cloudPushBlocked()) return; } catch (e) { }
             var a = document.activeElement;
             if (a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable)) return;
             try { if (typeof isTimerRunning !== 'undefined' && isTimerRunning) return; } catch (e) { }
