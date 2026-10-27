@@ -7685,7 +7685,7 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
     <!-- مكتبة جوجل لتسجيل الدخول والنسخ الاحتياطي السحابي على Google Drive -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="lib/qrcode.min.js" onerror="this.onerror=null;var q=document.createElement('script');q.src='https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';document.head.appendChild(q)"></script>
 
     <!-- ملفات الصوت -->
     <audio id="customBgAudio" loop ontimeupdate="updateAudioSeekUI()" onloadedmetadata="updateAudioSeekUI()" onplay="updateAudioSeekUI()" onpause="updateAudioSeekUI()"></audio>
@@ -16769,6 +16769,7 @@ function restoreTimerState() {
     }
 
     function closeSyncModal() {
+        syncWatchdog(false); syncProg('off'); syncDone = false; syncGot = false;
         const modal = document.getElementById('syncModal');
         if (modal) modal.style.display = 'none';
         stopSyncCamera();
@@ -16857,7 +16858,7 @@ function restoreTimerState() {
         syncIsHost = false;
         syncPin = pin;
         syncPeerCode = code;
-        document.getElementById('syncScanStatus').innerText = 'جاري الاتصال...';
+        syncProg('busy', 'جاري الاتصال بالجهاز التاني...'); syncWatchdog(true);
 
         syncPeer = new Peer();
         syncPeer.on('open', () => {
@@ -16867,10 +16868,31 @@ function restoreTimerState() {
         });
 
         syncPeer.on('error', () => {
-            document.getElementById('syncScanStatus').innerText = 'تعذر الاتصال، تأكد من الكود وحاول تاني ⚠️';
+            syncFail('تعذر الاتصال، تأكد من الكود وحاول تاني ⚠️');
         });
     }
 
+    /* شريط تقدّم النقل (تحت رسالة الحالة): busy = شريط متحرك، done = ممتلئ أخضر، off = مخفي */
+    function syncProg(state, text) {
+        if (!document.getElementById('syncProgCss')) {
+            const st = document.createElement('style'); st.id = 'syncProgCss';
+            st.textContent = '.sync-prog{height:6px;border-radius:4px;background:var(--card-border,#d9deea);overflow:hidden;margin:10px auto 0;max-width:260px;position:relative}.sync-prog i{position:absolute;top:0;bottom:0;width:40%;border-radius:4px;background:var(--accent,#1b8a5a);animation:syncPrg 1.1s ease-in-out infinite}.sync-prog.done i{width:100%;animation:none;left:0}@keyframes syncPrg{0%{left:-40%}100%{left:100%}}@media (prefers-reduced-motion:reduce){.sync-prog i{animation:none;width:100%;opacity:.6}}';
+            document.head.appendChild(st);
+        }
+        ['syncShowStatus', 'syncScanStatus'].forEach(id => {
+            const el = document.getElementById(id); if (!el) return;
+            let pr = document.getElementById(id + 'Prog');
+            if (!pr) { if (state === 'off') return; pr = document.createElement('div'); pr.id = id + 'Prog'; pr.innerHTML = '<i></i>'; el.parentNode.insertBefore(pr, el); }
+            pr.className = 'sync-prog ' + state; pr.style.display = state === 'off' ? 'none' : 'block';
+        });
+        if (text) setSyncStatusText(text);
+    }
+    let syncWatch = null;
+    function syncWatchdog(on) {
+        if (syncWatch) { clearTimeout(syncWatch); syncWatch = null; }
+        if (on) syncWatch = setTimeout(() => { syncProg('off'); stopSyncCamera(); setSyncStatusText('النقل واخد وقت طويل ومفيش بيانات وصلت ⚠️ تأكد إن الجهازين على نت وإن التطبيق مفتوح على الاتنين، وجرّب كود جديد'); }, 120000);
+    }
+    function syncFail(text) { syncWatchdog(false); syncProg('off'); stopSyncCamera(); setSyncStatusText(text); }
     function setSyncStatusText(text) {
         const el = syncIsHost ? document.getElementById('syncShowStatus') : document.getElementById('syncScanStatus');
         if (el) el.innerText = text;
@@ -16883,14 +16905,16 @@ function restoreTimerState() {
             if (!syncIsHost) {
                 // الجهاز اللي دخّل الكود هو اللي بيبدأ بإثبات الرمز السري للمضيف
                 conn.send({ type: 'auth', pin: syncPin });
-                setSyncStatusText('🔐 جاري التحقق من الرمز السري...');
+                syncProg('busy', '🔐 اتصلنا، جاري التحقق من الرمز السري...');
             }
         });
         conn.on('data', (msg) => { handleSyncMessage(conn, msg); });
-        conn.on('error', () => { setSyncStatusText('حدث خطأ أثناء نقل البيانات ⚠️'); });
+        conn.on('error', () => { syncFail('حدث خطأ أثناء نقل البيانات ⚠️'); });
+        conn.on('close', () => { const md = document.getElementById('syncModal'); if (!syncDone && !syncGot && md && md.style.display !== 'none') syncFail('الاتصال اتقطع قبل ما النقل يخلص ⚠️ جرّب تاني بكود جديد'); });
     }
 
     async function sendSyncData(conn) {
+      try {
         const bundle = buildDataBundle();
         try { bundle.__acct = await acctFpGlobal(); } catch (e) { bundle.__acct = ''; } /* (39) بصمة حساب المرسل: الطرف التاني يقارنها بحسابه */
         const key = await deriveSyncKey(syncPeerCode + '::' + syncPin);
@@ -16900,6 +16924,8 @@ function restoreTimerState() {
         } else {
             conn.send({ type: 'sync-data', payload: bundle, encrypted: false });
         }
+        syncProg('busy', '📤 اتبعتت بياناتك، مستنيين بيانات الجهاز التاني...');
+      } catch (e) { syncFail('تعذّر إرسال البيانات ⚠️ (ممكن حجم البيانات كبير). جرّب تاني'); }
     }
 
     async function handleSyncMessage(conn, msg) {
@@ -16909,27 +16935,29 @@ function restoreTimerState() {
             if (msg.pin === syncPin) {
                 syncAuthenticated = true;
                 conn.send({ type: 'auth-ok' });
-                setSyncStatusText('✅ تم التحقق من الهوية! جاري تبادل البيانات...');
+                syncProg('busy', '✅ تم التحقق من الهوية، جاري تجهيز وإرسال بياناتك...'); syncWatchdog(true);
                 await sendSyncData(conn);
             } else {
                 conn.send({ type: 'auth-fail' });
-                setSyncStatusText('⚠️ محاولة اتصال برمز سري خاطئ تم رفضها');
+                syncFail('⚠️ محاولة اتصال برمز سري خاطئ تم رفضها');
                 setTimeout(() => { try { conn.close(); } catch (e) {} }, 300);
             }
             return;
         }
         if (msg.type === 'auth-ok') {
             syncAuthenticated = true;
-            setSyncStatusText('✅ تم التحقق من الهوية! جاري تبادل البيانات...');
+            syncProg('busy', '✅ تم التحقق من الهوية، جاري تجهيز وإرسال بياناتك...'); syncWatchdog(true);
             await sendSyncData(conn);
             return;
         }
         if (msg.type === 'auth-fail') {
-            setSyncStatusText('❌ الرمز السري غير صحيح، تأكد من الكود وحاول تاني');
+            syncFail('❌ الرمز السري غير صحيح، تأكد من الكود وحاول تاني');
             return;
         }
         if (msg.type === 'sync-data') {
             if (!syncAuthenticated) return; // تجاهل أي بيانات وصلت قبل إثبات الهوية
+            syncGot = true;
+            syncProg('busy', '📥 وصلت بيانات الجهاز التاني، جاري فك التشفير...'); syncWatchdog(true);
             try {
                 let payload = msg.payload;
                 if (msg.encrypted) {
@@ -16938,30 +16966,24 @@ function restoreTimerState() {
                 }
                 handleIncomingSyncData(payload);
             } catch (e) {
-                setSyncStatusText('تعذر فك تشفير البيانات المستلمة ⚠️');
+                syncFail('تعذر فك تشفير البيانات المستلمة ⚠️');
             }
             return;
         }
     }
 
-    let syncApplied = false;
+    let syncApplied = false, syncDone = false, syncGot = false;
     async function handleIncomingSyncData(data) {
         if (syncApplied) return; // نطبّق مرة واحدة فقط لكل جلسة اتصال
         syncApplied = true;
         try {
             if (!looksLikeBundle(data)) { showToast('البيانات المستلمة مش صالحة ⚠️'); closeSyncModal(); return; }
-            /* (39) نفس الحساب؟ حساب مختلف = رفض (البيانات هتتزامن بعد كده مع حساب الجهاز ده). غير معروف = تنبيه في السؤال */
+            /* (39) نقل بين حسابين: مسموح مع تحذير صريح (النقل هو الطريقة المقصودة بين حسابين مختلفين). نفس الحساب بيتزامن لوحده */
             const mine = await acctFpGlobal();
             const theirs = (typeof data.__acct === 'string') ? data.__acct : '';
             let note = '';
-            if (mine) {
-                if (theirs && theirs !== mine) {
-                    showToast('الجهاز التاني مسجّل بحساب مختلف. سجّل الدخول بنفس الحساب على الجهازين الأول، أو استخدم نسخة احتياطية بملف 🔐');
-                    closeSyncModal();
-                    return;
-                }
-                if (!theirs) note = '\n\n⚠️ مش قادرين نتأكد إن الجهاز التاني على نفس حسابك (غالبًا مش مسجّل دخول أو نسخته قديمة).';
-            }
+            if (mine && theirs && theirs !== mine) note = '\n\n⚠️ الجهاز التاني مسجّل بحساب مختلف عن حسابك. بياناتك الحالية هتتبدّل ببياناته.';
+            else if (mine && !theirs) note = '\n\n⚠️ مش قادرين نتأكد الجهاز التاني على أنهي حساب (غالبًا مش مسجّل دخول أو نسخته قديمة).';
             const proceed = confirm('استلمنا بيانات من الجهاز التاني. سيتم استبدال بياناتك الحالية (المهام، الملاحظات، الإحصائيات) بها. هنحفظ نسخة احتياطية من بياناتك الحالية الأول، وتقدر ترجعلها من الإعدادات.' + note + '\n\nهل تريد المتابعة؟');
             if (!proceed) {
                 showToast('تم إلغاء النقل');
@@ -16969,9 +16991,12 @@ function restoreTimerState() {
                 return;
             }
             if (!replaceGuardOk('qr-transfer')) { showToast('تم إلغاء النقل'); closeSyncModal(); return; }
+            syncProg('busy', '⏳ جاري تبديل البيانات على الجهاز...');
+            await new Promise(r => setTimeout(r, 60));
             applyImportedDataBundle(data);
+            syncDone = true; syncWatchdog(false); syncProg('done', '✅ تم نقل البيانات بنجاح');
             showToast('تم نقل البيانات بنجاح ✅');
-            closeSyncModal();
+            setTimeout(closeSyncModal, 1400);
         } catch (e) {
             try { showToast('تعذّر تطبيق البيانات المستلمة ⚠️'); closeSyncModal(); } catch (x) { }
         } finally {
@@ -17099,8 +17124,10 @@ function restoreTimerState() {
         const code = jsQR(imageData.data, imageData.width, imageData.height);
         if (code && code.data) {
             document.getElementById('syncManualCode').value = code.data;
-            stopSyncCamera();
-            showToast('تم مسح الكود بنجاح ✅');
+            /* الكاميرا بتفضل مفتوحة (زي واتساب) لحد ما النقل يخلص أو يفشل، بنوقف قراءة الكود بس */
+            if (syncCameraRAF) cancelAnimationFrame(syncCameraRAF); syncCameraRAF = null;
+            syncDone = false;
+            showToast('تم مسح الكود ✅');
             startSyncConnection();
             return;
         }
@@ -37891,7 +37918,7 @@ window.registerAppTile = function (o) {
 <script src="webtools.js?v=7" onerror="window.__webtoolsFailed=1"></script>
 <script src="filetools.js?v=1" onerror="window.__filetoolsFailed=1"></script>
 <script src="onboarding.js?v=9" onerror="window.__onbLoadFailed=1;window.__onbCoverOff&&window.__onbCoverOff()"></script>
-<script src="social.js?v=22" onerror="window.__socialLoadFailed=1"></script>
+<script src="social.js?v=23" onerror="window.__socialLoadFailed=1"></script>
 <script src="appctl.js?v=1" onerror="window.__appctlFailed=1"></script>
 <script id="socialGuardScript">
 /* حارس تحميل المنافسة والأصدقاء: لو social.js مجاش (كاش قديم/ملف مش واصل) بيحاول يجيبه تاني، ولو فشل بيظهر زرار يشرح السبب بدل ما القسم يختفي */
@@ -38474,7 +38501,7 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
             rt.synced = true;
             finishApply();
             setStatus('ok'); scan();
-            toast('تم ربط الجهاز ودمج البيانات ✅');
+            if (!st.auto) toast('تم ربط الجهاز ودمج البيانات ✅');
             return;
         }
         scan(true);   // نسجّل التعديلات المحلية الأول (من غير رفع) عشان المقارنة بالتوقيت تبقى عادلة
@@ -38522,7 +38549,7 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
         try { devicesCol().doc(st.deviceId).set({ name: st.name, platform: platform(), lastSeen: Date.now(), joinedAt: st.joinedAt || Date.now() }, { merge: true }).catch(handleErr); } catch (e) { handleErr(e); }
         rt.unsubs.push(itemsCol().onSnapshot(onItems, handleErr));
         rt.unsubs.push(devicesCol().onSnapshot(onDevices, handleErr));
-        rt.scanTimer = setInterval(function () { scan(); }, 4000);
+        rt.scanTimer = setInterval(function () { scan(); }, 2500);
         rt.hbTimer = setInterval(heartbeat, 90000);
     }
     function stop() {
@@ -38535,7 +38562,7 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
         if (!rt.on) return;
         stop(); rt.on = false; rt.unsubs = []; rt.scanTimer = null; rt.hbTimer = null;
     }
-    window.addEventListener('onb-gate', function () { try { if (gated()) halt(); else if (st) start(); } catch (e) { } });
+    window.addEventListener('onb-gate', function () { try { if (gated()) halt(); else { if (st) start(); autoEnsure(); } } catch (e) { } });
     function disconnect(msg) {
         stop(); cleanupPair();
         st = null; meta = {}; ctr = {};
@@ -38563,6 +38590,39 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
             : crypto.subtle.digest('SHA-256', new TextEncoder().encode(str)).then(function (b) { return Array.prototype.map.call(new Uint8Array(b), function (x) { return x.toString(16).padStart(2, '0'); }).join(''); });
         return Promise.resolve(h).then(function (x) { return String(x).slice(0, 16); }).catch(function () { return ''; });
     }
+    /* ===== الربط التلقائي بالحساب =====
+       كل أجهزة نفس الحساب بتستخدم نفس مجموعة الربط: id = uid~(32 hex من SHA-256 للـ uid). ثابت لكل حساب، فمفيش كود ولا QR.
+       شكله متوافق مع القواعد الحالية (linkNew: uid~[0-9a-f]{24,64}) فمحتاجش تعديل قواعد. */
+    function autoLinkId(uid) {
+        var str = 'dl-auto:' + uid;
+        var h = (typeof sha256Hex === 'function') ? sha256Hex(str)
+            : crypto.subtle.digest('SHA-256', new TextEncoder().encode(str)).then(function (b) { return Array.prototype.map.call(new Uint8Array(b), function (x) { return x.toString(16).padStart(2, '0'); }).join(''); });
+        return Promise.resolve(h).then(function (x) { return uid + '~' + String(x).slice(0, 32); });
+    }
+    function curUser() { try { return (typeof fbAuth !== 'undefined' && fbAuth) ? fbAuth.currentUser : null; } catch (e) { return null; } }
+    var autoBusy = false, autoRetry = null;
+    function autoEnsure() {
+        if (autoBusy || gated()) return;
+        var cu = curUser(); if (!cu || !cu.uid) return;
+        if (typeof fbDb === 'undefined' || !fbDb) return;
+        autoBusy = true;
+        autoLinkId(cu.uid).then(function (id) {
+            if (st && st.linkId === id) { if (!rt.on) start(); return; }
+            if (st) { try { window.__dlDetach(); } catch (e) { } }   /* حساب تاني أو رابط يدوي قديم: فكّ هادي وبعدين ندخل رابط الحساب */
+            var s = { linkId: id, deviceId: randHex(6), name: defaultName(), initialized: false, auto: true, joinedAt: Date.now() };
+            var ref = fbDb.collection('links').doc(id);
+            return T(ref.get()).then(function (d) {
+                if (d.exists) return;
+                return T(ref.set({ createdAt: Date.now(), v: 1 })).catch(function () {   /* جهاز تاني سبقنا في الإنشاء */
+                    return T(ref.get()).then(function (d2) { if (!d2.exists) throw { code: 'unavailable' }; });
+                });
+            }).then(function () { st = s; saveState(); start(); render(); });
+        }).catch(function (e) {
+            /* مفيش نت أو خطأ مؤقت: نحاول تاني بعد شوية بدل ما نفضل من غير ربط */
+            if (!autoRetry) autoRetry = setTimeout(function () { autoRetry = null; autoEnsure(); }, 15000);
+        }).then(function () { autoBusy = false; });
+    }
+    function autoSignedOut() { if (st) { try { window.__dlDetach(); } catch (e) { } } }
     function byOf(devId, fp) { return (devId || '') + '~' + fp; }
     function fpOf(by) { var p = String(by || '').split('~'); return p.length > 1 ? p[p.length - 1] : ''; }
     function acctCmp(mine, theirs) { if (!theirs) return 'unknown'; return mine === theirs ? 'same' : 'diff'; }
@@ -38827,22 +38887,23 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
     function render() {
         var body = $('dlSettingsBody'); if (!body) return;
         var h = '<div style="text-align:center;font-size:2.6rem;margin:4px 0;">📱↔️💻</div>'
-            + '<div class="settings-section-desc" style="text-align:center;">اربط أجهزتك ببعض (تليفون، كمبيوتر، أو أكتر)، وأي تغيير على جهاز يظهر على الباقي فورًا طول ما الأجهزة متصلة بالنت — كأنها جهاز واحد.</div>'
-            + '<button class="btn" style="width:100%;border-radius:999px;padding:12px;margin-top:6px;" onclick="dlOpenModal(\'show\')">ربط جهاز</button>';
-        if (!st) {
-            h += '<div class="settings-section-desc" style="color:#e67e22;margin-top:8px;">⚠️ الربط بيرفع بياناتك لقاعدة Firebase الخاصة بتطبيقك عشان تتزامن بين الأجهزة.</div>';
+            + '<div class="settings-section-desc" style="text-align:center;">أجهزتك المسجّلة بنفس الحساب بتتربط ببعض تلقائيًا، وأي تغيير على جهاز يظهر على الباقي فورًا طول ما الأجهزة متصلة بالنت. مفيش حاجة تعملها.</div>';
+        if (!curUser()) {
+            h += '<div class="settings-section-desc" style="color:#e67e22;margin-top:8px;text-align:center;">سجّل دخول بحسابك الأول، وأي جهاز تدخل بيه بنفس الحساب هيتربط لوحده.</div>';
+        } else if (!st) {
+            h += '<div class="sync-status" style="margin:10px 0 4px;text-align:center;">جاري تجهيز الربط...</div>';
         } else {
             h += '<div class="sync-status" style="margin:10px 0 4px;">' + statusLine() + '</div>';
-            h += '<div style="margin:12px 0 2px;font-weight:700;opacity:.8;">حالة الجهاز</div>'
-               + '<div class="settings-section-desc">اضغط على أحد الأجهزة لإعادة تسميته أو فك ربطه.</div>';
+            h += '<div style="margin:12px 0 2px;font-weight:700;opacity:.8;">أجهزة حسابك</div>'
+               + '<div class="settings-section-desc">اضغط على أي جهاز لإعادة تسميته.</div>';
             rt.devices.slice().sort(function (x, c) { return (x.joinedAt || 0) - (c.joinedAt || 0); }).forEach(function (d) {
                 var me = d.id === st.deviceId;
-                h += '<div onclick="dlDeviceMenu(\'' + esc(d.id) + '\')" style="display:flex;align-items:center;gap:12px;padding:10px 6px;cursor:pointer;border-radius:10px;">'
+                h += '<div onclick="dlRenameDevice(\'' + esc(d.id) + '\')" style="display:flex;align-items:center;gap:12px;padding:10px 6px;cursor:pointer;border-radius:10px;">'
                     + '<div style="font-size:1.8rem;">' + devIcon(d) + '</div>'
                     + '<div style="flex:1;min-width:0;"><div style="font-weight:700;">' + esc(d.name || 'جهاز') + (me ? ' <span style="font-size:.7rem;opacity:.7;">(هذا الجهاز)</span>' : '') + '</div>'
                     + '<div style="font-size:.78rem;opacity:.7;">' + esc(d.platform || '') + ' · ' + esc(lastAct(d, me)) + '</div></div></div>';
             });
-            h += '<div class="settings-section-desc" style="margin-top:8px;">🔒 بياناتك مخزّنة تحت مفتاح عشوائي طويل مخصوص لأجهزتك.</div>'
+            h += '<div class="settings-section-desc" style="margin-top:8px;">🔒 لو عايز جهاز يبطّل يتزامن، سجّل خروج منه.</div>'
                + '<button class="btn btn-secondary" style="width:100%;margin-top:6px;" onclick="dlSyncNow()">🔄 مزامنة الآن</button>';
         }
         body.innerHTML = h;
@@ -38904,14 +38965,19 @@ window.addEventListener('load',function(){setTimeout(check,1500)});
     document.addEventListener('visibilitychange', function () { if (st && rt.on) scan(); });
     window.addEventListener('online', function () { if (st && rt.status === 'offline') setStatus('connecting'); scan(); });
     window.addEventListener('offline', function () { if (st) setStatus('offline'); });
-    function boot() { rt.ready = true; render(); if (st) start(); }
+    function boot() {
+        rt.ready = true; render(); if (st) start();
+        try { if (typeof fbAuth !== 'undefined' && fbAuth) fbAuth.onAuthStateChanged(function (u) { if (u) setTimeout(autoEnsure, 300); else autoSignedOut(); setTimeout(render, 400); }); } catch (e) { }
+        autoEnsure();
+        window.addEventListener('online', function () { autoEnsure(); });
+    }
     if (document.readyState === 'complete') setTimeout(boot, 2500);
     else window.addEventListener('load', function () { setTimeout(boot, 2500); });
 
     window.__dl = {
         get st() { return st; }, get rt() { return rt; }, get meta() { return meta; }, get ctr() { return ctr; },
         createLink: createLink, joinWithCode: joinWithCode, scan: scan, showPair: showPair, boot: boot,
-        getPairCode: function () { return rt.pair && rt.pair.code; }
+        getPairCode: function () { return rt.pair && rt.pair.code; }, autoEnsure: autoEnsure
     };
 })();
 </script>

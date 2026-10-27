@@ -4,14 +4,17 @@
    - طلبات الذكاء الاصطناعي ويوتيوب وفايربيز والسيرفرات التانية مابنلمسهاش، ما عدا مكتبات Firebase نفسها (ملفات JS ثابتة النسخة في الرابط) فبتتخزّن عشان الحساب يفتح أوفلاين.
    - إشعارات وهو مقفول: Web Push (سيرفر صغير بيصحّي الـ worker) + الجدول متخزّن في IndexedDB.
    لو رفعت نسخة جديدة وعايزها فورًا: غيّر رقم VERSION. */
-const VERSION = 'v37';
+const VERSION = 'v40';
 const CACHE = 'prod-platform-' + VERSION;
 const CORE = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
+const LIBS = ['./lib/jsQR.min.js', './lib/qrcode.min.js'];
 const CDN_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com', 'cdnjs.cloudflare.com'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE)
-    .then(c => c.addAll(CORE.map(u => new Request(u, { cache: 'reload' }))))
+    .then(c => c.addAll(CORE.map(u => new Request(u, { cache: 'reload' })))
+      /* مكتبات القراءة/الرسم المحلية: محاولة تخزين من غير ما تفشّل التثبيت لو الملف مش مرفوع */
+      .then(() => Promise.all(LIBS.map(u => c.add(new Request(u, { cache: 'reload' })).catch(() => { })))))
     .then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {

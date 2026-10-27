@@ -1249,8 +1249,7 @@ window.spBcSend = function () {
 window.spSoon = function () { sheetClose(); snack('الميزة دي جاية في الخطوة الجاية 🚧'); };
 window.spLinkedDevices = function () {
   sheetClose();
-  try { if (typeof dlOpenModal === 'function') { dlOpenModal(); return; } } catch (e) { }
-  snack('افتح الإعدادات ← ربط الأجهزة');
+  snack('أجهزتك بتتربط تلقائيًا لما تسجّل بنفس الحساب 🔗 (الإعدادات ← ربط الأجهزة)');
 };
 window.spAccounts = function () {
   var cur = (mainAuth() && mainAuth().currentUser) || null, l = acctList(), h = '';
