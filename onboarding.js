@@ -335,11 +335,44 @@
   }
 
   /* --- بعد الدخول: بيانات الجهاز مقابل السحابة --- */
-  var dataT = null;
-  function showData(text) {
-    phase = 'data'; paint('<div style="text-align:center;padding:60px 0"><div class="spin" role="status"></div><p style="margin-top:16px" id="onbDataTxt">' + esc(text || 'جاري تجهيز حسابك...') + '</p></div>');
-    clearTimeout(dataT); dataT = setTimeout(function () { var e = $('onbDataTxt'); if (e && phase === 'data') e.textContent = 'النت بطيء شوية، لسه بنحاول نوصل لحسابك...'; }, 5000);
+  var dlog = [], t0 = Date.now(), stT = null, stI = null, stStart = 0, curStage = 0;
+  function lg(x) { dlog.push(((Date.now() - t0) / 1000).toFixed(1) + 's ' + x); if (dlog.length > 40) dlog.shift(); }
+  function diagText() { return dlog.join('\n') + '\nonLine=' + navigator.onLine + ' ' + new Date().toISOString() + '\n' + navigator.userAgent; }
+  var STAGES = ['جاري تسجيل الدخول لحسابك', 'جاري التحقق من حسابك', 'جاري قراءة بيانات حسابك من السحابة', 'جاري مقارنة بياناتك مع بيانات الجهاز', 'جاري استرجاع بياناتك على الجهاز', 'جاري إنهاء التجهيز'];
+  var SLOW = ['تسجيل الدخول بياخد وقت أطول من العادي', 'التحقق من الحساب بياخد وقت أطول من العادي', 'قراءة بيانات حسابك بتاخد وقت أطول من العادي بسبب النت', 'المقارنة بتاخد وقت أطول من العادي', 'استرجاع بياناتك بياخد وقت أطول من العادي', 'إنهاء التجهيز بياخد وقت أطول من العادي'];
+  var LIMIT = [0, 0, 12, 0, 15, 0];
+  /* شاشة تقدّم: شريط واحد تحت ورسالة بتتغيّر مع كل مرحلة بتبدأ فعلًا في الكود (مفيش مؤقت وهمي) */
+  function showData(text, stage) {
+    phase = 'data';
+    paint('<div style="text-align:center;padding:60px 0 150px">' + logo() + '<div class="spin" role="status" style="margin-top:18px"></div></div>' +
+      '<div style="position:fixed;left:0;right:0;bottom:0;padding:16px 24px max(22px,env(safe-area-inset-bottom));text-align:center;background:var(--bg-main, #f4f6fb)">' +
+      '<div id="onbStageNo" style="font-size:.74rem;opacity:.65;margin-bottom:4px"></div>' +
+      '<p id="onbDataTxt" style="margin:0 0 10px;font-weight:700;color:var(--text-primary, #1c2233)"></p>' +
+      '<div style="height:6px;border-radius:3px;background:var(--card-border, #d9deea);overflow:hidden;max-width:420px;margin:0 auto"><div id="onbBar" style="height:100%;width:3%;background:var(--accent, #1b8a5a);transition:width .5s ease"></div></div>' +
+      '<p id="onbDataSub" style="margin:8px 0 0;font-size:.8rem;min-height:1.2em;color:var(--text-secondary, #5d667a)"></p>' +
+      '<button type="button" class="lnk" id="onbDiagB" style="font-size:.74rem;padding:2px 8px">تفاصيل</button>' +
+      '<pre id="onbDiag" style="display:none;text-align:left;direction:ltr;font-size:.66rem;max-height:110px;overflow:auto;margin:6px auto 0;max-width:420px;white-space:pre-wrap"></pre></div>');
+    var bt = $('onbDiagB'); if (bt) bt.onclick = function () { var d = $('onbDiag'); if (!d) return; d.style.display = d.style.display === 'none' ? 'block' : 'none'; d.textContent = diagText(); };
+    setStage(stage == null ? 0 : stage, text);
   }
+  function setStage(i, text) {
+    curStage = i; stStart = Date.now(); lg('stage ' + (i + 1) + ' ' + (text || STAGES[i]));
+    clearTimeout(stT); clearInterval(stI);
+    var m = $('onbDataTxt'), b = $('onbBar'), n = $('onbStageNo'), sub = $('onbDataSub');
+    if (m) m.textContent = (text || STAGES[i]) + '...';
+    if (n) n.textContent = 'المرحلة ' + (i + 1) + ' من ' + STAGES.length;
+    if (b) b.style.width = Math.round((i + 0.5) / STAGES.length * 100) + '%';
+    if (sub) sub.textContent = '';
+    stT = setTimeout(function () {
+      function upd() {
+        var e = $('onbDataSub'); if (!e || phase !== 'data' || curStage !== i) { clearInterval(stI); return; }
+        var sec = Math.round((Date.now() - stStart) / 1000);
+        e.textContent = SLOW[i] + ' · ' + sec + ' ث' + (LIMIT[i] ? ' من ' + LIMIT[i] : '');
+      }
+      upd(); stI = setInterval(upd, 1000);
+    }, 5000);
+  }
+  function dataDone() { clearTimeout(stT); clearInterval(stI); var b = $('onbBar'); if (b) b.style.width = '100%'; }
   function askConflict(doc) {
     return new Promise(function (res) {
       phase = 'data';
@@ -365,7 +398,15 @@
     var d = D(), uid = user.uid, owner = LS.getItem(OWNER) || '';
     var fresh = ctx.fresh || (Date.now() - parseInt(LS.getItem(FRESH) || '0', 10) < 600000);
     if (!d) return Promise.resolve({ fail: true });
-    return withTimeout(d.collection('users').doc(uid).get(), 12000).then(function (doc) {
+    setStage(1);
+    /* التوكن بيتجدد قبل قراءة السحابة: بنفصله عشان نعرف لو التأخير من الحساب نفسه ولا من قراءة البيانات (لو فشل بنكمّل عادي) */
+    var tokenP = withTimeout(Promise.resolve().then(function () { return user.getIdToken(); }), 8000).then(function () { lg('token ok'); }, function (e) { lg('token ' + ((e && e.code) || 'err')); });
+    return tokenP.then(function () {
+      setStage(2);
+      return withTimeout(d.collection('users').doc(uid).get(), 12000);
+    }).then(function (doc) {
+      lg('cloud read ok exists=' + (doc && doc.exists));
+      setStage(3);
       var cloudName = doc.exists ? cleanName(doc.data().acctName) : '';
       if (validName(cloudName)) { LS.setItem('app_user_name', cloudName); LS.setItem('sp_name', cloudName); LS.setItem('app_ai_user_name', cloudName); }
       var has = cloudHas(doc), local = hasLocalData();
@@ -381,16 +422,17 @@
       if (!owner && !fresh) { LS.setItem(OWNER, uid); return; }     /* مستخدم قديم كان مسجّل أصلًا: بياناته بتاعته */
       if (local && has) {
         /* الجهاز أصلًا بتاع نفس الحساب والسحابة مش أحدث منه: مفيش تعارض، بيانات الجهاز هي الأحدث */
-        if (owner === uid && !cloudNewer(doc)) return withTimeout(uploadLocal(uid), 15000);
+        if (owner === uid && !cloudNewer(doc)) { setStage(4, 'جاري رفع بيانات الجهاز لحسابك'); return withTimeout(uploadLocal(uid), 15000); }
         return askConflict(doc).then(function (c) {
-          showData('جاري تجهيز حسابك...');
+          showData(c === 'cloud' ? STAGES[4] : 'جاري رفع بيانات الجهاز لحسابك', 4);
           if (c === 'cloud') { restoreCloud(doc); return; }
           return withTimeout(uploadLocal(uid), 15000);
         });
       }
-      if (local && !has) return withTimeout(uploadLocal(uid), 15000);
-      if (!local && has) { restoreCloud(doc); return; }
+      if (local && !has) { setStage(4, 'جاري رفع بيانات الجهاز لحسابك'); return withTimeout(uploadLocal(uid), 15000); }
+      if (!local && has) { setStage(4); restoreCloud(doc); return; }
     }).then(function () { LS.setItem(OWNER, uid); LS.removeItem(FRESH); return { ok: true }; }, function (e) {
+      lg('FAIL ' + ((e && e.code) || (e && e.message) || 'unknown'));
       try { console.warn('onb data', e && e.code); } catch (x) { }
       return { fail: true };
     });
@@ -402,7 +444,9 @@
     paint('<div class="hero">' + logo(true) + '<h1>تعذّر الوصول لبيانات حسابك</h1><p>لازم نقرا بيانات حسابك قبل ما نكمّل عشان ما نكتبش فوقها بالغلط. اتأكد من النت وحاول تاني.</p></div>' +
       '<div id="onbMsg" class="msg" role="alert"></div>' +
       '<button type="button" class="pri" id="onbRetry">حاول تاني</button>' +
-            '<button type="button" class="lnk" id="onbOut">تسجيل الخروج</button>');
+            '<button type="button" class="lnk" id="onbOut">تسجيل الخروج</button>' +
+      '<button type="button" class="lnk" id="onbDiagR" style="font-size:.74rem">تفاصيل</button><pre id="onbDiagRP" style="display:none;text-align:left;direction:ltr;font-size:.66rem;max-height:140px;overflow:auto;white-space:pre-wrap"></pre>');
+    $('onbDiagR').onclick = function () { var d = $('onbDiagRP'); d.style.display = d.style.display === 'none' ? 'block' : 'none'; d.textContent = diagText(); };
     $('onbRetry').onclick = function () { handleUser(user); };
     $('onbOut').onclick = function () { try { A().signOut(); } catch (e) { } };
   }
@@ -508,9 +552,12 @@
       window.__noCloudPush = false;
       closeGate(); return;
     }
-    showData('جاري تجهيز حسابك...');
+    dlog = []; t0 = Date.now();
+    showData(null, 0);
     resolveData(user).then(function (r) {
-      if (r && r.fail) { showRetry(user); return; }
+      if (r && r.fail) { dataDone(); showRetry(user); return; }
+      if (phase === 'data') setStage(5);
+      dataDone();
       window.__noCloudPush = false;
       if (!validName(storedName())) { showName(); return; }
       phase = 'name'; next();
