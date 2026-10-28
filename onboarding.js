@@ -335,7 +335,7 @@
   }
 
   /* --- بعد الدخول: بيانات الجهاز مقابل السحابة --- */
-  var dlog = [], t0 = Date.now(), stT = null, stI = null, stStart = 0, curStage = 0;
+  var lastErr = '', attempt = 1, dlog = [], t0 = Date.now(), stT = null, stI = null, stStart = 0, curStage = 0;
   function lg(x) { dlog.push(((Date.now() - t0) / 1000).toFixed(1) + 's ' + x); if (dlog.length > 40) dlog.shift(); }
   function diagText() { return dlog.join('\n') + '\nonLine=' + navigator.onLine + ' ' + new Date().toISOString() + '\n' + navigator.userAgent; }
   var STAGES = ['جاري تسجيل الدخول لحسابك', 'جاري التحقق من حسابك', 'جاري قراءة بيانات حسابك من السحابة', 'جاري مقارنة بياناتك مع بيانات الجهاز', 'جاري استرجاع بياناتك على الجهاز', 'جاري إنهاء التجهيز'];
@@ -432,22 +432,30 @@
       if (local && !has) { setStage(4, 'جاري رفع بيانات الجهاز لحسابك'); return withTimeout(uploadLocal(uid), 15000); }
       if (!local && has) { setStage(4); restoreCloud(doc); return; }
     }).then(function () { LS.setItem(OWNER, uid); LS.removeItem(FRESH); return { ok: true }; }, function (e) {
-      lg('FAIL ' + ((e && e.code) || (e && e.message) || 'unknown'));
+      lastErr = String((e && e.code) || (e && e.message) || 'unknown'); lg('FAIL ' + lastErr);
       try { console.warn('onb data', e && e.code); } catch (x) { }
       return { fail: true };
     });
   }
   /* ما قدرناش نوصل لبيانات الحساب: ما نكمّلش ولا نرفع حاجة فوقها */
+  function errWhy(c) {
+    c = String(c || '');
+    if (/permission-denied/.test(c)) return 'السيرفر رفض قراءة بيانات حسابك (صلاحيات قاعدة البيانات)';
+    if (/timeout/.test(c)) return 'السيرفر ما ردّش في الوقت المحدد (النت بطيء أو متحجب)';
+    if (/unavailable|offline/.test(c)) return 'مش قادرين نوصل لسيرفر البيانات (النت أو شبكة بتحجب الاتصال)';
+    if (/unauthenticated/.test(c)) return 'الحساب مش متأكد على السيرفر، جرّب تسجيل الخروج وتدخل تاني';
+    return 'سبب غير معروف';
+  }
   function showRetry(user) {
     phase = 'retry';
     var owner = LS.getItem(OWNER) || '', mine = !owner || owner === user.uid;
     paint('<div class="hero">' + logo(true) + '<h1>تعذّر الوصول لبيانات حسابك</h1><p>لازم نقرا بيانات حسابك قبل ما نكمّل عشان ما نكتبش فوقها بالغلط. اتأكد من النت وحاول تاني.</p></div>' +
-      '<div id="onbMsg" class="msg" role="alert"></div>' +
+      '<div id="onbMsg" class="msg err" role="alert">' + esc(errWhy(lastErr)) + ' · المحاولة ' + attempt + ' · <span dir="ltr">' + esc(lastErr) + '</span></div>' +
       '<button type="button" class="pri" id="onbRetry">حاول تاني</button>' +
             '<button type="button" class="lnk" id="onbOut">تسجيل الخروج</button>' +
       '<button type="button" class="lnk" id="onbDiagR" style="font-size:.74rem">تفاصيل</button><pre id="onbDiagRP" style="display:none;text-align:left;direction:ltr;font-size:.66rem;max-height:140px;overflow:auto;white-space:pre-wrap"></pre>');
     $('onbDiagR').onclick = function () { var d = $('onbDiagRP'); d.style.display = d.style.display === 'none' ? 'block' : 'none'; d.textContent = diagText(); };
-    $('onbRetry').onclick = function () { handleUser(user); };
+    $('onbRetry').onclick = function () { attempt++; handleUser(user, true); };
     $('onbOut').onclick = function () { try { A().signOut(); } catch (e) { } };
   }
 
@@ -543,7 +551,7 @@
   }
 
   /* --- نقطة الدخول: بعد ما الحساب يتأكد --- */
-  function handleUser(user) {
+  function handleUser(user, retry) {
     ctx.user = user; tempBypass = false; openGate();
     var done = LS.getItem(DONE) === user.uid;
     if (done && validName(storedName())) {
@@ -552,10 +560,15 @@
       window.__noCloudPush = false;
       closeGate(); return;
     }
-    dlog = []; t0 = Date.now();
+    if (!retry) { dlog = []; t0 = Date.now(); attempt = 1; lastErr = ''; } else lg('--- retry #' + attempt);
+    var tStart = Date.now();
     showData(null, 0);
     resolveData(user).then(function (r) {
-      if (r && r.fail) { dataDone(); showRetry(user); return; }
+      if (r && r.fail) {
+        /* لو الفشل فوري: نسيب شاشة التقدّم ثانية على الأقل عشان المستخدم يشوف إن الزرار اشتغل */
+        var wait = Math.max(0, 1200 - (Date.now() - tStart));
+        setTimeout(function () { dataDone(); showRetry(user); }, wait); return;
+      }
       if (phase === 'data') setStage(5);
       dataDone();
       window.__noCloudPush = false;
