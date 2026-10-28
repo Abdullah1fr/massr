@@ -6582,7 +6582,7 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
                         <div class="settings-section-desc" style="margin-top:6px;">حساب جوجل واحد = حساب واحد في التطبيق (بياناتك، النسخ الاحتياطي، والمنافسة والأصدقاء كلها على نفس الحساب).</div>
                         <details style="margin-top:10px;">
                             <summary style="font-size:0.78rem; cursor:pointer; opacity:.8;">عندي حساب قديم بالإيميل وكلمة المرور</summary>
-                            <input type="email" id="emailAuthEmailInput" placeholder="بريدك الإلكتروني" autocomplete="email" style="width:100%; margin-top:8px;">
+                            <input type="email" id="emailAuthEmailInput" placeholder="بريدك الإلكتروني (لو جيميل اكتب اسمه بس)" autocomplete="email" style="width:100%; margin-top:8px;">
                             <input type="password" id="emailAuthPassInput" placeholder="كلمة المرور" autocomplete="current-password" style="width:100%; margin-top:8px;">
                             <button class="btn btn-secondary" style="width:100%; margin-top:8px;" onclick="handleEmailLogin()">🔑 دخول بالإيميل</button>
                             <button class="btn btn-secondary" style="width:100%; margin-top:8px; font-size:0.75rem;" onclick="handleForgotPassword()">نسيت كلمة المرور؟</button>
@@ -7681,11 +7681,11 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check-compat.js"></script>
     <!-- مكتبات المزامنة عبر QR: PeerJS للاتصال المباشر، وQRCode لتوليد صورة الكود، وjsQR لقراءة الكود بالكاميرا -->
     <!-- jsQR بقت محفوظة جوه التطبيق نفسه (lib/jsQR.min.js) عشان تشتغل بدون إنترنت، بدل ما تتحمّل من الإنترنت في كل مرة -->
-    <script src="lib/jsQR.min.js"></script>
+    <script src="jsQR.min.js" onerror="this.onerror=null;var q=document.createElement('script');q.src='lib/jsQR.min.js';document.head.appendChild(q)"></script>
     <!-- مكتبة جوجل لتسجيل الدخول والنسخ الاحتياطي السحابي على Google Drive -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
-    <script src="lib/qrcode.min.js" onerror="this.onerror=null;var q=document.createElement('script');q.src='https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';document.head.appendChild(q)"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js" defer></script>
+    <script src="qrcode.min.js" onerror="this.onerror=null;var q=document.createElement('script');q.src='https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';document.head.appendChild(q)"></script>
 
     <!-- ملفات الصوت -->
     <audio id="customBgAudio" loop ontimeupdate="updateAudioSeekUI()" onloadedmetadata="updateAudioSeekUI()" onplay="updateAudioSeekUI()" onpause="updateAudioSeekUI()"></audio>
@@ -17019,6 +17019,7 @@ function restoreTimerState() {
         if (jsQRLoadingPromise) return jsQRLoadingPromise;
 
         const fallbackSources = [
+            'jsQR.min.js',
             'lib/jsQR.min.js',
             'https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.js',
             'https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js',
@@ -17575,7 +17576,7 @@ function restoreTimerState() {
     async function linkAppLockEmailToFirebase(email) { return { ok: true }; }
 
     async function saveNewAppLockPassword() {
-        const email = (document.getElementById('appLockEmailInput').value || '').trim();
+        const email = window.normEmail(document.getElementById('appLockEmailInput').value);
         const p1 = document.getElementById('appLockNewPass').value || '';
         const p2 = document.getElementById('appLockConfirmPass').value || '';
         if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast('اكتب بريد إلكتروني صحيح ⚠️'); return; }
@@ -17722,7 +17723,7 @@ function restoreTimerState() {
     }
 
     async function startAppLockEmailRecovery() {
-        const email = (document.getElementById('recoveryEmailInput').value || '').trim();
+        const email = window.normEmail(document.getElementById('recoveryEmailInput').value);
         const errorEl = document.getElementById('recoveryEmailError');
         errorEl.innerText = '';
 
@@ -18951,6 +18952,8 @@ try {
         } catch (e) { }
         fbAuth = firebase.auth();
         fbDb = firebase.firestore();
+        /* شبكات بتحجب اتصال Firestore المستمر (شركة/VPN/أنتي فيروس) كانت بتخلّي القراءة تعلّق: الكشف التلقائي بيحوّل لـ long polling */
+        try { fbDb.settings({ experimentalAutoDetectLongPolling: true, merge: true }); } catch (e) { }
         try { fbDb.enablePersistence({ synchronizeTabs: true }).catch(function () { }); } catch (e) { } /* كاش أوفلاين للمنافسة والأصدقاء (كان في حساب social المنفصل) */
         fbAuth.onAuthStateChanged(function (user) {
             updateEmailAccountUI(user);
@@ -19006,9 +19009,16 @@ function setEmailAuthMsg(text, isError) {
     el.style.color = isError ? '#c0392b' : '#2e7d32';
 }
 
+window.normEmail = function(s) {
+    s = String(s == null ? '' : s).replace(/[\s‎‏]/g, '').toLowerCase();
+    if (!s) return '';
+    if (s.indexOf('@') < 0) return /^[a-z0-9._%+-]+$/.test(s) ? s + '@gmail.com' : s;
+    var m = s.match(/^([^@]+)@(gmail|gmail\.|gmail\.c|gmail\.co|gmial\.com|gamil\.com|gmai\.com)$/);
+    return m ? m[1] + '@gmail.com' : s;
+  };
 function handleEmailRegister() {
     if (fbInitError || !fbAuth) { setEmailAuthMsg('خدمة الحساب السحابي غير مفعّلة حاليًا ⚠️', true); return; }
-    const email = (document.getElementById('emailAuthEmailInput').value || '').trim();
+    const email = window.normEmail(document.getElementById('emailAuthEmailInput').value);
     const pass = document.getElementById('emailAuthPassInput').value || '';
     if (!email || !pass) { setEmailAuthMsg('اكتب الإيميل وكلمة المرور الأول', true); return; }
     setEmailAuthMsg('جاري إنشاء الحساب...', false);
@@ -19028,7 +19038,7 @@ function handleEmailRegister() {
 
 function handleEmailLogin() {
     if (fbInitError || !fbAuth) { setEmailAuthMsg('خدمة الحساب السحابي غير مفعّلة حاليًا ⚠️', true); return; }
-    const email = (document.getElementById('emailAuthEmailInput').value || '').trim();
+    const email = window.normEmail(document.getElementById('emailAuthEmailInput').value);
     const pass = document.getElementById('emailAuthPassInput').value || '';
     if (!email || !pass) { setEmailAuthMsg('اكتب الإيميل وكلمة المرور الأول', true); return; }
     setEmailAuthMsg('جاري تسجيل الدخول...', false);
@@ -19091,7 +19101,7 @@ try {
 function handleForgotPassword() {
     if (fbInitError || !fbAuth) { setEmailAuthMsg('خدمة الحساب السحابي غير مفعّلة حاليًا ⚠️', true); showToast('خدمة الحساب السحابي غير مفعّلة حاليًا ⚠️'); return; }
     const emailInput = document.getElementById('emailAuthEmailInput');
-    const email = (emailInput.value || '').trim();
+    const email = window.normEmail(emailInput.value);
     if (!email) {
         // من غير الرسالة الصغيرة بس — توست واضح + تركيز وتظليل الخانة نفسها،
         // عشان يبقى مستحيل يحس إن الزرار ماعملش حاجة
@@ -37917,7 +37927,7 @@ window.registerAppTile = function (o) {
 <script>window.__socialErrs=[];window.addEventListener('error',function(e){try{if(e&&e.filename&&/social\.js/.test(e.filename))window.__socialErrs.push((e.message||'خطأ')+(e.lineno?' @'+e.lineno:''))}catch(x){}},true);</script>
 <script src="webtools.js?v=7" onerror="window.__webtoolsFailed=1"></script>
 <script src="filetools.js?v=1" onerror="window.__filetoolsFailed=1"></script>
-<script src="onboarding.js?v=9" onerror="window.__onbLoadFailed=1;window.__onbCoverOff&&window.__onbCoverOff()"></script>
+<script src="onboarding.js?v=10" onerror="window.__onbLoadFailed=1;window.__onbCoverOff&&window.__onbCoverOff()"></script>
 <script src="social.js?v=23" onerror="window.__socialLoadFailed=1"></script>
 <script src="appctl.js?v=1" onerror="window.__appctlFailed=1"></script>
 <script id="socialGuardScript">

@@ -4,10 +4,10 @@
    - طلبات الذكاء الاصطناعي ويوتيوب وفايربيز والسيرفرات التانية مابنلمسهاش، ما عدا مكتبات Firebase نفسها (ملفات JS ثابتة النسخة في الرابط) فبتتخزّن عشان الحساب يفتح أوفلاين.
    - إشعارات وهو مقفول: Web Push (سيرفر صغير بيصحّي الـ worker) + الجدول متخزّن في IndexedDB.
    لو رفعت نسخة جديدة وعايزها فورًا: غيّر رقم VERSION. */
-const VERSION = 'v40';
+const VERSION = 'v41';
 const CACHE = 'prod-platform-' + VERSION;
 const CORE = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
-const LIBS = ['./lib/jsQR.min.js', './lib/qrcode.min.js'];
+const LIBS = ['./jsQR.min.js', './qrcode.min.js'];
 const CDN_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com', 'cdnjs.cloudflare.com'];
 
 self.addEventListener('install', e => {

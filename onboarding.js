@@ -25,7 +25,16 @@
     try { if (typeof emailAuthErrorMessage === 'function') return emailAuthErrorMessage(e); } catch (x) { }
     return 'حصل خطأ، حاول تاني (' + ((e && e.code) || 'unknown') + ')';
   }
+  /* الإيميل: لو كتب الاسم بس بنكمّله @gmail.com، ولو كتبه كامل بيفضل زي ما هو */
+  function normEmail(s) {
+    s = String(s == null ? '' : s).replace(/[\s‎‏]/g, '').toLowerCase();
+    if (!s) return '';
+    if (s.indexOf('@') < 0) return /^[a-z0-9._%+-]+$/.test(s) ? s + '@gmail.com' : s;
+    var m = s.match(/^([^@]+)@(gmail|gmail\.|gmail\.c|gmail\.co|gmial\.com|gamil\.com|gmai\.com)$/);
+    return m ? m[1] + '@gmail.com' : s;
+  }
   function isApk() { return !!window.AndroidNative; }
+  function withTimeout(p, ms) { return new Promise(function (res, rej) { var t = setTimeout(function () { rej({ code: 'timeout' }); }, ms); p.then(function (v) { clearTimeout(t); res(v); }, function (e) { clearTimeout(t); rej(e); }); }); }
   function jget(k, d) { try { var v = JSON.parse(LS.getItem(k)); return v == null ? d : v; } catch (e) { return d; } }
 
   /* ---------- بيانات الجهاز ---------- */
@@ -254,7 +263,7 @@
       '<button type="button" class="pri" id="onbNew">إنشاء حساب</button>' +
       '<button type="button" class="sec" id="onbHave">تسجيل الدخول</button>' +
       (offline ? '<p style="text-align:center">مفيش نت دلوقتي، أول دخول محتاج اتصال بالإنترنت.</p>' : '') +
-      (offline && hasLocalData() ? '<button type="button" class="lnk" id="onbBypass">افتح بياناتي على الجهاز مؤقتًا لحد ما النت يرجع</button>' : ''));
+      '');
     bindWarn();
     $('onbNew').onclick = function () { mode = 'register'; showAuth(); };
     $('onbHave').onclick = function () { mode = 'login'; showAuth(); };
@@ -270,7 +279,7 @@
     var offline = navigator.onLine === false, google = !isApk(), reg = mode === 'register';
     var h = '<button type="button" class="lnk" id="onbBack" style="align-self:flex-start;padding:4px 0">‹ رجوع</button>' +
       '<div class="hero">' + logo(true) + '<h1>' + (reg ? 'إنشاء حساب جديد' : 'تسجيل الدخول') + '</h1></div>' + warnHtml() +
-      '<input type="email" id="onbEmail" placeholder="الإيميل" autocomplete="email" inputmode="email" dir="ltr" style="text-align:left">' +
+      '<input type="email" id="onbEmail" placeholder="الإيميل (لو جيميل اكتب اسمه بس)" autocomplete="email" inputmode="email" dir="ltr" style="text-align:left">' +
       '<input type="password" id="onbPass" placeholder="كلمة المرور' + (reg ? ' (6 خانات على الأقل)' : '') + '" autocomplete="' + (reg ? 'new-password' : 'current-password') + '" dir="ltr" style="text-align:left">' +
       '<div id="onbMsg" class="msg" role="alert"></div>' +
       '<button type="button" class="pri" id="onbGo">' + (reg ? 'إنشاء الحساب' : 'تسجيل الدخول') + '</button>' +
@@ -278,7 +287,7 @@
       (!reg ? '<button type="button" class="lnk" id="onbForgot">نسيت كلمة المرور؟</button>' : '') +
       '<button type="button" class="lnk" id="onbSwitch">' + (reg ? 'عندي حساب بالفعل' : 'معنديش حساب، إنشاء حساب جديد') + '</button>' +
       (offline ? '<p>مفيش نت دلوقتي، أول دخول محتاج اتصال بالإنترنت.</p>' : '') +
-      (offline && hasLocalData() ? '<button type="button" class="lnk" id="onbBypass">افتح بياناتي على الجهاز مؤقتًا لحد ما النت يرجع</button>' : '');
+      '';
     paint(h); bindWarn();
     if (note) setMsg(note, true);
     $('onbBack').onclick = showWelcome;
@@ -291,7 +300,7 @@
   }
   function doEmail() {
     var a = A(); if (!a) { setMsg('خدمة الحساب مش متاحة دلوقتي ⚠', true); return; }
-    var email = ($('onbEmail').value || '').trim(), pass = $('onbPass').value || '';
+    var email = normEmail($('onbEmail').value), pass = $('onbPass').value || ''; if ($('onbEmail').value !== email) $('onbEmail').value = email;
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setMsg('اكتب إيميل صحيح', true); return; }
     if (!pass) { setMsg('اكتب كلمة المرور', true); return; }
     if (mode === 'register' && pass.length < 6) { setMsg('كلمة المرور لازم تكون 6 خانات على الأقل', true); return; }
@@ -318,7 +327,7 @@
     });
   }
   function doForgot() {
-    var a = A(), email = ($('onbEmail').value || '').trim();
+    var a = A(), email = normEmail($('onbEmail').value); if (email) $('onbEmail').value = email;
     if (!email) { setMsg('اكتب إيميلك فوق الأول', true); $('onbEmail').focus(); return; }
     a.sendPasswordResetEmail(email, { url: 'https://my-productivity-app-da499.firebaseapp.com', handleCodeInApp: false })
       .then(function () { setMsg('بعتنالك رابط تغيير كلمة المرور على الإيميل. راجع Spam لو ما ظهرش.', false); })
@@ -326,7 +335,11 @@
   }
 
   /* --- بعد الدخول: بيانات الجهاز مقابل السحابة --- */
-  function showData(text) { phase = 'data'; paint('<div style="text-align:center;padding:60px 0"><div class="spin" role="status"></div><p style="margin-top:16px">' + esc(text || 'جاري تجهيز حسابك...') + '</p></div>'); }
+  var dataT = null;
+  function showData(text) {
+    phase = 'data'; paint('<div style="text-align:center;padding:60px 0"><div class="spin" role="status"></div><p style="margin-top:16px" id="onbDataTxt">' + esc(text || 'جاري تجهيز حسابك...') + '</p></div>');
+    clearTimeout(dataT); dataT = setTimeout(function () { var e = $('onbDataTxt'); if (e && phase === 'data') e.textContent = 'النت بطيء شوية، لسه بنحاول نوصل لحسابك...'; }, 5000);
+  }
   function askConflict(doc) {
     return new Promise(function (res) {
       phase = 'data';
@@ -352,7 +365,7 @@
     var d = D(), uid = user.uid, owner = LS.getItem(OWNER) || '';
     var fresh = ctx.fresh || (Date.now() - parseInt(LS.getItem(FRESH) || '0', 10) < 600000);
     if (!d) return Promise.resolve({ fail: true });
-    return d.collection('users').doc(uid).get().then(function (doc) {
+    return withTimeout(d.collection('users').doc(uid).get(), 12000).then(function (doc) {
       var cloudName = doc.exists ? cleanName(doc.data().acctName) : '';
       if (validName(cloudName)) { LS.setItem('app_user_name', cloudName); LS.setItem('sp_name', cloudName); LS.setItem('app_ai_user_name', cloudName); }
       var has = cloudHas(doc), local = hasLocalData();
@@ -368,14 +381,14 @@
       if (!owner && !fresh) { LS.setItem(OWNER, uid); return; }     /* مستخدم قديم كان مسجّل أصلًا: بياناته بتاعته */
       if (local && has) {
         /* الجهاز أصلًا بتاع نفس الحساب والسحابة مش أحدث منه: مفيش تعارض، بيانات الجهاز هي الأحدث */
-        if (owner === uid && !cloudNewer(doc)) return uploadLocal(uid);
+        if (owner === uid && !cloudNewer(doc)) return withTimeout(uploadLocal(uid), 15000);
         return askConflict(doc).then(function (c) {
           showData('جاري تجهيز حسابك...');
           if (c === 'cloud') { restoreCloud(doc); return; }
-          return uploadLocal(uid);
+          return withTimeout(uploadLocal(uid), 15000);
         });
       }
-      if (local && !has) return uploadLocal(uid);
+      if (local && !has) return withTimeout(uploadLocal(uid), 15000);
       if (!local && has) { restoreCloud(doc); return; }
     }).then(function () { LS.setItem(OWNER, uid); LS.removeItem(FRESH); return { ok: true }; }, function (e) {
       try { console.warn('onb data', e && e.code); } catch (x) { }
@@ -389,13 +402,8 @@
     paint('<div class="hero">' + logo(true) + '<h1>تعذّر الوصول لبيانات حسابك</h1><p>لازم نقرا بيانات حسابك قبل ما نكمّل عشان ما نكتبش فوقها بالغلط. اتأكد من النت وحاول تاني.</p></div>' +
       '<div id="onbMsg" class="msg" role="alert"></div>' +
       '<button type="button" class="pri" id="onbRetry">حاول تاني</button>' +
-      (mine && hasLocalData() ? '<button type="button" class="sec" id="onbOfflineOpen">افتح بيانات الجهاز من غير مزامنة مؤقتًا</button>' : '') +
-      '<button type="button" class="lnk" id="onbOut">تسجيل الخروج</button>');
+            '<button type="button" class="lnk" id="onbOut">تسجيل الخروج</button>');
     $('onbRetry').onclick = function () { handleUser(user); };
-    if ($('onbOfflineOpen')) $('onbOfflineOpen').onclick = function () {
-      window.__noCloudPush = true; closeGate();
-      toast('شغّال من غير مزامنة مؤقتًا، هنكمّل لما النت يرجع');
-    };
     $('onbOut').onclick = function () { try { A().signOut(); } catch (e) { } };
   }
 
@@ -486,8 +494,8 @@
   function showSlow() {
     phase = 'slow';
     paint('<div class="hero">' + logo() + '<h1>سأنجزها</h1><div class="spin" role="status" aria-label="جاري التحميل"></div><p>بنتأكد من حسابك... النت شكله بطيء، هنكمّل أول ما يرد.</p></div>' +
-      (hasLocalData() ? '<button type="button" class="sec" id="onbSlowOpen">افتح التطبيق دلوقتي من غير مزامنة</button>' : ''));
-    if ($('onbSlowOpen')) $('onbSlowOpen').onclick = function () { window.__noCloudPush = true; closeGate(); toast('شغّال من غير مزامنة لحد ما الحساب يتأكد'); };
+      '<button type="button" class="lnk" id="onbSlowOut">تسجيل الخروج</button>');
+    if ($('onbSlowOut')) $('onbSlowOut').onclick = function () { try { A().signOut(); } catch (e) { } };
   }
 
   /* --- نقطة الدخول: بعد ما الحساب يتأكد --- */
