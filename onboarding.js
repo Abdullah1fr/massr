@@ -33,7 +33,7 @@
     var m = s.match(/^([^@]+)@(gmail|gmail\.|gmail\.c|gmail\.co|gmial\.com|gamil\.com|gmai\.com)$/);
     return m ? m[1] + '@gmail.com' : s;
   }
-  function isApk() { return !!window.AndroidNative; }
+  function isApk() { return !!(window.AndroidNative && !window.AndroidNative.__web); }   /* أندرويد حقيقي بس (بديل الويب معرّف AndroidNative بعلامة __web) */
   function withTimeout(p, ms) { return new Promise(function (res, rej) { var t = setTimeout(function () { rej({ code: 'timeout' }); }, ms); p.then(function (v) { clearTimeout(t); res(v); }, function (e) { clearTimeout(t); rej(e); }); }); }
   function jget(k, d) { try { var v = JSON.parse(LS.getItem(k)); return v == null ? d : v; } catch (e) { return d; } }
 
@@ -171,7 +171,35 @@
       '#onbRoot .spin{width:34px;height:34px;border-radius:50%;border:3px solid var(--card-border,#d9deea);border-top-color:var(--accent,#1b8a5a);animation:onbs 1s linear infinite;margin:0 auto}' +
       '@keyframes onbs{to{transform:rotate(360deg)}}@media (prefers-reduced-motion:reduce){#onbRoot .spin{animation:none}}' +
       '#onbRoot .steps{display:flex;gap:6px}#onbRoot .steps i{flex:1;height:4px;border-radius:2px;background:var(--card-border,#d9deea)}#onbRoot .steps i.on{background:var(--accent,#1b8a5a)}' +
-      '#onbRoot .warn{background:rgba(230,160,30,.12);border:1px solid rgba(230,160,30,.5);border-radius:12px;padding:10px 12px;font-size:.82rem;line-height:1.7;display:flex;flex-direction:column;gap:4px}#onbRoot .warn .lnk{padding:4px;font-size:.84rem}';
+      '#onbRoot .warn{background:rgba(230,160,30,.12);border:1px solid rgba(230,160,30,.5);border-radius:12px;padding:10px 12px;font-size:.82rem;line-height:1.7;display:flex;flex-direction:column;gap:4px}#onbRoot .warn .lnk{padding:4px;font-size:.84rem}' +
+      '#onbRoot input{transition:border-color .15s,box-shadow .15s}#onbRoot input:focus{outline:none;border-color:var(--accent,#1b8a5a);box-shadow:0 0 0 3px rgba(27,138,90,.18)}' +
+      '#onbRoot .pw{position:relative}#onbRoot .pw input{padding-right:48px}' +
+      '#onbRoot .eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:38px;height:38px;border:0;background:none;color:var(--text-secondary,#5d667a);cursor:pointer;border-radius:10px;display:flex;align-items:center;justify-content:center;padding:0}' +
+      '#onbRoot .eye:hover{background:rgba(128,128,128,.15)}#onbRoot .eye svg{width:21px;height:21px}' +
+      '#onbRoot .pri,#onbRoot .sec{transition:filter .15s,transform .05s}#onbRoot .pri:hover:not(:disabled){filter:brightness(1.07)}#onbRoot .pri:active:not(:disabled),#onbRoot .sec:active:not(:disabled){transform:scale(.99)}#onbRoot .sec:hover:not(:disabled){background:rgba(128,128,128,.08)}' +
+      '#onbRoot .ld{--s:132px;position:relative;width:var(--s);height:var(--s);margin:0 auto;display:flex;align-items:center;justify-content:center}' +
+      '#onbRoot .ld img{position:relative;z-index:1;width:calc(var(--s)*.68);height:calc(var(--s)*.68);border-radius:24%;object-fit:cover;box-shadow:0 8px 24px rgba(0,0,0,.25);animation:ldb 2.4s ease-in-out infinite}' +
+      '#onbRoot .ld:before{content:"";position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 0deg,transparent 0 30%,var(--accent,#1b8a5a));-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 4px),#000 calc(100% - 3px));mask:radial-gradient(farthest-side,transparent calc(100% - 4px),#000 calc(100% - 3px));animation:ldr 1.1s linear infinite}' +
+      '#onbRoot .ld:after{content:"";position:absolute;inset:18%;border-radius:30%;background:var(--accent,#1b8a5a);opacity:0;animation:ldp 2.4s ease-out infinite}' +
+      '@keyframes ldr{to{transform:rotate(360deg)}}@keyframes ldb{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}@keyframes ldp{0%{transform:scale(1);opacity:.28}100%{transform:scale(1.55);opacity:0}}' +
+      '@media (min-width:900px){#onbRoot .ld{--s:176px}}' +
+      '@media (prefers-reduced-motion:reduce){#onbRoot .ld img,#onbRoot .ld:before,#onbRoot .ld:after{animation:none}}' +
+      '#onbRoot .fld{position:relative}#onbRoot .fld>svg{position:absolute;left:14px;top:50%;transform:translateY(-50%);width:19px;height:19px;color:var(--text-secondary,#5d667a);pointer-events:none}#onbRoot .fld input{padding-left:44px}' +
+      '#onbRoot .hint{font-size:.8rem;color:var(--text-secondary,#5d667a);margin-top:-6px}#onbRoot .hint:empty{display:none}#onbRoot .hint b{direction:ltr;unicode-bidi:isolate;color:var(--accent,#1b8a5a)}' +
+      '#onbRoot .str{display:flex;gap:5px;align-items:center;margin-top:-6px}#onbRoot .str i{flex:1;height:5px;border-radius:3px;background:var(--card-border,#d9deea);transition:background .2s}' +
+      '#onbRoot .str i.l1{background:#e5484d}#onbRoot .str i.l2{background:#f5a524}#onbRoot .str i.l3{background:#2e9e5b}#onbRoot .str span{font-size:.78rem;min-width:56px;text-align:left;color:var(--text-secondary,#5d667a)}' +
+      '@media (min-width:900px){#onbRoot .ob:not(.ob-auth):not(.ob-bare){max-width:520px;margin:24px auto;padding:40px;background:var(--card-bg,#fff);border:1px solid var(--card-border,#d9deea);border-radius:24px;box-shadow:0 24px 70px rgba(0,0,0,.14)}}' +
+      '#onbRoot .brandpane{display:none}#onbRoot .formpane{display:flex;flex-direction:column;gap:14px}' +
+      '@media (min-width:900px){' +
+        '#onbRoot{align-items:center;background:radial-gradient(1200px 600px at 80% -10%,rgba(27,138,90,.14),transparent),var(--bg-main,#f4f6fb)}' +
+        '#onbRoot .ob.ob-auth{max-width:940px;min-height:580px;flex-direction:row;gap:0;padding:0;margin:24px auto;background:var(--card-bg,#fff);border:1px solid var(--card-border,#d9deea);border-radius:24px;overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,.16)}' +
+        '#onbRoot .brandpane{display:flex;flex-direction:column;justify-content:center;gap:18px;flex:1 1 44%;padding:52px 44px;color:#fff;background:#1b8a5a;background:linear-gradient(155deg,var(--accent,#1b8a5a),color-mix(in srgb,var(--accent,#1b8a5a) 62%,#000))}' +
+        '#onbRoot .brandpane .logo{margin:0;width:92px;height:92px;box-shadow:0 10px 28px rgba(0,0,0,.28)}' +
+        '#onbRoot .brandpane .bt{font-size:2rem;font-weight:800;line-height:1.2}' +
+        '#onbRoot .brandpane ul{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:14px}#onbRoot .brandpane li{font-size:1rem;line-height:1.6;display:flex;gap:10px;align-items:flex-start}#onbRoot .brandpane li:before{content:"\\2713";flex:none;width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.22);display:flex;align-items:center;justify-content:center;font-size:.8rem;font-weight:800}' +
+        '#onbRoot .formpane{flex:1 1 56%;padding:52px 48px;justify-content:center;gap:16px}' +
+        '#onbRoot .formpane .hero .logo{display:none}#onbRoot .formpane .hero{align-items:flex-start;text-align:right}#onbRoot .formpane .hero p{max-width:none}#onbRoot .formpane h1{font-size:1.7rem}' +
+      '}';
     document.head.appendChild(st);
   }
   function coverOff() { try { if (window.__onbCoverOff) window.__onbCoverOff(); } catch (e) { } }
@@ -181,7 +209,7 @@
     coverOff();
     return root;
   }
-  function paint(html) { ctx.busy = false; mount().innerHTML = '<div class="ob">' + html + '</div>'; }
+  function paint(html, cls) { ctx.busy = false; mount().innerHTML = '<div class="ob' + (cls ? ' ' + cls : '') + '">' + html + '</div>'; }
   function setMsg(t, bad) { var m = document.getElementById('onbMsg'); if (m) { m.textContent = t || ''; m.className = 'msg ' + (t ? (bad ? 'err' : 'ok') : ''); } }
   function stepsBar(n) { var h = '<div class="steps" aria-hidden="true">'; for (var i = 1; i <= 3; i++) h += '<i class="' + (i <= n ? 'on' : '') + '"></i>'; return h + '</div>'; }
   function busy(b) { ctx.busy = b; var bs = root ? root.querySelectorAll('button') : []; for (var i = 0; i < bs.length; i++) bs[i].disabled = !!b; }
@@ -251,19 +279,26 @@
   function backBtn(id) { return '<button type="button" class="lnk" id="' + id + '" style="align-self:flex-start;padding:4px 0">‹ رجوع</button>'; }
 
   /* --- splash --- */
-  function showSplash() { phase = 'splash'; paint('<div style="text-align:center;padding:60px 0">' + logo() + '<h1 style="margin:16px 0 18px">سأنجزها</h1><div class="spin" role="status" aria-label="جاري التحميل"></div></div>'); }
+  function showSplash() { phase = 'splash'; paint('<div style="text-align:center;padding:60px 0">' + ld() + '<h1 style="margin:16px 0 18px">سأنجزها</h1></div>', 'ob-bare'); }
 
   /* --- الدخول --- */
+  var EYE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+  var EYE_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+  var G_ICON = '<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>';
+  /* موبايل: عمود واحد. ديسكتوب (900px+): لوحة براند على جنب والنموذج على الجنب التاني */
+  function shell(inner) {
+    return '<div class="brandpane">' + logo() + '<div class="bt">\u0633\u0623\u0646\u062c\u0632\u0647\u0627</div><ul><li>\u0628\u064a\u0627\u0646\u0627\u062a\u0643 \u0628\u062a\u062a\u062d\u0641\u0638 \u0639\u0644\u0649 \u062d\u0633\u0627\u0628\u0643</li><li>\u062a\u062f\u062e\u0644 \u0645\u0646 \u0623\u064a \u062c\u0647\u0627\u0632 \u0648\u0628\u064a\u0627\u0646\u0627\u062a\u0643 \u0645\u0639\u0627\u0643</li><li>\u062a\u0646\u0627\u0641\u0633 \u0623\u0635\u062d\u0627\u0628\u0643 \u0648\u062a\u0634\u0648\u0641 \u062a\u0631\u062a\u064a\u0628\u0643</li></ul></div><div class="formpane">' + inner + '</div>';
+  }
   var mode = 'register';
   /* --- أول شاشة: الأيقونة + الترحيب + زرارين --- */
   function showWelcome() {
     openGate(); phase = 'welcome';
     var offline = navigator.onLine === false;
-    paint('<div class="hero">' + logo() + '<h1>أهلًا في سأنجزها</h1><p>سجّل دخولك عشان بياناتك تتحفظ على حسابك، وتقدر تدخل من أي جهاز وتنافس أصحابك.</p></div>' + warnHtml() +
+    paint(shell('<div class="hero">' + logo() + '<h1>أهلًا في سأنجزها</h1><p>سجّل دخولك عشان بياناتك تتحفظ على حسابك، وتقدر تدخل من أي جهاز وتنافس أصحابك.</p></div>' + warnHtml() +
       '<button type="button" class="pri" id="onbNew">إنشاء حساب</button>' +
       '<button type="button" class="sec" id="onbHave">تسجيل الدخول</button>' +
       (offline ? '<p style="text-align:center">مفيش نت دلوقتي، أول دخول محتاج اتصال بالإنترنت.</p>' : '') +
-      '');
+      ''), 'ob-auth');
     bindWarn();
     $('onbNew').onclick = function () { mode = 'register'; showAuth(); };
     $('onbHave').onclick = function () { mode = 'login'; showAuth(); };
@@ -274,26 +309,53 @@
     b.onclick = function () { tempBypass = true; gateOpen = false; gateEvt(); if (root) { root.remove(); root = null; } toast('شغّال بدون حساب مؤقتًا، هنطلب الدخول لما النت يرجع'); };
   }
   /* --- نموذج الإنشاء / الدخول (بعد ما يختار من الشاشة اللي فوق) --- */
+  var MAIL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>';
+  var LOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
+  function ld() { return '<div class="ld" role="status" aria-label="جاري التحميل"><img src="icon-192.png" alt="" onerror="this.style.display=\'none\'"></div>'; }
+  /* معاينة الإيميل: لو كتب اسم جيميل بس، نوريله هنسجّل بإيه */
+  function hintUp() {
+    var e = $('onbEmail'), h = $('onbEmailHint'); if (!e || !h) return;
+    var v = e.value.trim(), n = v ? normEmail(v) : '';
+    h.innerHTML = (v && n && n.toLowerCase() !== v.toLowerCase()) ? 'هنسجّل بـ <b>' + esc(n) + '</b>' : '';
+  }
+  /* قوة كلمة المرور (إنشاء حساب بس) */
+  function strUp() {
+    var p = $('onbPass'), box = $('onbStr'); if (!p || !box) return;
+    var v = p.value, sc = 0;
+    if (v.length >= 6) sc++; if (v.length >= 10) sc++; if (/[a-z\u0621-\u064a]/i.test(v) && /\d/.test(v)) sc++; if (/[^a-z0-9\u0621-\u064a]/i.test(v) && v.length >= 8) sc++;
+    var lv = !v ? 0 : (sc <= 1 ? 1 : sc === 2 ? 2 : 3), is = box.querySelectorAll('i');
+    for (var k = 0; k < is.length; k++) is[k].className = k < lv ? 'l' + lv : '';
+    box.querySelector('span').textContent = ['', 'ضعيفة', 'متوسطة', 'قوية'][lv];
+  }
   function showAuth(note) {
     openGate(); phase = 'auth';
     var offline = navigator.onLine === false, google = !isApk(), reg = mode === 'register';
     var h = '<button type="button" class="lnk" id="onbBack" style="align-self:flex-start;padding:4px 0">‹ رجوع</button>' +
-      '<div class="hero">' + logo(true) + '<h1>' + (reg ? 'إنشاء حساب جديد' : 'تسجيل الدخول') + '</h1></div>' + warnHtml() +
-      '<input type="email" id="onbEmail" placeholder="الإيميل (لو جيميل اكتب اسمه بس)" autocomplete="email" inputmode="email" dir="ltr" style="text-align:left">' +
-      '<input type="password" id="onbPass" placeholder="كلمة المرور' + (reg ? ' (6 خانات على الأقل)' : '') + '" autocomplete="' + (reg ? 'new-password' : 'current-password') + '" dir="ltr" style="text-align:left">' +
+      '<div class="hero">' + logo(true) + '<h1>' + (reg ? 'إنشاء حساب جديد' : 'أهلًا بيك تاني') + '</h1><p>' + (reg ? 'دقيقة واحدة وبياناتك تتحفظ على حسابك.' : 'سجّل دخولك وبياناتك تجيلك على أي جهاز.') + '</p></div>' +
+      '<div class="tabs" role="tablist"><button type="button" role="tab" id="onbTabReg" class="' + (reg ? 'on' : '') + '" aria-selected="' + reg + '">إنشاء حساب</button><button type="button" role="tab" id="onbTabIn" class="' + (reg ? '' : 'on') + '" aria-selected="' + !reg + '">تسجيل الدخول</button></div>' + warnHtml() +
+      '<div class="fld"><input type="email" id="onbEmail" placeholder="الإيميل (لو جيميل اكتب اسمه بس)" autocomplete="email" inputmode="email" dir="ltr" style="text-align:left">' + MAIL + '</div><div id="onbEmailHint" class="hint" aria-live="polite"></div>' +
+      '<div class="pw fld"><input type="password" id="onbPass" placeholder="كلمة المرور' + (reg ? ' (6 خانات على الأقل)' : '') + '" autocomplete="' + (reg ? 'new-password' : 'current-password') + '" dir="ltr" style="text-align:left"><button type="button" class="eye" id="onbEye" aria-label="إظهار كلمة المرور">' + EYE + '</button>' + LOCK + '</div>' +
+      (reg ? '<div class="str" id="onbStr" aria-live="polite"><i></i><i></i><i></i><span></span></div>' : '') +
       '<div id="onbMsg" class="msg" role="alert"></div>' +
       '<button type="button" class="pri" id="onbGo">' + (reg ? 'إنشاء الحساب' : 'تسجيل الدخول') + '</button>' +
-      (google ? '<div class="or">أو</div><button type="button" class="sec" id="onbGoogle"><span aria-hidden="true">G</span> ' + (reg ? 'الإنشاء' : 'الدخول') + ' بحساب جوجل</button>' : '<p>الدخول بجوجل مش متاح في تطبيق الأندرويد دلوقتي، استخدم الإيميل وكلمة المرور.</p>') +
+      (google ? '<div class="or">أو</div><button type="button" class="sec" id="onbGoogle">' + G_ICON + ' ' + (reg ? 'الإنشاء' : 'الدخول') + ' بحساب جوجل</button>' : '<p>الدخول بجوجل مش متاح في تطبيق الأندرويد دلوقتي، استخدم الإيميل وكلمة المرور.</p>') +
       (!reg ? '<button type="button" class="lnk" id="onbForgot">نسيت كلمة المرور؟</button>' : '') +
-      '<button type="button" class="lnk" id="onbSwitch">' + (reg ? 'عندي حساب بالفعل' : 'معنديش حساب، إنشاء حساب جديد') + '</button>' +
       (offline ? '<p>مفيش نت دلوقتي، أول دخول محتاج اتصال بالإنترنت.</p>' : '') +
       '';
-    paint(h); bindWarn();
+    paint(shell(h), 'ob-auth'); bindWarn();
     if (note) setMsg(note, true);
     $('onbBack').onclick = showWelcome;
-    $('onbSwitch').onclick = function () { mode = reg ? 'login' : 'register'; showAuth(); };
+    function goTab(m) { if (mode === m) return; var ev = $('onbEmail').value; mode = m; showAuth(); $('onbEmail').value = ev; hintUp(); }
+    $('onbTabReg').onclick = function () { goTab('register'); }; $('onbTabIn').onclick = function () { goTab('login'); };
+    $('onbEmail').oninput = hintUp; $('onbEmail').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); $('onbPass').focus(); } };
+    if ($('onbStr')) $('onbPass').oninput = strUp;
     $('onbGo').onclick = doEmail;
     $('onbPass').onkeydown = function (e) { if (e.key === 'Enter') doEmail(); };
+    $('onbEye').onmousedown = function (e) { e.preventDefault(); };
+    $('onbEye').onclick = function () {
+      var p = $('onbPass'), show = p.type === 'password'; p.type = show ? 'text' : 'password';
+      this.innerHTML = show ? EYE_OFF : EYE; this.setAttribute('aria-label', show ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور');
+    };
     if ($('onbGoogle')) $('onbGoogle').onclick = doGoogle;
     if ($('onbForgot')) $('onbForgot').onclick = doForgot;
     bindBypass();
@@ -335,7 +397,7 @@
   }
 
   /* --- بعد الدخول: بيانات الجهاز مقابل السحابة --- */
-  var lastErr = '', attempt = 1, dlog = [], t0 = Date.now(), stT = null, stI = null, stStart = 0, curStage = 0;
+  var lastErr = '', attempt = 1, dlog = [], lastMsg = '', t0 = Date.now(), stT = null, stI = null, stStart = 0, curStage = 0;
   function lg(x) { dlog.push(((Date.now() - t0) / 1000).toFixed(1) + 's ' + x); if (dlog.length > 40) dlog.shift(); }
   function diagText() { return dlog.join('\n') + '\nonLine=' + navigator.onLine + ' ' + new Date().toISOString() + '\n' + navigator.userAgent; }
   var STAGES = ['جاري تسجيل الدخول لحسابك', 'جاري التحقق من حسابك', 'جاري قراءة بيانات حسابك من السحابة', 'جاري مقارنة بياناتك مع بيانات الجهاز', 'جاري استرجاع بياناتك على الجهاز', 'جاري إنهاء التجهيز'];
@@ -344,14 +406,14 @@
   /* شاشة تقدّم: شريط واحد تحت ورسالة بتتغيّر مع كل مرحلة بتبدأ فعلًا في الكود (مفيش مؤقت وهمي) */
   function showData(text, stage) {
     phase = 'data';
-    paint('<div style="text-align:center;padding:60px 0 150px">' + logo() + '<div class="spin" role="status" style="margin-top:18px"></div></div>' +
+    paint('<div style="text-align:center;padding:60px 0 150px">' + ld() + '</div>' +
       '<div style="position:fixed;left:0;right:0;bottom:0;padding:16px 24px max(22px,env(safe-area-inset-bottom));text-align:center;background:var(--bg-main, #f4f6fb)">' +
       '<div id="onbStageNo" style="font-size:.74rem;opacity:.65;margin-bottom:4px"></div>' +
       '<p id="onbDataTxt" style="margin:0 0 10px;font-weight:700;color:var(--text-primary, #1c2233)"></p>' +
       '<div style="height:6px;border-radius:3px;background:var(--card-border, #d9deea);overflow:hidden;max-width:420px;margin:0 auto"><div id="onbBar" style="height:100%;width:3%;background:var(--accent, #1b8a5a);transition:width .5s ease"></div></div>' +
       '<p id="onbDataSub" style="margin:8px 0 0;font-size:.8rem;min-height:1.2em;color:var(--text-secondary, #5d667a)"></p>' +
       '<button type="button" class="lnk" id="onbDiagB" style="font-size:.74rem;padding:2px 8px">تفاصيل</button>' +
-      '<pre id="onbDiag" style="display:none;text-align:left;direction:ltr;font-size:.66rem;max-height:110px;overflow:auto;margin:6px auto 0;max-width:420px;white-space:pre-wrap"></pre></div>');
+      '<pre id="onbDiag" style="display:none;text-align:left;direction:ltr;font-size:.66rem;max-height:110px;overflow:auto;margin:6px auto 0;max-width:420px;white-space:pre-wrap"></pre></div>', 'ob-bare');
     var bt = $('onbDiagB'); if (bt) bt.onclick = function () { var d = $('onbDiag'); if (!d) return; d.style.display = d.style.display === 'none' ? 'block' : 'none'; d.textContent = diagText(); };
     setStage(stage == null ? 0 : stage, text);
   }
@@ -432,12 +494,13 @@
       if (local && !has) { setStage(4, 'جاري رفع بيانات الجهاز لحسابك'); return withTimeout(uploadLocal(uid), 15000); }
       if (!local && has) { setStage(4); restoreCloud(doc); return; }
     }).then(function () { LS.setItem(OWNER, uid); LS.removeItem(FRESH); return { ok: true }; }, function (e) {
-      lastErr = String((e && e.code) || (e && e.message) || 'unknown'); lg('FAIL ' + lastErr);
+      lastErr = String((e && e.code) || (e && e.message) || 'unknown'); lastMsg = String((e && e.message) || ''); lg('FAIL ' + lastErr + (lastMsg ? ' | ' + lastMsg.slice(0, 140) : ''));
       try { console.warn('onb data', e && e.code); } catch (x) { }
       return { fail: true };
     });
   }
   /* ما قدرناش نوصل لبيانات الحساب: ما نكمّلش ولا نرفع حاجة فوقها */
+  function isFsAssert() { return /INTERNAL ASSERTION|Unexpected state/i.test(lastMsg) || lastErr === 'internal'; }
   function errWhy(c) {
     c = String(c || '');
     if (/permission-denied/.test(c)) return 'السيرفر رفض قراءة بيانات حسابك (صلاحيات قاعدة البيانات)';
@@ -455,7 +518,7 @@
             '<button type="button" class="lnk" id="onbOut">تسجيل الخروج</button>' +
       '<button type="button" class="lnk" id="onbDiagR" style="font-size:.74rem">تفاصيل</button><pre id="onbDiagRP" style="display:none;text-align:left;direction:ltr;font-size:.66rem;max-height:140px;overflow:auto;white-space:pre-wrap"></pre>');
     $('onbDiagR').onclick = function () { var d = $('onbDiagRP'); d.style.display = d.style.display === 'none' ? 'block' : 'none'; d.textContent = diagText(); };
-    $('onbRetry').onclick = function () { attempt++; handleUser(user, true); };
+    $('onbRetry').onclick = function () { if (isFsAssert()) { try { sessionStorage.setItem('onb_fs_rl', '1'); } catch (e) { } location.reload(); return; } attempt++; handleUser(user, true); };
     $('onbOut').onclick = function () { try { A().signOut(); } catch (e) { } };
   }
 
@@ -545,8 +608,8 @@
   /* النت بطيء ومستخدم مسجّل قبل كده: ما نعرضلوش شاشة التسجيل، نستنى الرد */
   function showSlow() {
     phase = 'slow';
-    paint('<div class="hero">' + logo() + '<h1>سأنجزها</h1><div class="spin" role="status" aria-label="جاري التحميل"></div><p>بنتأكد من حسابك... النت شكله بطيء، هنكمّل أول ما يرد.</p></div>' +
-      '<button type="button" class="lnk" id="onbSlowOut">تسجيل الخروج</button>');
+    paint('<div class="hero">' + ld() + '<h1>سأنجزها</h1><p>بنتأكد من حسابك... النت شكله بطيء، هنكمّل أول ما يرد.</p></div>' +
+      '<button type="button" class="lnk" id="onbSlowOut">تسجيل الخروج</button>', 'ob-bare');
     if ($('onbSlowOut')) $('onbSlowOut').onclick = function () { try { A().signOut(); } catch (e) { } };
   }
 
@@ -565,10 +628,20 @@
     showData(null, 0);
     resolveData(user).then(function (r) {
       if (r && r.fail) {
+        /* Firestore وقع بـ INTERNAL ASSERTION: إعادة تحميل تلقائية؛ لو اتكرر بنقفل الكاش الأوفلاين على الجهاز ده ونعيد تاني؛ لو لسه بنعرض شاشة الفشل */
+        if (isFsAssert()) {
+          var rl = 0; try { rl = parseInt(sessionStorage.getItem('onb_fs_rl') || '0', 10); } catch (e) { }
+          if (rl < 2) {
+            try { sessionStorage.setItem('onb_fs_rl', String(rl + 1)); } catch (e) { }
+            if (rl === 1) { try { LS.setItem('fs_nopersist', '1'); } catch (e) { } }
+            lg('auto reload #' + (rl + 1) + (rl === 1 ? ' (cache off)' : '')); location.reload(); return;
+          }
+        }
         /* لو الفشل فوري: نسيب شاشة التقدّم ثانية على الأقل عشان المستخدم يشوف إن الزرار اشتغل */
         var wait = Math.max(0, 1200 - (Date.now() - tStart));
         setTimeout(function () { dataDone(); showRetry(user); }, wait); return;
       }
+      try { sessionStorage.removeItem('onb_fs_rl'); } catch (e) { }
       if (phase === 'data') setStage(5);
       dataDone();
       window.__noCloudPush = false;
