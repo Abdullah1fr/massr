@@ -9,12 +9,16 @@ try{
 if(typeof APP_ACTIONS==='undefined'||typeof AI_TOOLS_DECLARATION==='undefined'||typeof AI_FN_STATUS_LABELS==='undefined')return;
 const AA=APP_ACTIONS,DECL=AI_TOOLS_DECLARATION[0].functionDeclarations,LB=AI_FN_STATUS_LABELS;
 if(AA.make_video)return;
+// قايمة أنواع الملفات في index.html مفيهاش فيديو/صوت، فكارت الملف كان بيعتبر الفيديو "نص" ومبيفتحش في الشات. بنضيف الأنواع الناقصة هنا (من غير ما نلمس index.html).
+try{if(typeof AI_MIME_BY_EXT==='object'&&AI_MIME_BY_EXT){const M={webm:'video/webm',mp4:'video/mp4',mov:'video/quicktime',mp3:'audio/mpeg',wav:'audio/wav',m4a:'audio/mp4',ogg:'audio/ogg',opus:'audio/ogg',aac:'audio/aac',flac:'audio/flac'};for(const k in M)if(!AI_MIME_BY_EXT[k])AI_MIME_BY_EXT[k]=M[k]}}catch(e){}
 const S={type:'string'},N={type:'number'};
 const d=(t,x)=>Object.assign({},t,{description:x});
 const E=(a,x)=>({type:'string',enum:a,description:x});
 const reg=(n,lab,desc,p,r,h)=>{AA[n]={description:desc,parameters:{type:'object',properties:p,required:r||[]},handler:h};DECL.push({name:n,description:desc,parameters:AA[n].parameters});LB[n]=lab};
 const ok=o=>Object.assign({status:'ok'},o),er=m=>({status:'error',message:m});
-const act=t=>{try{appendAIBubble('action',t)}catch(e){}};
+// act: بيكتب سطر حالة في الشات ويرجّع العنصر. upd: بيحدّث نفس السطر (عشان نعرض التقدم من غير ما الشات يتملي رسايل)
+const act=t=>{try{return appendAIBubble('action',t)}catch(e){return null}};
+const upd=(el,t)=>{try{if(el)el.textContent=t;else act(t)}catch(e){}};
 const norm=t=>String(t||'').replace(/\s+/g,' ').trim();
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 const ease=t=>1-Math.pow(1-clamp(t,0,1),3);
@@ -153,6 +157,7 @@ reg('make_video','🎬 بعمل فيديو',
     if(raw.length>MAX_SCENES)return er('الحد الأقصى '+MAX_SCENES+' مشهد. قسّم الفيديو لجزئين.');
     const st=STYLES[a.style]||STYLES.dark,[W,H]=SIZES[a.aspect]||SIZES['9:16'];
     const scenes=[];
+    if(raw.some(s=>s&&s.image))act('🖼️ بحمّل صور المشاهد...');
     for(const s of raw){
       const text=norm(s.text),title=norm(s.title);
       const words=(title+' '+text).split(' ').filter(Boolean).length;
@@ -172,13 +177,19 @@ reg('make_video','🎬 بعمل فيديو',
     const rec=new MediaRecorder(cv.captureStream(FPS),{mimeType:mime,videoBitsPerSecond:2500000});
     const chunks=[];rec.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data)};
     const stopped=new Promise(res=>{rec.onstop=res});
-    act('🎬 بصوّر الفيديو ('+Math.round(total)+' ثانية تقريبًا). سيب الشاشة مفتوحة لحد ما يخلص...');
+    act('🎬 جهّزت '+scenes.length+' مشهد ('+W+'×'+H+'، حوالي '+Math.round(total)+' ثانية)');
+    const pb=act('🔴 بدأت التصوير... سيب الشاشة مفتوحة');
+    let lastU=0;
+    const sceneNo=g=>{let a=0;for(let i=0;i<scenes.length;i++){a+=scenes[i].dur;if(g<a)return i}return scenes.length-1};
     rec.start(250);
     const t0=performance.now();
     await new Promise(res=>{
       const tick=()=>{
         const el=(performance.now()-t0)/1000;
         renderAt(ctx,W,H,scenes,total,Math.min(el,total));
+        const nowT=performance.now();
+        if(nowT-lastU>=1000){lastU=nowT;const si=sceneNo(el);
+          upd(pb,'🔴 بصوّر الفيديو... '+Math.min(100,Math.round(el/total*100))+'% (مشهد '+(si+1)+' من '+scenes.length+(scenes[si].title?': '+scenes[si].title.slice(0,30):'')+')'+(document.hidden?' ⚠️ الشاشة اتخبّت، ارجع للتطبيق وإلا التسجيل ممكن يبوظ':' — سيب الشاشة مفتوحة'))}
         if(el>=total)return res();
         document.hidden?setTimeout(tick,1000/FPS):requestAnimationFrame(tick);
       };tick();
@@ -186,12 +197,18 @@ reg('make_video','🎬 بعمل فيديو',
     await wait(250);
     if(rec.state!=='inactive')rec.stop();
     await stopped;
+    // لو كارت الخطوات (aisteps.js) شغّال، كل مرحلة بتتكتب كخطوة لوحدها وسطر النسبة بيتقفل. من غيره بنحدّث نفس السطر زي الأول.
+    const cards=!!window.__aiRunCards,step=t=>cards?act(t):upd(pb,t);
+    if(cards)upd(pb,'🔴 صوّرت الفيديو كله ('+Math.round(total)+' ثانية)');
+    step('📦 خلّصت التصوير، بجمّع ملف الفيديو...');
     const baseMime=mime.split(';')[0],ext=baseMime==='video/mp4'?'mp4':'webm';
     const blob=new Blob(chunks,{type:baseMime});
     if(!blob.size)return er('التسجيل خرج فاضي. جرّب تاني وسيب التبويب ظاهر على الشاشة.');
     const bytes=new Uint8Array(await blob.arrayBuffer());
     const nm=norm(a.name)||'فيديو';
+    step('💾 بحفظ الفيديو في المحادثة ('+(bytes.length/1048576).toFixed(1)+' ميجا)...');
     const file=await aiAddOutputFile(aiBase(nm,'',ext),baseMime,bytes);
+    if(!cards)upd(pb,'✅ الفيديو جاهز ('+scenes.length+' مشاهد، '+Math.round(total)+' ثانية، '+(bytes.length/1048576).toFixed(1)+' ميجا)');
     return ok({message:'اتعمل الفيديو ('+scenes.length+' مشاهد، '+Math.round(total)+' ثانية، '+W+'×'+H+')',file,
       note:'من غير صوت. لو المشغّل ما بيسمحش بالتقديم، ده طبيعي في ملفات webm المسجّلة من المتصفح.'});
   }catch(e){return er(e.message||String(e))}
