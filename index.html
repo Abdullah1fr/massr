@@ -6545,6 +6545,12 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
             <div class="settings-group-label">النسخ الاحتياطي والحساب</div>
             <div class="settings-list-group">
 
+                <div class="settings-list-item" onclick="closeSettingsModal(); if(window.openMcpConnectors) openMcpConnectors(); else showToast('ميزة ربط المواقع لسه ما اتحمّلتش')">
+                    <span class="settings-list-icon" style="background:#8b5cf6;">🔌</span>
+                    <span class="settings-list-label">ربط المواقع</span>
+                    <span class="settings-list-chevron">‹</span>
+                </div>
+
                 <div class="settings-list-item" onclick="toggleSettingsItem(this)">
                     <span class="settings-list-icon" style="background:#3b82f6;">💾</span>
                     <span class="settings-list-label">النسخة الاحتياطية</span>
@@ -37935,6 +37941,7 @@ window.registerAppTile = function (o) {
 <script src="webtools.js?v=7" onerror="window.__webtoolsFailed=1"></script>
 <script src="filetools.js?v=1" onerror="window.__filetoolsFailed=1"></script>
 <script src="videotools.js?v=2" onerror="window.__videotoolsFailed=1"></script>
+<script src="mcptools.js?v=1"></script>
 <script src="aisteps.js?v=1" onerror="window.__aistepsFailed=1"></script>
 <script src="onboarding.js?v=15" onerror="window.__onbLoadFailed=1;window.__onbCoverOff&&window.__onbCoverOff()"></script>
 <script src="social.js?v=23" onerror="window.__socialLoadFailed=1"></script>
