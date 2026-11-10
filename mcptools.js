@@ -589,7 +589,7 @@ reg('mcp_show_card','🎨 بعرض التصميم',
 // الصور بتظهر بـ <img> (مفيش CORS)، والتنزيل بيعدّي على البوابة.
 var NOTIMG=/\.(pdf|mp4|mov|webm|pptx?|zip|docx?)(\?|#|$)/i;
 var ISIMG=/\.(png|jpe?g|webp|gif)(\?|#|$)/i;
-var IMGHOST=/(thumbnail|export-download|media-public|document-export|\/media\/)/i;
+var IMGHOST=/(thumbnail|export-download|media-public|document-export|\/media\/|media\.canva\.com)/i;
 function pickMedia(res){
   var t=textOf(res),seen={},images=[],links=[];
   (t.match(URLRX)||[]).forEach(function(u){
@@ -601,7 +601,12 @@ function pickMedia(res){
     if(ISIMG.test(u)||IMGHOST.test(u))images.push(u);
   });
   try{(Array.isArray((res||{}).content)?res.content:[]).forEach(function(c){
-    if(c&&c.type==='image'&&c.data&&/^image\//.test(c.mimeType||''))images.push('data:'+c.mimeType+';base64,'+c.data);
+    if(!c)return;
+    if(c.type==='image'&&c.data&&/^image\//.test(c.mimeType||''))images.push('data:'+c.mimeType+';base64,'+c.data);
+    var ru=c.uri||(c.resource&&c.resource.uri)||c.url,rm=c.mimeType||(c.resource&&c.resource.mimeType)||'';
+    if(ru&&/^https:\/\//i.test(ru)&&(/^image\//.test(rm)||c.type==='image')&&images.indexOf(ru)<0)images.push(ru);
+    var rb=c.resource&&c.resource.blob;
+    if(rb&&/^image\//.test(rm))images.push('data:'+rm+';base64,'+rb);
   })}catch(e){}
   return {images:images.slice(0,6),links:links.slice(0,4),title:''};
 }
@@ -616,6 +621,7 @@ async function downloadUrl(u,nm){
     try{var r=await fetch(u);if(!r.ok)throw new Error('رجّع '+r.status);buf=new Uint8Array(await r.arrayBuffer());ct=(r.headers.get('content-type')||'').split(';')[0]}
     catch(e2){window.open(u,'_blank','noopener');throw new Error('فتحتلك الصورة في تبويب جديد، حمّلها من هناك')}
   }
+  if(/text\/html/i.test(ct))throw new Error('الرابط ده صفحة مش صورة مباشرة. افتحها من "فتح في كانفا" وحمّل من هناك');
   if(ct.indexOf('image/')!==0)ct=ct||'image/png';
   var ext=(ct.split('/')[1]||'png').replace('jpeg','jpg').replace(/[^a-z0-9]/gi,'')||'png';
   var base=String(nm||'تصميم').replace(/\s+/g,' ').trim()||'تصميم';
@@ -627,17 +633,19 @@ function mediaHtml(mm){
   var h='<div style="direction:rtl;text-align:right;border:1px solid rgba(128,140,160,.35);border-radius:14px;padding:10px;max-width:360px;background:rgba(128,128,128,.08)">';
   if(mm.title)h+='<div style="font-weight:800;margin-bottom:8px">🎨 '+esc(mm.title)+'</div>';
   mm.images.forEach(function(u,i){
-    h+='<div style="margin-bottom:10px"><img src="'+esc(u)+'" alt="" referrerpolicy="no-referrer" style="width:100%;border-radius:10px;display:block;margin-bottom:6px;min-height:60px;background:rgba(128,128,128,.15)">'+
+    h+='<div style="margin-bottom:10px"><img src="'+esc(u)+'" alt="" referrerpolicy="no-referrer" style="width:100%;border-radius:10px;display:block;margin-bottom:6px;min-height:60px;background:rgba(128,128,128,.15)" onerror="this.parentNode.style.display=\'none\'">'+
       '<div style="display:flex;gap:6px;flex-wrap:wrap">'+
       '<button data-m="dl" data-i="'+i+'" class="btn" style="padding:8px 12px;cursor:pointer">⬇️ تنزيل</button>'+
-      '<button data-m="cp" data-i="'+i+'" class="btn btn-secondary" style="padding:8px 12px;cursor:pointer">🔗 نسخ الرابط</button></div></div>';
+      '<button data-m="cp" data-i="'+i+'" class="btn btn-secondary" style="padding:8px 12px;cursor:pointer">🔗 نسخ الرابط</button></div>'+(mm.edit&&i===0?'<button data-m="ed2" class="btn btn-secondary" style="width:100%;margin-top:6px;padding:10px 12px;cursor:pointer">✏️ تعديل في كانفا</button>':'')+'</div>';
   });
   if(mm.links.length){
     h+='<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:6px">';
     mm.links.forEach(function(u,i){h+='<button data-m="ed" data-i="'+i+'" class="btn btn-secondary" style="width:100%;padding:10px 12px;cursor:pointer">'+(mm.linkLabel||'✏️ تعديل في كانفا')+(mm.links.length>1?' '+(i+1):'')+'</button>'});
     h+='</div>';
   }
-  h+='<div data-m="msg" style="font-size:.75rem;opacity:.8;margin-top:4px;min-height:1em"></div></div>';
+  h+='<div data-m="msg" style="font-size:.75rem;opacity:.8;margin-top:4px;min-height:1em"></div>';
+  if(mm.diag)h+='<div style="font-size:.62rem;opacity:.5;margin-top:4px;direction:ltr;text-align:left;word-break:break-all">'+esc(mm.diag)+'</div>';
+  h+='</div>';
   return h;
 }
 function wireMedia(root,mm){
@@ -657,6 +665,26 @@ function wireMedia(root,mm){
       var okc=/^data:/i.test(cu)?false:await copyText(cu);
       var old=b.textContent;b.textContent=okc?'✅ اتنسخ':'⚠️ مانفعش';
       setTimeout(function(){b.textContent=old},1500);
+    };
+  });
+  Array.prototype.forEach.call(root.querySelectorAll('button[data-m=ed2]'),function(b){
+    b.onclick=async function(){
+      var img=mm.images[0],fb=(mm.links&&mm.links[0])||img;
+      var w=null;try{w=window.open('about:blank','_blank')}catch(e){}
+      var go=function(u){if(w&&!w.closed){try{w.location.href=u;return}catch(e){}}window.open(u,'_blank','noopener')};
+      b.disabled=true;say('⏳ بجهّز الصورة للتعديل في كانفا...');
+      try{
+        var r=await canvaTool('import-design-from-url',{url:img,name:String(mm.title||'صورة').slice(0,60)},'فتح الصورة للتعديل');
+        var t=textOf(r);
+        if(r.isError)throw new Error(t.slice(0,200)||'كانفا رجّعت خطأ');
+        var m=t.match(/https:\/\/www\.canva\.com\/design\/[A-Za-z0-9_-]+[^\s"'<>\\)]*/),id=designIdOf(t);
+        var u=m?m[0].replace(/[.,;]+$/,''):(id?'https://www.canva.com/design/'+id+'/edit':'');
+        if(!u)throw new Error('معرفتش ألاقي رابط التصميم');
+        go(u);say('✅ اتفتحت في كانفا للتعديل');
+      }catch(x){
+        go(fb);say('⚠️ معرفتش أفتحها في المحرر ('+(x.message||x)+')، فتحت صفحة الصورة في كانفا');
+      }
+      b.disabled=false;
     };
   });
   Array.prototype.forEach.call(root.querySelectorAll('button[data-m=ed]'),function(b){
@@ -759,7 +787,7 @@ function showOffer(args,origGen){
       if(on){
         if(Date.now()-hintedAt<180000)return orig(args);
         hintedAt=Date.now();
-        return er('كانفا متوصّلة عند المستخدم. استخدم أداة canva_image لعمل الصورة (أداة واحدة بتعمل كل الخطوات وبتعرض الصورة للمستخدم). متنادش mcp_list_tools ولا mcp_call لصورة عادية. لو canva_image فشلت نادي generate_image تاني وهيشتغل عادي.');
+        return er('كانفا متوصّلة عند المستخدم. استخدم أداة canva_image لعمل صورة عادية، أو canva_design لو عايز تصميم قابل للتعديل (أداة واحدة بتعمل كل الخطوات وبتعرض الصورة للمستخدم). متنادش mcp_list_tools ولا mcp_call لصورة عادية. لو canva_image فشلت نادي generate_image تاني وهيشتغل عادي. لو المستخدم عايز تصميم يعدّل النص والعناصر فيه (بوستر، بوست، بانر، صورة مصغرة بنص، فلاير) استخدم canva_design بدل canva_image.');
       }
       if(showOffer(args,orig))return ok({message:'عرضت للمستخدم كارت فيه اختيارين: يربط كانفا لجودة أحسن، أو يكمّل بالمولّد العادي. استنى اختياره، ولا تكرر الطلب ولا تقول إن الصورة اتعملت.'});
     }catch(e){}
@@ -950,12 +978,59 @@ reg('canva_image','🎨 بعمل الصورة في كانفا',
       var seen={},ls=[];
       (textOf(last).match(URLRX)||[]).forEach(function(u){u=u.replace(/[.,;:]+$/,'');if(!seen[u]&&/canva\.com/i.test(u)){seen[u]=1;ls.push(u)}});
       if(!ls.length)return er(jid?'الصورة لسه ماجهزتش أو مفيش رابط ليها. نادي generate_image العادية.':'مفهمتش رد كانفا (مفيش jobId). نادي generate_image العادية.');
-      mm.links=ls.slice(0,2);mm.linkLabel='🔗 فتح الصورة في كانفا';
+      mm.images=ls.slice(0,2);mm.links=ls.slice(0,2);mm.linkLabel='🔗 فتح الصورة في كانفا';
+      try{mm.diag='blocks: '+(Array.isArray(last.content)?last.content.map(function(c){return c&&(c.type+(c.mimeType?'('+c.mimeType+')':''))}).join(','):'-')+' | '+ls.map(function(u){try{return new URL(u).host+new URL(u).pathname.slice(0,30)}catch(e){return '?'}}).join(' ; ')}catch(e){}
+    }
+    if(mm.images.length&&!mm.diag){
+      var sn={},ex=[];
+      (textOf(last).match(URLRX)||[]).forEach(function(u){u=u.replace(/[.,;:]+$/,'');if(!sn[u]&&/canva\.com/i.test(u)&&mm.images.indexOf(u)<0&&!/media\.canva\.com/i.test(u)){sn[u]=1;ex.push(u)}});
+      mm.links=(mm.links||[]).concat(ex).slice(0,2);mm.linkLabel='🔗 فتح الصورة في كانفا';
+      mm.edit=/^https:/i.test(mm.images[0]);
     }
     mm.title=intent;
     if(!showMedia(mm))return er('معرفتش أعرض الكارت. نادي generate_image العادية.');
-    return ok({shown_to_user:true,message:'الصورة اتعرضت للمستخدم في الشات بزرار تنزيل ونسخ رابط. رد بجملة واحدة قصيرة بس (مثلًا: عملتها لك في كانفا) ومتكررش أي رابط.'});
+    return ok({shown_to_user:true,message:'اتعرضت للمستخدم. رد بجملة واحدة قصيرة بس ومتكررش أي رابط.'});
   }catch(e){return er((e.code==='not_connected'?(e.message+' (نادي mcp_open_connect)'):(e.message||String(e)))+' — نادي generate_image العادية.')}
+ });
+
+
+// ---------- canva_design: تصميم قابل للتعديل (النص نص حقيقي) ----------
+// create-design بترجّع job_id وcontinuation_token، والتطبيق بيستنى ويكرر السؤال لحد ما التصميم يخلص، وبعدين يعرض كارت: معاينة + تعديل في كانفا + تنزيل.
+function jobOf(r){
+  var sc=r.structuredContent||{},t=textOf(r),m;
+  var j=sc.job_id||sc.jobId||((m=t.match(/job_id["'\s:=]+([A-Za-z0-9_-]{6,})/))&&m[1])||'';
+  var c=sc.continuation_token||sc.continuationToken||((m=t.match(/continuation_token["'\s:=]+([A-Za-z0-9_.\-=+\/]{6,})/))&&m[1])||'';
+  var w=+(sc.polling_policy&&sc.polling_policy.wait_seconds)||+(((m=t.match(/wait_seconds["'\s:=]+(\d+)/))&&m[1])||0)||5;
+  return {job:String(j),tok:String(c),wait:Math.min(Math.max(w,2),15)};
+}
+reg('canva_design','🎨 بعمل التصميم في كانفا',
+ 'يعمل تصميم قابل للتعديل في كانفا (بوستر، بوست، بانر، صورة مصغرة، فلاير، كارت...) والنص فيه نص حقيقي يتمسح ويتغيّر والعناصر تتحرك. بيطلب التصميم، يستنى لحد ما يخلص، ويعرض للمستخدم كارت فيه معاينة وزرار "تعديل في كانفا" وتنزيل. استخدمها لما المستخدم يطلب تصميم أو يقول إنه عايز يعدّل النص أو العناصر. للصورة العادية استخدم canva_image. متنادش mcp_call ولا أداة عرض معاها. brief = طلب المستخدم بكلامه. بعد ما ترجع رد بجملة واحدة قصيرة بس. لو رجّعت خطأ قول للمستخدم السبب بجملة.',
+ {brief:d(S,'طلب المستخدم للتصميم بكلامه زي ما هو، مع أي نص عايزه مكتوب بالحرف'),format:d(S,'اختياري: نوع التصميم مثل "Instagram Post" أو "YouTube Thumbnail" أو "Poster (Portrait)". سيبه فاضي لو مش محدد')},['brief'],
+ async function(a){
+  try{
+    if(!(await canvaOn()))return er('كانفا مش متوصّلة. نادي mcp_offer_connect.');
+    var intent=String(a.brief||'').slice(0,120);
+    var args={brief:String(a.brief||'')};
+    if(a.format)args.format=String(a.format).slice(0,80);
+    var r=await canvaTool('create-design',args,intent);
+    if(r.isError)return er((textOf(r)||'كانفا رجّعت خطأ').slice(0,400));
+    var J=jobOf(r),last=r,DRX=/https:\/\/www\.canva\.com\/design\/(D[A-Za-z0-9_-]{10})[^\s"'<>\\)]*/;
+    var t0=textOf(r);
+    for(var i=0;i<30&&!DRX.test(t0);i++){
+      if(!J.job||!J.tok)break;
+      await sleep(J.wait*1000);
+      last=await canvaTool('get-create-design-async-job',{job_id:J.job,continuation_token:J.tok},intent);
+      t0=textOf(last);
+      if(last.isError)return er(t0.slice(0,400)||'فشلت متابعة التصميم');
+      if(/\b(FAILED|FAILURE|ERROR)\b/i.test(t0)&&!DRX.test(t0))return er('كانفا ماقدرتش تعمل التصميم: '+t0.slice(0,300));
+      var nj=jobOf(last);if(nj.tok)J.tok=nj.tok;if(nj.wait)J.wait=nj.wait;
+    }
+    var m=t0.match(DRX);
+    if(!m)return er(J.job?'التصميم لسه ماخلصش أو مفيش رابط ليه. جرّب تاني بعد شوية.':'مفهمتش رد كانفا (مفيش job_id).');
+    var id=m[1],th=pickMedia(last).images.filter(function(u){return /^https:/i.test(u)})[0]||'';
+    showCard({title:intent,design_id:id,edit_url:'https://www.canva.com/design/'+id+'/edit',thumbnail_url:th});
+    return ok({shown_to_user:true,design_id:id,message:'اتعرض للمستخدم كارت التصميم بزرار تعديل وتنزيل. رد بجملة واحدة قصيرة بس ومتكررش أي رابط.'});
+  }catch(e){return er(e.code==='not_connected'?(e.message+' (نادي mcp_open_connect)'):(e.message||String(e)))}
  });
 
 }catch(e){try{console.warn('mcptools.js:',e)}catch(_){}}
