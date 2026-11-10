@@ -5,7 +5,8 @@ try{
 // بيكلّم بوابة الـ Worker (mcp-gateway.js) بس. مفيش أسرار هنا: الأسرار والتوكنز عند الـ Worker.
 // بيتحط في index.html بعد videotools.js:  <script src="mcptools.js"></script>   ولإلغائه: شيل السطر بس.
 // لو أي حاجة ناقصة (APP_ACTIONS / fbAuth) بيسكت ومبيكسرش حاجة.
-// ده لسه ما اتجرّبش على سيرفرات حقيقية ولا على موبايلك.
+// v8: أداة canva_image (خطوة واحدة) + تعليمة الجدول.
+// v7: عرض صور كانفا تلقائيًا في الشات (تنزيل + نسخ رابط)، تنزيل عن طريق البوابة، وكاش لقايمة الأدوات.
 // =====================================================================
 
 // عنوان البوابة: بعد ما تنشر الـ Worker حط عنوانه هنا (من غير / في الآخر). أو من الكونسول: localStorage.mcp_gw='https://...'
@@ -160,7 +161,8 @@ function prefsText(){
   else if(p.len==='long')t+=' أسلوب الرد المطلوب: مفصّل وشامل، وده يتغلّب على أي تعليمات تانية بتطلب الاختصار.';
   if(p.tone==='formal')t+=' النبرة المطلوبة: رسمية ومهذّبة.';
   else if(p.tone==='fun')t+=' النبرة المطلوبة: مرحة وخفيفة.';
-  return t?(' ——— إعدادات المستخدم الشخصية:'+t):'';
+  t+=' الجداول: لما المستخدم يطلب جدول أو مقارنة عادي اكتبه جدول Markdown في الرد نفسه مباشرة من غير أي أداة. ملف إكسل أو CSV بس لو المستخدم طلب ملف أو تنزيل صراحة.';
+  return ' ——— إعدادات المستخدم الشخصية:'+t;
 }
 ['buildAISystemInstructionText','buildAIFastChatSystemInstructionText'].forEach(function(n){
   try{
@@ -408,18 +410,22 @@ reg('mcp_open_connect','🔌 بفتح شاشة الربط',
  {},[],
  async function(){open();return ok({message:'فتحت شاشة الربط. قول للمستخدم يضغط "ربط" جنب الموقع.'})});
 
+var TOOLS_CACHE={};
 reg('mcp_list_tools','🔎 بشوف أدوات الموقع',
- 'يجيب قايمة الأدوات اللي الموقع المربوط بيقدمها (الاسم والوصف والمدخلات). لازم تناديها قبل mcp_call عشان تعرف أسماء الأدوات ومدخلاتها بالظبط، ومتفترضش أسماء.',
+ 'يجيب قايمة الأدوات اللي الموقع المربوط بيقدمها (الاسم والوصف والمدخلات). لازم تناديها قبل mcp_call عشان تعرف أسماء الأدوات ومدخلاتها بالظبط، ومتفترضش أسماء. نادي عليها مرة واحدة بس في الطلب (النتيجة بتتخزّن).',
  {provider:d(S,'معرّف الموقع زي ما بيرجع من mcp_status (مثلًا canva أو u_xxxx للمواقع اللي المستخدم ضافها)')},['provider'],
  async function(a){
   try{
-    var r=await api('/mcp/tools',{provider:String(a.provider||'')});
+    var pk=String(a.provider||'');
+    if(TOOLS_CACHE[pk]&&Date.now()-TOOLS_CACHE[pk].at<600000)return ok({tools:TOOLS_CACHE[pk].tools,cached:true});
+    var r=await api('/mcp/tools',{provider:pk});
+    TOOLS_CACHE[pk]={at:Date.now(),tools:r.tools||[]};
     return ok({tools:r.tools||[]});
   }catch(e){return er(e.code==='not_connected'?(e.message+' (نادي mcp_open_connect)'):(e.message||String(e)))}
  });
 
 reg('mcp_call','🛠️ بنفّذ على الموقع',
- 'ينفّذ أداة على موقع مربوط. tool = اسم الأداة من mcp_list_tools، وarguments_json = المدخلات كنص JSON. لو الأداة بترجّع مرشحات/اختيارات (زي تصاميم كانفا) اعرضها على المستخدم ودَعه يختار، متختارش بدالُه. مدخلات الأداة ممكن تكون طويلة وبتأخد وقت، فنفّذ بس لما المستخدم يطلب.',
+ 'ينفّذ أداة على موقع مربوط. tool = اسم الأداة من mcp_list_tools، وarguments_json = المدخلات كنص JSON. لو الأداة بترجّع مرشحات/اختيارات (زي تصاميم كانفا) اعرضها على المستخدم ودَعه يختار، متختارش بدالُه. أي صورة أو رابط تصميم في النتيجة بيتعرض للمستخدم تلقائيًا في الشات (من غير ما تنادي أي أداة عرض). مدخلات الأداة ممكن تكون طويلة وبتأخد وقت، فنفّذ بس لما المستخدم يطلب.',
  {provider:d(S,'معرّف الموقع زي ما بيرجع من mcp_status (مثلًا canva أو u_xxxx للمواقع اللي المستخدم ضافها)'),tool:d(S,'اسم الأداة بالظبط'),intent:d(S,'جملة قصيرة: المستخدم عايز إيه (بتتبعت لأدوات كانفا كـ user_intent)'),arguments_json:d(S,'مدخلات الأداة كنص JSON (مثلًا {"query":"..."}). فاضي لو الأداة من غير مدخلات')},
  ['provider','tool'],
  async function(a){
@@ -435,12 +441,25 @@ reg('mcp_call','🛠️ بنفّذ على الموقع',
     var out={content:txt.slice(0,MAX_OUT)};
     if(r.structuredContent)try{var sj=JSON.stringify(r.structuredContent);out.structured=sj.length<=MAX_OUT?r.structuredContent:sj.slice(0,MAX_OUT)}catch(e){}
     if(txt.length>MAX_OUT)out.note='النص اتقطع.';
+    // عرض الصور/روابط التصميم للمستخدم تلقائيًا في الشات
+    try{
+      var mm=pickMedia(r);
+      if(mm.images.length||mm.links.length){
+        mm.title=String(a.intent||'').slice(0,80);
+        if(showMedia(mm)){
+          out.shown_to_user=true;
+          out.note=(out.note?out.note+' ':'')+(mm.images.length
+            ?'الصورة اتعرضت للمستخدم تلقائيًا في الشات بزرار تنزيل ونسخ رابط. متنادش mcp_show_card ولا show_copy_card ولا mcp_save_file. لو دي مرشحات اسأله يختار واحد، ولو دي النتيجة النهائية رد بجملة واحدة قصيرة.'
+            :'اتعرض للمستخدم كارت فيه رابط كانفا. لو النتيجة مفيهاش رابط صورة مباشر ومعاك design_id، نادي mcp_show_card عشان يظهر تنزيل.');
+        }
+      }
+    }catch(e){}
     return ok(out);
   }catch(e){return er(e.code==='not_connected'?(e.message+' (نادي mcp_open_connect)'):(e.message||String(e)))}
  });
 
 // روابط التصدير عند المواقع (زي كانفا) مؤقتة وبتنتهي بسرعة، فنحفظ الملف في المحادثة فورًا.
-// ملحوظة: لو الموقع مش بيسمح بالتحميل من المتصفح (CORS) هيفشل وبنقول كده صراحة.
+// التنزيل بيحاول من المتصفح الأول، ولو CORS منعه بيعدّي على البوابة (بتنزّل الملف من سيرفر كانفا).
 reg('mcp_save_file','💾 بحفظ الملف في المحادثة',
  'ينزّل ملف من رابط (مثلًا رابط تصدير تصميم من كانفا) ويحفظه في المحادثة عشان المستخدم يحمّله. الروابط دي بتنتهي بسرعة فنادي الأداة دي مباشرة بعد ما تاخد الرابط.',
  {url:d(S,'رابط https للملف'),name:d(S,'اسم الملف بدون امتداد'),ext:d(S,'الامتداد: png | jpg | pdf | mp4 ... الافتراضي png')},['url'],
@@ -448,12 +467,19 @@ reg('mcp_save_file','💾 بحفظ الملف في المحادثة',
   try{
     var u=String(a.url||'');
     if(!/^https:\/\//i.test(u))return er('الرابط لازم يبدأ بـ https.');
-    var r;try{r=await fetch(u)}catch(e){return er('المتصفح مقدرش ينزّل الملف من الموقع ده (غالبًا بسبب حماية CORS). افتح الرابط يدويًا وحمّله بنفسك.')}
-    if(!r.ok)return er('الرابط رجّع '+r.status+(r.status===403||r.status===410?' (غالبًا انتهت صلاحيته، اطلب التصدير تاني)':''));
-    var buf=new Uint8Array(await r.arrayBuffer());
+    var buf=null,ctype='';
+    try{
+      var r=await fetch(u);
+      if(!r.ok)return er('الرابط رجّع '+r.status+(r.status===403||r.status===410?' (غالبًا انتهت صلاحيته، اطلب التصدير تاني)':''));
+      buf=new Uint8Array(await r.arrayBuffer());
+      ctype=(r.headers.get('content-type')||'').split(';')[0];
+    }catch(e){
+      try{var f=await apiBin('/mcp/fetch',{url:u});buf=f.buf;ctype=f.type||''}
+      catch(e2){return er('معرفتش أنزّل الملف: '+(e2.message||e2)+'. افتح الرابط يدويًا وحمّله بنفسك.')}
+    }
     if(buf.length>25*1048576)return er('الملف أكبر من 25 ميجا.');
     var ext=String(a.ext||'png').replace(/[^a-z0-9]/gi,'').toLowerCase()||'png';
-    var mime=(r.headers.get('content-type')||'').split(';')[0]||(ext==='pdf'?'application/pdf':ext==='png'?'image/png':'application/octet-stream');
+    var mime=ctype||(ext==='pdf'?'application/pdf':ext==='png'?'image/png':'application/octet-stream');
     var nm=String(a.name||'ملف').replace(/\s+/g,' ').trim()||'ملف';
     var file=await aiAddOutputFile(aiBase(nm,'',ext),mime,buf);
     return ok({message:'اتحفظ الملف ('+(buf.length/1048576).toFixed(2)+' ميجا)',file:file});
@@ -478,10 +504,18 @@ async function apiBin(path,body){
 function textOf(res){
   var r=res||{};
   var t=(Array.isArray(r.content)?r.content:[]).map(function(c){return c&&c.type==='text'?c.text:''}).join('\n');
+  try{(Array.isArray(r.content)?r.content:[]).forEach(function(c){if(!c)return;if(c.uri)t+='\n'+c.uri;if(c.resource&&c.resource.uri)t+='\n'+c.resource.uri})}catch(e){}
   try{if(r.structuredContent)t+='\n'+JSON.stringify(r.structuredContent)}catch(e){}
   return t;
 }
 function designIdOf(s){var m=String(s||'').match(/\bD[A-Za-z0-9_-]{10}\b/);return m?m[0]:''}
+function saveBlob(buf,mime,fname){
+  try{
+    var u=URL.createObjectURL(new Blob([buf],{type:mime})),l=document.createElement('a');
+    l.href=u;l.download=fname;document.body.appendChild(l);l.click();l.remove();
+    setTimeout(function(){URL.revokeObjectURL(u)},60000);
+  }catch(e){}
+}
 async function exportDesign(designId,type,nameBase){
   var res=(await api('/mcp/call',{provider:'canva',tool:'export-design',arguments:{design_id:designId,format:{type:type},user_intent:'تنزيل التصميم كملف '+type}})).result||{};
   var txt=textOf(res);
@@ -495,12 +529,7 @@ async function exportDesign(designId,type,nameBase){
   var nm=String(nameBase||'تصميم').replace(/\s+/g,' ').trim()||'تصميم';
   var file=null;
   try{file=await aiAddOutputFile(aiBase(nm,'',type),mime,f.buf)}catch(e){}
-  // تنزيل على الجهاز
-  try{
-    var u=URL.createObjectURL(new Blob([f.buf],{type:mime})),l=document.createElement('a');
-    l.href=u;l.download=nm+'.'+type;document.body.appendChild(l);l.click();l.remove();
-    setTimeout(function(){URL.revokeObjectURL(u)},60000);
-  }catch(e){}
+  saveBlob(f.buf,mime,nm+'.'+type);
   return {file:file,size:f.buf.length};
 }
 function safeUrl(u){u=String(u||'');return /^https:\/\//i.test(u)?u:''}
@@ -509,9 +538,9 @@ function cardHtml(c){
   return '<div style="direction:rtl;text-align:right;border:1px solid rgba(128,140,160,.35);border-radius:14px;padding:10px;max-width:340px;background:rgba(128,128,128,.08)">'+
     (th?'<img src="'+esc(th)+'" alt="" referrerpolicy="no-referrer" style="width:100%;border-radius:10px;display:block;margin-bottom:8px">':'')+
     '<div style="font-weight:800;margin-bottom:8px">🎨 '+esc(c.title||'تصميم كانفا')+'</div>'+
-    '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'+
-    (safeUrl(c.edit_url)?'<button data-a="edit" class="btn" style="padding:8px 12px;cursor:pointer">✏️ تعديل في كانفا</button>':'')+
-    (c.design_id?'<select data-a="fmt" style="padding:8px;border-radius:10px"><option>png</option><option>jpg</option><option>pdf</option></select><button data-a="dl" class="btn btn-secondary" style="padding:8px 12px;cursor:pointer">⬇️ تنزيل</button>':'')+
+    '<div style="display:flex;flex-direction:column;gap:8px">'+
+    (c.design_id?'<div style="display:flex;gap:6px"><select data-a="fmt" style="padding:8px;border-radius:10px"><option>png</option><option>jpg</option><option>pdf</option></select><button data-a="dl" class="btn" style="flex:1;padding:10px 12px;cursor:pointer">⬇️ تنزيل</button></div>':'')+
+    (safeUrl(c.edit_url)?'<button data-a="edit" class="btn btn-secondary" style="width:100%;padding:10px 12px;cursor:pointer">✏️ تعديل في كانفا</button>':'')+
     '</div><div data-a="msg" style="font-size:.75rem;opacity:.8;margin-top:6px;min-height:1em"></div></div>';
 }
 function wireCard(root,c){
@@ -542,7 +571,7 @@ function showCard(c){
 }
 
 reg('mcp_show_card','🎨 بعرض التصميم',
- 'اعرض للمستخدم كارت التصميم في الشات (صورة مصغّرة + زرار "تعديل في كانفا" + زرار تنزيل PNG/JPG/PDF). نادي الأداة دي بعد ما التصميم يتعمل أو المستخدم يختار مرشح، وهات القيم من نتيجة كانفا الحقيقية (متألفش روابط). design_id بيبدأ بـ D وطوله 11 حرف، ولو مش معاك مرّر edit_url وهنستخرجه منه.',
+ 'اعرض للمستخدم كارت التصميم في الشات (صورة مصغّرة + زرار "تعديل في كانفا" + زرار تنزيل PNG/JPG/PDF). نادي الأداة دي بعد ما التصميم يتعمل أو المستخدم يختار مرشح، وهات القيم من نتيجة كانفا الحقيقية (متألفش روابط). design_id بيبدأ بـ D وطوله 11 حرف، ولو مش معاك مرّر edit_url وهنستخرجه منه. ملحوظة: لو mcp_call رجّعت shared_to_user/shown_to_user=true يبقى الصورة اتعرضت خلاص ومتناديش الأداة دي.',
  {title:d(S,'عنوان التصميم'),design_id:d(S,'معرّف التصميم (بيبدأ بـ D) لو معاك'),edit_url:d(S,'رابط التعديل في كانفا (https)'),thumbnail_url:d(S,'رابط الصورة المصغّرة (https) اختياري')},
  [],
  async function(a){
@@ -553,6 +582,94 @@ reg('mcp_show_card','🎨 بعرض التصميم',
     return ok({message:'عرضت الكارت'+(where==='overlay'?' (عايم تحت الشاشة)':'')+'. قول للمستخدم يضغط "تعديل في كانفا" يعدّل، أو "تنزيل" ينزّل الملف.',design_id:c.design_id||null});
   }catch(e){return er(e.message||String(e))}
  });
+
+
+// ---------- عرض صور كانفا تلقائيًا في الشات (بعد أي mcp_call) ----------
+// بنقرا الروابط من نتيجة الأداة: الصور بتظهر في الشات بزرار تنزيل ونسخ رابط، وروابط التصميم بزرار فتح.
+// الصور بتظهر بـ <img> (مفيش CORS)، والتنزيل بيعدّي على البوابة.
+var NOTIMG=/\.(pdf|mp4|mov|webm|pptx?|zip|docx?)(\?|#|$)/i;
+var ISIMG=/\.(png|jpe?g|webp|gif)(\?|#|$)/i;
+var IMGHOST=/(thumbnail|export-download|media-public|document-export|\/media\/)/i;
+function pickMedia(res){
+  var t=textOf(res),seen={},images=[],links=[];
+  (t.match(URLRX)||[]).forEach(function(u){
+    u=u.replace(/[.,;:]+$/,'');
+    if(seen[u])return;
+    seen[u]=1;
+    if(/canva\.com\/(design\/|d\/)/i.test(u)&&!ISIMG.test(u)){links.push(u);return}
+    if(NOTIMG.test(u))return;
+    if(ISIMG.test(u)||IMGHOST.test(u))images.push(u);
+  });
+  try{(Array.isArray((res||{}).content)?res.content:[]).forEach(function(c){
+    if(c&&c.type==='image'&&c.data&&/^image\//.test(c.mimeType||''))images.push('data:'+c.mimeType+';base64,'+c.data);
+  })}catch(e){}
+  return {images:images.slice(0,6),links:links.slice(0,4),title:''};
+}
+async function downloadUrl(u,nm){
+  var buf=null,ct='';
+  if(/^data:/i.test(u)){
+    var dm=u.match(/^data:([^;,]+);base64,(.*)$/i);
+    if(!dm)throw new Error('الصورة مش مقروءة');
+    var bin=atob(dm[2]);buf=new Uint8Array(bin.length);for(var q=0;q<bin.length;q++)buf[q]=bin.charCodeAt(q);ct=dm[1];
+  }else try{var f=await apiBin('/mcp/fetch',{url:u});buf=f.buf;ct=f.type||''}
+  catch(e1){
+    try{var r=await fetch(u);if(!r.ok)throw new Error('رجّع '+r.status);buf=new Uint8Array(await r.arrayBuffer());ct=(r.headers.get('content-type')||'').split(';')[0]}
+    catch(e2){window.open(u,'_blank','noopener');throw new Error('فتحتلك الصورة في تبويب جديد، حمّلها من هناك')}
+  }
+  if(ct.indexOf('image/')!==0)ct=ct||'image/png';
+  var ext=(ct.split('/')[1]||'png').replace('jpeg','jpg').replace(/[^a-z0-9]/gi,'')||'png';
+  var base=String(nm||'تصميم').replace(/\s+/g,' ').trim()||'تصميم';
+  try{await aiAddOutputFile(aiBase(base,'',ext),ct,buf)}catch(e3){}
+  saveBlob(buf,ct,base+'.'+ext);
+  return buf.length;
+}
+function mediaHtml(mm){
+  var h='<div style="direction:rtl;text-align:right;border:1px solid rgba(128,140,160,.35);border-radius:14px;padding:10px;max-width:360px;background:rgba(128,128,128,.08)">';
+  if(mm.title)h+='<div style="font-weight:800;margin-bottom:8px">🎨 '+esc(mm.title)+'</div>';
+  mm.images.forEach(function(u,i){
+    h+='<div style="margin-bottom:10px"><img src="'+esc(u)+'" alt="" referrerpolicy="no-referrer" style="width:100%;border-radius:10px;display:block;margin-bottom:6px;min-height:60px;background:rgba(128,128,128,.15)">'+
+      '<div style="display:flex;gap:6px;flex-wrap:wrap">'+
+      '<button data-m="dl" data-i="'+i+'" class="btn" style="padding:8px 12px;cursor:pointer">⬇️ تنزيل</button>'+
+      '<button data-m="cp" data-i="'+i+'" class="btn btn-secondary" style="padding:8px 12px;cursor:pointer">🔗 نسخ الرابط</button></div></div>';
+  });
+  if(mm.links.length){
+    h+='<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:6px">';
+    mm.links.forEach(function(u,i){h+='<button data-m="ed" data-i="'+i+'" class="btn btn-secondary" style="width:100%;padding:10px 12px;cursor:pointer">'+(mm.linkLabel||'✏️ تعديل في كانفا')+(mm.links.length>1?' '+(i+1):'')+'</button>'});
+    h+='</div>';
+  }
+  h+='<div data-m="msg" style="font-size:.75rem;opacity:.8;margin-top:4px;min-height:1em"></div></div>';
+  return h;
+}
+function wireMedia(root,mm){
+  var msg=root.querySelector('[data-m=msg]'),say=function(t){if(msg)msg.textContent=t};
+  Array.prototype.forEach.call(root.querySelectorAll('button[data-m=dl]'),function(b){
+    b.onclick=async function(){
+      var u=mm.images[+b.getAttribute('data-i')];
+      b.disabled=true;say('⏳ بنزّل الصورة...');
+      try{var n=await downloadUrl(u,mm.title);say('✅ اتنزّلت واتحفظت في المحادثة ('+(n/1048576).toFixed(2)+' ميجا)')}
+      catch(x){say('⚠️ '+(x.message||x))}
+      b.disabled=false;
+    };
+  });
+  Array.prototype.forEach.call(root.querySelectorAll('button[data-m=cp]'),function(b){
+    b.onclick=async function(){
+      var cu=mm.images[+b.getAttribute('data-i')];
+      var okc=/^data:/i.test(cu)?false:await copyText(cu);
+      var old=b.textContent;b.textContent=okc?'✅ اتنسخ':'⚠️ مانفعش';
+      setTimeout(function(){b.textContent=old},1500);
+    };
+  });
+  Array.prototype.forEach.call(root.querySelectorAll('button[data-m=ed]'),function(b){
+    b.onclick=function(){window.open(mm.links[+b.getAttribute('data-i')],'_blank','noopener')};
+  });
+}
+function showMedia(mm){
+  try{
+    var host=mountCard(mediaHtml(mm));
+    wireMedia(host,mm);
+    return true;
+  }catch(e){return false}
+}
 
 
 // ---------- طلب صورة: نعرض كانفا (جودة أحسن) بدل المولّد العادي ----------
@@ -642,7 +759,7 @@ function showOffer(args,origGen){
       if(on){
         if(Date.now()-hintedAt<180000)return orig(args);
         hintedAt=Date.now();
-        return er('كانفا متوصّلة عند المستخدم، والمطلوب إن الصور والتصاميم تتعمل من كانفا لأن جودتها أحسن. نادي mcp_list_tools بـ provider=canva، وبعدين mcp_call لإنشاء التصميم، واعرض النتيجة بـ mcp_show_card. لو كانفا فشلت أو ما قدرتش تعمل المطلوب، نادي generate_image تاني وهيشتغل عادي.');
+        return er('كانفا متوصّلة عند المستخدم. استخدم أداة canva_image لعمل الصورة (أداة واحدة بتعمل كل الخطوات وبتعرض الصورة للمستخدم). متنادش mcp_list_tools ولا mcp_call لصورة عادية. لو canva_image فشلت نادي generate_image تاني وهيشتغل عادي.');
       }
       if(showOffer(args,orig))return ok({message:'عرضت للمستخدم كارت فيه اختيارين: يربط كانفا لجودة أحسن، أو يكمّل بالمولّد العادي. استنى اختياره، ولا تكرر الطلب ولا تقول إن الصورة اتعملت.'});
     }catch(e){}
@@ -766,7 +883,7 @@ reg('mcp_suggest_site','➕ بقترح موقع للربط',
 
 // 3) كارت نسخ عام: أي نص/رابط/اسم المستخدم عايز ينسخه
 reg('show_copy_card','📋 بجهّز كارت النسخ',
- 'يعرض للمستخدم كارت فيه نص أو أكتر وكل واحد معاه زرار نسخ. استخدمه لما المستخدم يطلب "هات لي كذا / اكتب لي كذا" وهو هيحتاج ينسخه (رابط، اسم، كود، رسالة، عنوان...). items_json = مصفوفة JSON زي [{"label":"الرابط","text":"https://..."}]. أو text لنص واحد.',
+ 'يعرض للمستخدم كارت فيه نص أو أكتر وكل واحد معاه زرار نسخ. استخدمه لما المستخدم يطلب "هات لي كذا / اكتب لي كذا" وهو هيحتاج ينسخه (رابط، اسم، كود، رسالة، عنوان...). items_json = مصفوفة JSON زي [{"label":"الرابط","text":"https://..."}]. أو text لنص واحد. متستخدمهوش لصور كانفا: دي بتتعرض لوحدها بعد mcp_call.',
  {title:d(S,'عنوان الكارت (اختياري)'),text:d(S,'النص المراد نسخه لو واحد'),items_json:d(S,'مصفوفة JSON من {label,text} لو أكتر من نص')},[],
  async function(a){
   try{
@@ -788,6 +905,57 @@ reg('show_copy_card','📋 بجهّز كارت النسخ',
     wireCopy(mountCard(html));
     return ok({message:'عرضت كارت النسخ. متكررش النص في ردك.'});
   }catch(e){return er(e.message||String(e))}
+ });
+
+
+// ---------- canva_image: أداة واحدة بتعمل كل الخطوات جواها (طلبين بس للنموذج) ----------
+// generate-image عند كانفا بترجّع jobId، والتطبيق نفسه بيستنى النتيجة (get-generate-image-job) ويعرض الكارت.
+var RATIOS={'1:1':'SQUARE_1_1','16:9':'LANDSCAPE_16_9','4:3':'LANDSCAPE_4_3','3:2':'LANDSCAPE_3_2','9:16':'PORTRAIT_9_16','3:4':'PORTRAIT_3_4','2:3':'PORTRAIT_2_3','5:4':'LANDSCAPE_5_4','2:1':'LANDSCAPE_2_1','4:5':'PORTRAIT_4_5','1:2':'PORTRAIT_1_2'};
+function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
+async function canvaTool(tool,args,intent){
+  args.user_intent=String(intent||'صورة').slice(0,200);
+  return (await api('/mcp/call',{provider:'canva',tool:tool,arguments:args})).result||{};
+}
+function jobIdOf(r){
+  var sc=r.structuredContent||{};
+  if(sc.jobId||sc.job_id)return String(sc.jobId||sc.job_id);
+  var m=textOf(r).match(/job[_ ]?id["'\s:=]+([A-Za-z0-9_-]{6,})/i);
+  return m?m[1]:'';
+}
+reg('canva_image','🎨 بعمل الصورة في كانفا',
+ 'يعمل صورة من كانفا بالكامل في خطوة واحدة: يطلب الصورة، يستنى لحد ما تخلص، ويعرضها للمستخدم في الشات بزرار تنزيل ونسخ رابط. استخدمها لأي طلب صورة لما كانفا متوصّلة، ومتنادش mcp_list_tools ولا mcp_call ولا أي أداة عرض معاها. prompt = كلام المستخدم زي ما هو. بعد ما ترجع رد بجملة واحدة قصيرة بس. لو رجّعت خطأ نادي generate_image العادية.',
+ {prompt:d(S,'طلب المستخدم للصورة بكلامه زي ما هو'),aspect:d(S,'اختياري: نسبة الأبعاد 1:1 أو 16:9 أو 9:16 أو 4:3 أو 3:4. سيبها فاضية لو المستخدم ماحددش')},['prompt'],
+ async function(a){
+  try{
+    if(!(await canvaOn()))return er('كانفا مش متوصّلة. نادي generate_image العادية أو mcp_offer_connect.');
+    var intent=String(a.prompt||'').slice(0,120);
+    var args={prompt:String(a.prompt||'')};
+    var ar=RATIOS[String(a.aspect||'').replace(/\s/g,'')];
+    if(ar)args.aspectRatio=ar;
+    var r=await canvaTool('generate-image',args,intent);
+    if(r.isError)return er((textOf(r)||'كانفا رجّعت خطأ').slice(0,400)+' — نادي generate_image العادية.');
+    var mm=pickMedia(r),jid=jobIdOf(r),last=r,extra=0;
+    for(var i=0;i<40&&!mm.images.length;i++){
+      if(!jid)break;
+      await sleep(i?3000:1500);
+      last=await canvaTool('get-generate-image-job',{jobId:jid},intent);
+      var t=textOf(last);
+      if(last.isError)return er(t.slice(0,400)||'فشل متابعة الصورة');
+      if(/\bFAILURE\b/i.test(t))return er('كانفا ماقدرتش تعمل الصورة: '+t.slice(0,300)+' — نادي generate_image العادية.');
+      mm=pickMedia(last);
+      if(!mm.images.length&&/\bSUCCESS\b/i.test(t)&&++extra>4)break;
+    }
+    if(!mm.images.length){
+      // مفيش رابط صورة مباشر: نعرض أي رابط كانفا لو لقيناه
+      var seen={},ls=[];
+      (textOf(last).match(URLRX)||[]).forEach(function(u){u=u.replace(/[.,;:]+$/,'');if(!seen[u]&&/canva\.com/i.test(u)){seen[u]=1;ls.push(u)}});
+      if(!ls.length)return er(jid?'الصورة لسه ماجهزتش أو مفيش رابط ليها. نادي generate_image العادية.':'مفهمتش رد كانفا (مفيش jobId). نادي generate_image العادية.');
+      mm.links=ls.slice(0,2);mm.linkLabel='🔗 فتح الصورة في كانفا';
+    }
+    mm.title=intent;
+    if(!showMedia(mm))return er('معرفتش أعرض الكارت. نادي generate_image العادية.');
+    return ok({shown_to_user:true,message:'الصورة اتعرضت للمستخدم في الشات بزرار تنزيل ونسخ رابط. رد بجملة واحدة قصيرة بس (مثلًا: عملتها لك في كانفا) ومتكررش أي رابط.'});
+  }catch(e){return er((e.code==='not_connected'?(e.message+' (نادي mcp_open_connect)'):(e.message||String(e)))+' — نادي generate_image العادية.')}
  });
 
 }catch(e){try{console.warn('mcptools.js:',e)}catch(_){}}
