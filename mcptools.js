@@ -5,6 +5,7 @@ try{
 // بيكلّم بوابة الـ Worker (mcp-gateway.js) بس. مفيش أسرار هنا: الأسرار والتوكنز عند الـ Worker.
 // بيتحط في index.html بعد videotools.js:  <script src="mcptools.js"></script>   ولإلغائه: شيل السطر بس.
 // لو أي حاجة ناقصة (APP_ACTIONS / fbAuth) بيسكت ومبيكسرش حاجة.
+// v9: خطوة 1 — تظبيط شكل الكروت: عرض ثابت، الصورة جوه الكارت، وأزرار مش بتتكسر (تنزيل كانت بتتكتب حرف حرف).
 // v8: أداة canva_image (خطوة واحدة) + تعليمة الجدول.
 // v7: عرض صور كانفا تلقائيًا في الشات (تنزيل + نسخ رابط)، تنزيل عن طريق البوابة، وكاش لقايمة الأدوات.
 // =====================================================================
@@ -22,6 +23,11 @@ var reg=function(n,lab,desc,p,r,h){AA[n]={description:desc,parameters:{type:'obj
 var ok=function(o){return Object.assign({status:'ok'},o)},er=function(m){return {status:'error',message:m}};
 var esc=function(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})};
 var MAX_OUT=30000;
+
+// أشكال الكروت (موحّدة): عرض ثابت عشان الكارت ميتكمّشش جوه فقاعة الشات، والأزرار ميتكسرش كلامها
+var CARDW='direction:rtl;text-align:right;box-sizing:border-box;display:block;width:fit-content;min-width:230px;max-width:min(440px,calc(100vw - 64px));border:1px solid rgba(128,140,160,.35);border-radius:16px;padding:10px;background:rgba(128,128,128,.08)';
+var BTN='flex:1 1 0;min-width:96px;padding:10px 12px;cursor:pointer;white-space:nowrap;text-align:center;border-radius:12px;font-family:inherit';
+var IMGS='width:auto;max-width:100%;height:auto;max-height:60vh;object-fit:contain;margin-inline:auto;border-radius:12px;display:block;margin-bottom:8px;background:rgba(128,128,128,.15)';
 
 function gw(){var u='';try{u=localStorage.getItem('mcp_gw')||''}catch(e){}return String(u||GATEWAY).replace(/\/+$/,'')}
 function gwReady(){var u=gw();return /^https:\/\//.test(u)&&u.indexOf('REPLACE-ME')<0}
@@ -535,13 +541,13 @@ async function exportDesign(designId,type,nameBase){
 function safeUrl(u){u=String(u||'');return /^https:\/\//i.test(u)?u:''}
 function cardHtml(c){
   var th=safeUrl(c.thumbnail_url);
-  return '<div style="direction:rtl;text-align:right;border:1px solid rgba(128,140,160,.35);border-radius:14px;padding:10px;max-width:340px;background:rgba(128,128,128,.08)">'+
-    (th?'<img src="'+esc(th)+'" alt="" referrerpolicy="no-referrer" style="width:100%;border-radius:10px;display:block;margin-bottom:8px">':'')+
-    '<div style="font-weight:800;margin-bottom:8px">🎨 '+esc(c.title||'تصميم كانفا')+'</div>'+
+  return '<div style="'+CARDW+'">'+
+    (th?'<img src="'+esc(th)+'" alt="" referrerpolicy="no-referrer" style="'+IMGS+'" onerror="this.style.display=\'none\'">':'')+
+    '<div style="font-weight:800;margin-bottom:8px;line-height:1.6">🎨 '+esc(c.title||'تصميم كانفا')+'</div>'+
     '<div style="display:flex;flex-direction:column;gap:8px">'+
-    (c.design_id?'<div style="display:flex;gap:6px"><select data-a="fmt" style="padding:8px;border-radius:10px"><option>png</option><option>jpg</option><option>pdf</option></select><button data-a="dl" class="btn" style="flex:1;padding:10px 12px;cursor:pointer">⬇️ تنزيل</button></div>':'')+
-    (safeUrl(c.edit_url)?'<button data-a="edit" class="btn btn-secondary" style="width:100%;padding:10px 12px;cursor:pointer">✏️ تعديل في كانفا</button>':'')+
-    '</div><div data-a="msg" style="font-size:.75rem;opacity:.8;margin-top:6px;min-height:1em"></div></div>';
+    (c.design_id?'<div style="display:flex;gap:6px;align-items:stretch"><select data-a="fmt" style="flex:0 0 auto;padding:8px;border-radius:12px"><option>png</option><option>jpg</option><option>pdf</option></select><button data-a="dl" class="btn" style="'+BTN+'">⬇️ تنزيل</button></div>':'')+
+    (safeUrl(c.edit_url)?'<button data-a="edit" class="btn btn-secondary" style="'+BTN+';width:100%;flex:none">✏️ تعديل في كانفا</button>':'')+
+    '</div><div data-a="msg" style="font-size:.75rem;opacity:.8;margin-top:6px;min-height:1em;line-height:1.6"></div></div>';
 }
 function wireCard(root,c){
   var msg=root.querySelector('[data-a=msg]');
@@ -630,20 +636,20 @@ async function downloadUrl(u,nm){
   return buf.length;
 }
 function mediaHtml(mm){
-  var h='<div style="direction:rtl;text-align:right;border:1px solid rgba(128,140,160,.35);border-radius:14px;padding:10px;max-width:360px;background:rgba(128,128,128,.08)">';
-  if(mm.title)h+='<div style="font-weight:800;margin-bottom:8px">🎨 '+esc(mm.title)+'</div>';
+  var h='<div style="'+CARDW+'">';
+  if(mm.title)h+='<div style="font-weight:800;margin-bottom:8px;line-height:1.6">🎨 '+esc(mm.title)+'</div>';
   mm.images.forEach(function(u,i){
-    h+='<div style="margin-bottom:10px"><img src="'+esc(u)+'" alt="" referrerpolicy="no-referrer" style="width:100%;border-radius:10px;display:block;margin-bottom:6px;min-height:60px;background:rgba(128,128,128,.15)" onerror="this.parentNode.style.display=\'none\'">'+
-      '<div style="display:flex;gap:6px;flex-wrap:wrap">'+
-      '<button data-m="dl" data-i="'+i+'" class="btn" style="padding:8px 12px;cursor:pointer">⬇️ تنزيل</button>'+
-      '<button data-m="cp" data-i="'+i+'" class="btn btn-secondary" style="padding:8px 12px;cursor:pointer">🔗 نسخ الرابط</button></div>'+(mm.edit&&i===0?'<button data-m="ed2" class="btn btn-secondary" style="width:100%;margin-top:6px;padding:10px 12px;cursor:pointer">✏️ تعديل في كانفا</button>':'')+'</div>';
+    h+='<div style="margin-bottom:10px"><img src="'+esc(u)+'" alt="" referrerpolicy="no-referrer" style="'+IMGS+';min-height:60px;margin-bottom:8px" onerror="this.parentNode.style.display=\'none\'">'+
+      '<div style="display:flex;gap:6px">'+
+      '<button data-m="dl" data-i="'+i+'" class="btn" style="'+BTN+'">⬇️ تنزيل</button>'+
+      '<button data-m="cp" data-i="'+i+'" class="btn btn-secondary" style="'+BTN+'">🔗 نسخ الرابط</button></div>'+(mm.edit&&i===0?'<button data-m="ed2" class="btn btn-secondary" style="'+BTN+';width:100%;flex:none;margin-top:6px">✏️ تعديل في كانفا</button>':'')+'</div>';
   });
   if(mm.links.length){
     h+='<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:6px">';
-    mm.links.forEach(function(u,i){h+='<button data-m="ed" data-i="'+i+'" class="btn btn-secondary" style="width:100%;padding:10px 12px;cursor:pointer">'+(mm.linkLabel||'✏️ تعديل في كانفا')+(mm.links.length>1?' '+(i+1):'')+'</button>'});
+    mm.links.forEach(function(u,i){h+='<button data-m="ed" data-i="'+i+'" class="btn btn-secondary" style="'+BTN+';width:100%;flex:none">'+(mm.linkLabel||'✏️ تعديل في كانفا')+(mm.links.length>1?' '+(i+1):'')+'</button>'});
     h+='</div>';
   }
-  h+='<div data-m="msg" style="font-size:.75rem;opacity:.8;margin-top:4px;min-height:1em"></div>';
+  h+='<div data-m="msg" style="font-size:.75rem;opacity:.8;margin-top:4px;min-height:1em;line-height:1.6"></div>';
   if(mm.diag)h+='<div style="font-size:.62rem;opacity:.5;margin-top:4px;direction:ltr;text-align:left;word-break:break-all">'+esc(mm.diag)+'</div>';
   h+='</div>';
   return h;
@@ -746,12 +752,12 @@ function resumeAfterConnect(t,n){
   }catch(e){}
 }
 function offerHtml(){
-  return '<div style="direction:rtl;text-align:right;border:1px solid rgba(128,140,160,.35);border-radius:14px;padding:12px;max-width:340px;background:rgba(128,128,128,.08)">'+
+  return '<div style="'+CARDW+';padding:12px;width:min(340px,calc(100vw - 64px))">'+
     '<div style="font-weight:800;margin-bottom:6px">🎨 عايز جودة أحسن؟</div>'+
     '<div style="font-size:.82rem;opacity:.85;line-height:1.7;margin-bottom:10px">كانفا بتطلّع تصاميم وصور بجودة أعلى من المولّد العادي. اربط حسابك مرة واحدة وأكمّل طلبك عليها على طول.</div>'+
     '<div style="display:flex;gap:6px;flex-wrap:wrap">'+
-    '<button data-a="go" class="btn" style="padding:8px 12px;cursor:pointer">🎨 اربط كانفا</button>'+
-    '<button data-a="no" class="btn btn-secondary" style="padding:8px 12px;cursor:pointer">كمّل بالمولّد العادي</button>'+
+    '<button data-a="go" class="btn" style="'+BTN+'">🎨 اربط كانفا</button>'+
+    '<button data-a="no" class="btn btn-secondary" style="'+BTN+'">كمّل بالمولّد العادي</button>'+
     '</div><div data-a="msg" style="font-size:.75rem;opacity:.8;margin-top:6px;min-height:1em"></div></div>';
 }
 function showOffer(args,origGen){
@@ -785,9 +791,11 @@ function showOffer(args,origGen){
       if(!a||!a.currentUser)return orig(args);
       var on=await canvaOn();
       if(on){
-        if(Date.now()-hintedAt<180000)return orig(args);
-        hintedAt=Date.now();
-        return er('كانفا متوصّلة عند المستخدم. استخدم أداة canva_image لعمل صورة عادية، أو canva_design لو عايز تصميم قابل للتعديل (أداة واحدة بتعمل كل الخطوات وبتعرض الصورة للمستخدم). متنادش mcp_list_tools ولا mcp_call لصورة عادية. لو canva_image فشلت نادي generate_image تاني وهيشتغل عادي. لو المستخدم عايز تصميم يعدّل النص والعناصر فيه (بوستر، بوست، بانر، صورة مصغرة بنص، فلاير) استخدم canva_design بدل canva_image.');
+        try{
+          var rr=await AA.canva_image.handler({prompt:String(args.prompt||lastUserText()||''),aspect:String(args.aspect||args.aspectRatio||'')});
+          if(rr&&rr.status==='ok')return rr;
+        }catch(e){}
+        return orig(args);
       }
       if(showOffer(args,orig))return ok({message:'عرضت للمستخدم كارت فيه اختيارين: يربط كانفا لجودة أحسن، أو يكمّل بالمولّد العادي. استنى اختياره، ولا تكرر الطلب ولا تقول إن الصورة اتعملت.'});
     }catch(e){}
@@ -827,9 +835,9 @@ var BOX='width:100%;box-sizing:border-box;padding:9px;border-radius:10px;directi
 function field(id,label,val,ro,pw){
   return '<div style="margin-bottom:8px"><div style="font-size:.72rem;opacity:.75;margin-bottom:3px">'+esc(label)+'</div>'+
     '<div style="display:flex;gap:6px;align-items:center"><input data-f="'+id+'"'+(pw?' type="password" autocomplete="off"':'')+' value="'+esc(val||'')+'"'+(ro?' readonly':'')+' style="'+BOX+';flex:1;min-width:0">'+
-    (pw?'':'<button data-copy="'+id+'" class="btn btn-secondary" style="padding:8px 10px;cursor:pointer;white-space:nowrap">📋 نسخ</button>')+'</div></div>';
+    (pw?'':'<button data-copy="'+id+'" class="btn btn-secondary" style="padding:8px 10px;cursor:pointer;white-space:nowrap;flex:0 0 auto">📋 نسخ</button>')+'</div></div>';
 }
-var CARD='direction:rtl;text-align:right;border:1px solid rgba(128,140,160,.35);border-radius:14px;padding:12px;max-width:360px;background:rgba(128,128,128,.08)';
+var CARD=CARDW+';width:min(360px,calc(100vw - 64px))';
 function tellCoach(text){
   try{
     var n=0,iv=setInterval(function(){
@@ -857,7 +865,7 @@ reg('mcp_offer_connect','🔌 بعرض كارت الربط',
     var pend=lastUserText();
     var host=mountCard('<div style="'+CARD+'"><div style="font-weight:800;margin-bottom:6px">'+esc(p.icon||'🔗')+' ربط '+esc(p.name)+'</div>'+
       '<div style="font-size:.82rem;opacity:.85;line-height:1.7;margin-bottom:10px">اربط حسابك في '+esc(p.name)+' مرة واحدة، وبعدها أكمّل طلبك عليه على طول.</div>'+
-      '<button data-a="go" class="btn" style="padding:8px 14px;cursor:pointer">🔌 ربط</button><div data-a="msg" style="font-size:.75rem;opacity:.8;margin-top:6px;min-height:1em"></div></div>');
+      '<button data-a="go" class="btn" style="'+BTN+';width:100%;flex:none">🔌 ربط</button><div data-a="msg" style="font-size:.75rem;opacity:.8;margin-top:6px;min-height:1em"></div></div>');
     var go=host.querySelector('[data-a=go]'),msg=host.querySelector('[data-a=msg]');
     go.onclick=async function(){
       go.disabled=true;msg.textContent='⏳ بفتحلك تسجيل الدخول...';
@@ -880,8 +888,8 @@ reg('mcp_suggest_site','➕ بقترح موقع للربط',
       (a.note?'<div style="font-size:.78rem;opacity:.8;line-height:1.7;margin-bottom:8px">'+esc(String(a.note).slice(0,300))+'</div>':'')+
       field('n','اسم الموقع',nm)+field('u','رابط سيرفر MCP',u)+
       '<div data-a="keybox" style="display:none">'+field('k','مفتاح API (لو الموقع طلبه)','',false,true)+'</div>'+
-      '<div style="display:flex;gap:6px;flex-wrap:wrap"><button data-a="add" class="btn" style="padding:8px 14px;cursor:pointer">إضافة وربط</button>'+
-      '<button data-a="key" class="btn btn-secondary" style="padding:8px 12px;cursor:pointer">🔑 عندي مفتاح API</button></div>'+
+      '<div style="display:flex;gap:6px"><button data-a="add" class="btn" style="'+BTN+'">إضافة وربط</button>'+
+      '<button data-a="key" class="btn btn-secondary" style="'+BTN+'">🔑 عندي مفتاح API</button></div>'+
       '<div data-a="msg" style="font-size:.75rem;opacity:.85;margin-top:6px;min-height:1em;line-height:1.6"></div>'+
       '<div style="font-size:.68rem;opacity:.6;margin-top:6px">ضيف مواقع انت واثق فيها بس: المدرب هيقدر يستخدم أدواتها بصلاحياتك.</div></div>');
     wireCopy(host);
@@ -926,7 +934,7 @@ reg('show_copy_card','📋 بجهّز كارت النسخ',
       html+=long?
         ('<div style="margin-bottom:8px">'+(it.label?'<div style="font-size:.72rem;opacity:.75;margin-bottom:3px">'+esc(String(it.label).slice(0,60))+'</div>':'')+
          '<textarea data-f="c'+i+'" readonly rows="'+Math.min(8,Math.max(3,Math.ceil(t.length/45)))+'" style="'+BOX+';direction:rtl;text-align:right;display:block;margin-bottom:6px">'+esc(t)+'</textarea>'+
-         '<button data-copy="c'+i+'" class="btn btn-secondary" style="padding:8px 12px;cursor:pointer">📋 نسخ</button></div>'):
+         '<button data-copy="c'+i+'" class="btn btn-secondary" style="'+BTN+';width:100%;flex:none">📋 نسخ</button></div>'):
         field('c'+i,String(it.label||'').slice(0,60),t,true);
     });
     html+='</div>';
@@ -939,6 +947,16 @@ reg('show_copy_card','📋 بجهّز كارت النسخ',
 // ---------- canva_image: أداة واحدة بتعمل كل الخطوات جواها (طلبين بس للنموذج) ----------
 // generate-image عند كانفا بترجّع jobId، والتطبيق نفسه بيستنى النتيجة (get-generate-image-job) ويعرض الكارت.
 var RATIOS={'1:1':'SQUARE_1_1','16:9':'LANDSCAPE_16_9','4:3':'LANDSCAPE_4_3','3:2':'LANDSCAPE_3_2','9:16':'PORTRAIT_9_16','3:4':'PORTRAIT_3_4','2:3':'PORTRAIT_2_3','5:4':'LANDSCAPE_5_4','2:1':'LANDSCAPE_2_1','4:5':'PORTRAIT_4_5','1:2':'PORTRAIT_1_2'};
+function guessAspect(t){
+  t=String(t||'').toLowerCase();
+  var m=t.match(/(\d{1,2})\s*[:×x]\s*(\d{1,2})/);
+  if(m&&RATIOS[m[1]+':'+m[2]])return m[1]+':'+m[2];
+  if(/ستوري|story|stories|ريلز|reels|reel|تيك ?توك|tiktok|طولي|رأسي|راسي|portrait|خلفية (ال)?(موبايل|هاتف|جوال)/.test(t))return '9:16';
+  if(/بوستر|poster|غلاف كتاب|بروفايل طولي/.test(t))return '3:4';
+  if(/يوتيوب|youtube|عرضي|أفقي|افقي|landscape|بانر|banner|غلاف|cover|wallpaper|خلفية (ال)?(سطح|كمبيوتر|لاب)|شاشة|عرض تقديمي|presentation/.test(t))return '16:9';
+  if(/مربع|square|لوجو|logo|أيقونة|ايقونة|icon|انستجرام|instagram/.test(t))return '1:1';
+  return '';
+}
 function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
 async function canvaTool(tool,args,intent){
   args.user_intent=String(intent||'صورة').slice(0,200);
@@ -952,13 +970,13 @@ function jobIdOf(r){
 }
 reg('canva_image','🎨 بعمل الصورة في كانفا',
  'يعمل صورة من كانفا بالكامل في خطوة واحدة: يطلب الصورة، يستنى لحد ما تخلص، ويعرضها للمستخدم في الشات بزرار تنزيل ونسخ رابط. استخدمها لأي طلب صورة لما كانفا متوصّلة، ومتنادش mcp_list_tools ولا mcp_call ولا أي أداة عرض معاها. prompt = كلام المستخدم زي ما هو. بعد ما ترجع رد بجملة واحدة قصيرة بس. لو رجّعت خطأ نادي generate_image العادية.',
- {prompt:d(S,'طلب المستخدم للصورة بكلامه زي ما هو'),aspect:d(S,'اختياري: نسبة الأبعاد 1:1 أو 16:9 أو 9:16 أو 4:3 أو 3:4. سيبها فاضية لو المستخدم ماحددش')},['prompt'],
+ {prompt:d(S,'طلب المستخدم للصورة بكلامه زي ما هو'),aspect:d(S,'نسبة الأبعاد، اختارها بنفسك حسب الغرض ومتسيبهاش مربعة دايمًا: 16:9 لمنظر طبيعي أو غلاف أو يوتيوب أو خلفية كمبيوتر، 9:16 لستوري أو ريلز أو خلفية موبايل، 3:4 لبوستر طولي، 4:3 لصورة عادية عرضية، 1:1 لأيقونة أو لوجو بس. القيم: 1:1 أو 16:9 أو 9:16 أو 4:3 أو 3:4')},['prompt'],
  async function(a){
   try{
     if(!(await canvaOn()))return er('كانفا مش متوصّلة. نادي generate_image العادية أو mcp_offer_connect.');
     var intent=String(a.prompt||'').slice(0,120);
     var args={prompt:String(a.prompt||'')};
-    var ar=RATIOS[String(a.aspect||'').replace(/\s/g,'')];
+    var ar=RATIOS[String(a.aspect||'').replace(/\s/g,'')]||RATIOS[guessAspect(a.prompt)];
     if(ar)args.aspectRatio=ar;
     var r=await canvaTool('generate-image',args,intent);
     if(r.isError)return er((textOf(r)||'كانفا رجّعت خطأ').slice(0,400)+' — نادي generate_image العادية.');
