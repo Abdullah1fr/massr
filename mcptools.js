@@ -5,6 +5,7 @@ try{
 // بيكلّم بوابة الـ Worker (mcp-gateway.js) بس. مفيش أسرار هنا: الأسرار والتوكنز عند الـ Worker.
 // بيتحط في index.html بعد videotools.js:  <script src="mcptools.js"></script>   ولإلغائه: شيل السطر بس.
 // لو أي حاجة ناقصة (APP_ACTIONS / fbAuth) بيسكت ومبيكسرش حاجة.
+// v10: إعادة محاولة تلقائية عند 409، المدرب يعرف إن كانفا متوصّلة من غير ما يسأل (أسرع وطلبات أقل)، ودمج/تعديل صور المستخدم المرفوعة في canva_image.
 // v9: خطوة 1 — تظبيط شكل الكروت: عرض ثابت، الصورة جوه الكارت، وأزرار مش بتتكسر (تنزيل كانت بتتكتب حرف حرف).
 // v8: أداة canva_image (خطوة واحدة) + تعليمة الجدول.
 // v7: عرض صور كانفا تلقائيًا في الشات (تنزيل + نسخ رابط)، تنزيل عن طريق البوابة، وكاش لقايمة الأدوات.
@@ -167,6 +168,9 @@ function prefsText(){
   else if(p.len==='long')t+=' أسلوب الرد المطلوب: مفصّل وشامل، وده يتغلّب على أي تعليمات تانية بتطلب الاختصار.';
   if(p.tone==='formal')t+=' النبرة المطلوبة: رسمية ومهذّبة.';
   else if(p.tone==='fun')t+=' النبرة المطلوبة: مرحة وخفيفة.';
+  try{
+    if(canvaCache&&canvaCache.on&&Date.now()-canvaCache.at<900000)t+=' كانفا متوصّلة عند المستخدم دلوقتي (مؤكد). لأي طلب صورة أو رسمة نادي canva_image فورًا، ولأي تصميم فيه نص (بوستر، غلاف، بانر، فلاير، بوست، كارت) نادي canva_design فورًا، من غير mcp_status ولا mcp_list_tools ولا mcp_call ولا أسئلة. الأداتين بيعرضوا النتيجة للمستخدم لوحدهم، فبعدهم رد بجملة واحدة بس.';
+  }catch(e){}
   t+=' الجداول: لما المستخدم يطلب جدول أو مقارنة عادي اكتبه جدول Markdown في الرد نفسه مباشرة من غير أي أداة. ملف إكسل أو CSV بس لو المستخدم طلب ملف أو تنزيل صراحة.';
   return ' ——— إعدادات المستخدم الشخصية:'+t;
 }
@@ -718,6 +722,9 @@ async function canvaOn(){
   canvaCache={at:Date.now(),on:!!(c&&c.connected)};
   return canvaCache.on;
 }
+// تسخين: نعرف من الأول إن كانفا متوصّلة عشان المدرب ميضيّعش طلب يسأل
+function warmCanva(){try{if(gwReady()&&typeof fbAuth!=='undefined'&&fbAuth&&fbAuth.currentUser)canvaOn().catch(function(){})}catch(e){}}
+setTimeout(warmCanva,6000);setTimeout(warmCanva,20000);setInterval(warmCanva,600000);
 function lastUserText(){
   try{
     for(var i=aiChatHistory.length-1;i>=0;i--){
@@ -960,7 +967,17 @@ function guessAspect(t){
 function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
 async function canvaTool(tool,args,intent){
   args.user_intent=String(intent||'صورة').slice(0,200);
-  return (await api('/mcp/call',{provider:'canva',tool:tool,arguments:args})).result||{};
+  var err=null;
+  for(var k=0;k<3;k++){
+    try{return (await api('/mcp/call',{provider:'canva',tool:tool,arguments:args})).result||{}}
+    catch(e){
+      err=e;
+      // 409 (تعارض) / 429 (زحمة) / أخطاء السيرفر المؤقتة: نحاول تاني لوحدنا بدل ما نبوّظ الطلب
+      if(k===2||!/\b(409|429|500|502|503|504)\b/.test(String(e&&e.message||'')))throw e;
+      await sleep(2500*(k+1));
+    }
+  }
+  throw err;
 }
 function jobIdOf(r){
   var sc=r.structuredContent||{};
@@ -968,15 +985,65 @@ function jobIdOf(r){
   var m=textOf(r).match(/job[_ ]?id["'\s:=]+([A-Za-z0-9_-]{6,})/i);
   return m?m[1]:'';
 }
+function attachedImages(){
+  var out=[];
+  try{
+    for(var i=aiChatHistory.length-1;i>=0&&i>=aiChatHistory.length-8;i--){
+      var m=aiChatHistory[i];
+      if(!m||m.role!=='user')continue;
+      (m.parts||[]).forEach(function(p){
+        var x=p&&(p.inlineData||p.inline_data);
+        var mt=x&&(x.mimeType||x.mime_type);
+        if(x&&x.data&&/^image\//i.test(mt||''))out.push({mime:mt,data:x.data});
+      });
+      if(out.length)break;
+    }
+  }catch(e){}
+  return out.slice(0,4);
+}
+function findMediaId(o){
+  if(!o||typeof o!=='object')return '';
+  var ks=['mediaId','media_id','assetId','asset_id','id'];
+  for(var i=0;i<ks.length;i++)if(typeof o[ks[i]]==='string'&&o[ks[i]])return o[ks[i]];
+  for(var k in o){var v=findMediaId(o[k]);if(v)return v}
+  return '';
+}
+async function uploadToCanva(img,intent){
+  var r=await canvaTool('create-upload-url',{},intent);
+  var sc=r.structuredContent||{},t=textOf(r);
+  var up=sc.upload_url||sc.uploadUrl||((t.match(URLRX)||[])[0]||'');
+  if(!up)throw new Error('كانفا مادّتنيش رابط رفع');
+  var bin=atob(img.data),buf=new Uint8Array(bin.length);
+  for(var i=0;i<bin.length;i++)buf[i]=bin.charCodeAt(i);
+  var resp;
+  try{resp=await fetch(up,{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:buf})}
+  catch(e){throw new Error('المتصفح مقدرش يرفع صورتك لكانفا (غالبًا حماية CORS)')}
+  var txt=await resp.text();
+  if(!resp.ok)throw new Error('رفع الصورة لكانفا رجّع '+resp.status);
+  var id='';
+  try{id=findMediaId(JSON.parse(txt))}catch(e){}
+  if(!id){var mm=txt.match(/\bM[A-Za-z0-9_-]{9,}\b/);id=mm?mm[0]:''}
+  if(!id)throw new Error('الصورة اترفعت بس معرفتش رقمها عند كانفا');
+  return id;
+}
 reg('canva_image','🎨 بعمل الصورة في كانفا',
  'يعمل صورة من كانفا بالكامل في خطوة واحدة: يطلب الصورة، يستنى لحد ما تخلص، ويعرضها للمستخدم في الشات بزرار تنزيل ونسخ رابط. استخدمها لأي طلب صورة لما كانفا متوصّلة، ومتنادش mcp_list_tools ولا mcp_call ولا أي أداة عرض معاها. prompt = كلام المستخدم زي ما هو. بعد ما ترجع رد بجملة واحدة قصيرة بس. لو رجّعت خطأ نادي generate_image العادية.',
- {prompt:d(S,'طلب المستخدم للصورة بكلامه زي ما هو'),aspect:d(S,'نسبة الأبعاد، اختارها بنفسك حسب الغرض ومتسيبهاش مربعة دايمًا: 16:9 لمنظر طبيعي أو غلاف أو يوتيوب أو خلفية كمبيوتر، 9:16 لستوري أو ريلز أو خلفية موبايل، 3:4 لبوستر طولي، 4:3 لصورة عادية عرضية، 1:1 لأيقونة أو لوجو بس. القيم: 1:1 أو 16:9 أو 9:16 أو 4:3 أو 3:4')},['prompt'],
+ {prompt:d(S,'طلب المستخدم للصورة بكلامه زي ما هو'),use_attachments:d({type:'boolean'},'خليها true لو المستخدم رفع صورة أو أكتر في الشات وعايزها تتعدّل أو تتدمج أو تتغيّر أو تتستخدم كمرجع للصورة الجديدة (لحد 4 صور). سيبها فاضية لو مفيش صور مرفوعة.'),aspect:d(S,'نسبة الأبعاد، اختارها بنفسك حسب الغرض ومتسيبهاش مربعة دايمًا: 16:9 لمنظر طبيعي أو غلاف أو يوتيوب أو خلفية كمبيوتر، 9:16 لستوري أو ريلز أو خلفية موبايل، 3:4 لبوستر طولي، 4:3 لصورة عادية عرضية، 1:1 لأيقونة أو لوجو بس. القيم: 1:1 أو 16:9 أو 9:16 أو 4:3 أو 3:4')},['prompt'],
  async function(a){
   try{
     if(!(await canvaOn()))return er('كانفا مش متوصّلة. نادي generate_image العادية أو mcp_offer_connect.');
     var intent=String(a.prompt||'').slice(0,120);
     var args={prompt:String(a.prompt||'')};
     var ar=RATIOS[String(a.aspect||'').replace(/\s/g,'')]||RATIOS[guessAspect(a.prompt)];
+    if(a.use_attachments===true||a.use_attachments==='true'){
+      var imgs=attachedImages();
+      if(!imgs.length)return er('مفيش صور مرفوعة في آخر رسايل المستخدم. قوله يرفع الصورة الأول من زرار +.');
+      try{
+        var ids=[];
+        for(var u=0;u<imgs.length;u++)ids.push(await uploadToCanva(imgs[u],intent));
+        args.imageReferences=ids.map(function(id){return {type:'MEDIA',id:id}});
+      }catch(ue){return er('معرفتش أستخدم صورك: '+(ue.message||ue)+'. قول للمستخدم السبب بجملة، ومتعملش الصورة من غير صوره.')}
+    }
     if(ar)args.aspectRatio=ar;
     var r=await canvaTool('generate-image',args,intent);
     if(r.isError)return er((textOf(r)||'كانفا رجّعت خطأ').slice(0,400)+' — نادي generate_image العادية.');
