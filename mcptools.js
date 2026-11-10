@@ -5,6 +5,8 @@ try{
 // بيكلّم بوابة الـ Worker (mcp-gateway.js) بس. مفيش أسرار هنا: الأسرار والتوكنز عند الـ Worker.
 // بيتحط في index.html بعد videotools.js:  <script src="mcptools.js"></script>   ولإلغائه: شيل السطر بس.
 // لو أي حاجة ناقصة (APP_ACTIONS / fbAuth) بيسكت ومبيكسرش حاجة.
+// v12: دوس على صورة الكارت تتفتح للتعليم (علامات مرقمة + ملاحظات) وتتبعت للمدرب.
+// v11: الكروت (صور/تصميم/نسخ) بقت صف عادي في الشات مش جوه فقاعة الأسهم، عرض الكارت على حسب عرض الصورة، بتتحفظ مع المحادثة وترجع بأزرارها (حتى لو رابط الصورة انتهى)، ونسبة الأبعاد للمولّد العادي.
 // v10: إعادة محاولة تلقائية عند 409، المدرب يعرف إن كانفا متوصّلة من غير ما يسأل (أسرع وطلبات أقل)، ودمج/تعديل صور المستخدم المرفوعة في canva_image.
 // v9: خطوة 1 — تظبيط شكل الكروت: عرض ثابت، الصورة جوه الكارت، وأزرار مش بتتكسر (تنزيل كانت بتتكتب حرف حرف).
 // v8: أداة canva_image (خطوة واحدة) + تعليمة الجدول.
@@ -544,9 +546,9 @@ async function exportDesign(designId,type,nameBase){
 }
 function safeUrl(u){u=String(u||'');return /^https:\/\//i.test(u)?u:''}
 function cardHtml(c){
-  var th=safeUrl(c.thumbnail_url);
+  var th=(c._th!==undefined)?c._th:!!safeUrl(c.thumbnail_url);
   return '<div style="'+CARDW+'">'+
-    (th?'<img src="'+esc(th)+'" alt="" referrerpolicy="no-referrer" style="'+IMGS+'" onerror="this.style.display=\'none\'">':'')+
+    (th?'<img data-fit="1" data-s="0" alt="" referrerpolicy="no-referrer" style="'+IMGS+'">':'')+
     '<div style="font-weight:800;margin-bottom:8px;line-height:1.6">🎨 '+esc(c.title||'تصميم كانفا')+'</div>'+
     '<div style="display:flex;flex-direction:column;gap:8px">'+
     (c.design_id?'<div style="display:flex;gap:6px;align-items:stretch"><select data-a="fmt" style="flex:0 0 auto;padding:8px;border-radius:12px"><option>png</option><option>jpg</option><option>pdf</option></select><button data-a="dl" class="btn" style="'+BTN+'">⬇️ تنزيل</button></div>':'')+
@@ -568,16 +570,11 @@ function wireCard(root,c){
   };
 }
 function showCard(c){
-  var host=null;
-  try{host=appendAIBubble('action','')}catch(e){}
-  if(host&&host.nodeType===1){host.innerHTML=cardHtml(c);wireCard(host,c);return 'chat'}
-  // لو الشات مش بيدّينا عنصر نحط فيه: كارت عايم
-  var o=document.createElement('div');
-  o.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:2147483200;display:flex;justify-content:center;padding:10px calc(10px + env(safe-area-inset-bottom,0px)) 10px';
-  o.innerHTML='<div style="background:var(--card-bg,#1c1626);color:var(--text-primary,#fff);border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,.5);position:relative">'+cardHtml(c)+'<button data-a="x" style="position:absolute;top:6px;left:8px;background:none;border:0;color:inherit;font-size:1.1rem;cursor:pointer">✕</button></div>';
-  document.body.appendChild(o);wireCard(o,c);
-  o.querySelector('[data-a=x]').onclick=function(){o.remove()};
-  return 'overlay';
+  var host=mountCard(cardHtml(c));
+  prepImgs(host,[safeUrl(c.thumbnail_url)]);
+  wireCard(host,c);
+  saveCardRec(c);
+  return host.className==='mcp-card-row'?'chat':'overlay';
 }
 
 reg('mcp_show_card','🎨 بعرض التصميم',
@@ -643,7 +640,7 @@ function mediaHtml(mm){
   var h='<div style="'+CARDW+'">';
   if(mm.title)h+='<div style="font-weight:800;margin-bottom:8px;line-height:1.6">🎨 '+esc(mm.title)+'</div>';
   mm.images.forEach(function(u,i){
-    h+='<div style="margin-bottom:10px"><img src="'+esc(u)+'" alt="" referrerpolicy="no-referrer" style="'+IMGS+';min-height:60px;margin-bottom:8px" onerror="this.parentNode.style.display=\'none\'">'+
+    h+='<div style="margin-bottom:10px"><img data-fit="1" data-s="'+i+'" alt="" referrerpolicy="no-referrer" style="'+IMGS+';min-height:60px;margin-bottom:8px">'+
       '<div style="display:flex;gap:6px">'+
       '<button data-m="dl" data-i="'+i+'" class="btn" style="'+BTN+'">⬇️ تنزيل</button>'+
       '<button data-m="cp" data-i="'+i+'" class="btn btn-secondary" style="'+BTN+'">🔗 نسخ الرابط</button></div>'+(mm.edit&&i===0?'<button data-m="ed2" class="btn btn-secondary" style="'+BTN+';width:100%;flex:none;margin-top:6px">✏️ تعديل في كانفا</button>':'')+'</div>';
@@ -660,6 +657,18 @@ function mediaHtml(mm){
 }
 function wireMedia(root,mm){
   var msg=root.querySelector('[data-m=msg]'),say=function(t){if(msg)msg.textContent=t};
+  // دوس على الصورة: تتفتح للتكبير والتعليم (علامات مرقمة + ملاحظات) وتتبعت للمدرب
+  Array.prototype.forEach.call(root.querySelectorAll('img[data-fit]'),function(im){
+    im.style.cursor='zoom-in';
+    im.onclick=async function(){
+      var u=mm.images[+im.getAttribute('data-s')];
+      try{
+        if(!/^data:/i.test(u)){say('⏳ بجهّز الصورة للتعليم...');u=await fetchDataUrl(u);say('')}
+        if(!u||typeof openImageMarkupViewer!=='function')throw new Error('x');
+        openImageMarkupViewer(u);
+      }catch(e){say('⚠️ معرفتش أفتح الصورة للتعليم. نزّلها وارفعها من زرار +')}
+    };
+  });
   Array.prototype.forEach.call(root.querySelectorAll('button[data-m=dl]'),function(b){
     b.onclick=async function(){
       var u=mm.images[+b.getAttribute('data-i')];
@@ -671,7 +680,8 @@ function wireMedia(root,mm){
   });
   Array.prototype.forEach.call(root.querySelectorAll('button[data-m=cp]'),function(b){
     b.onclick=async function(){
-      var cu=mm.images[+b.getAttribute('data-i')];
+      var ci=+b.getAttribute('data-i');
+      var cu=(mm.orig&&mm.orig[ci])||mm.images[ci];
       var okc=/^data:/i.test(cu)?false:await copyText(cu);
       var old=b.textContent;b.textContent=okc?'✅ اتنسخ':'⚠️ مانفعش';
       setTimeout(function(){b.textContent=old},1500);
@@ -679,7 +689,7 @@ function wireMedia(root,mm){
   });
   Array.prototype.forEach.call(root.querySelectorAll('button[data-m=ed2]'),function(b){
     b.onclick=async function(){
-      var img=mm.images[0],fb=(mm.links&&mm.links[0])||img;
+      var img=(mm.orig&&mm.orig[0])||mm.images[0],fb=(mm.links&&mm.links[0])||img;
       var w=null;try{w=window.open('about:blank','_blank')}catch(e){}
       var go=function(u){if(w&&!w.closed){try{w.location.href=u;return}catch(e){}}window.open(u,'_blank','noopener')};
       b.disabled=true;say('⏳ بجهّز الصورة للتعديل في كانفا...');
@@ -704,7 +714,9 @@ function wireMedia(root,mm){
 function showMedia(mm){
   try{
     var host=mountCard(mediaHtml(mm));
+    prepImgs(host,mm.images);
     wireMedia(host,mm);
+    saveMediaRec(mm);
     return true;
   }catch(e){return false}
 }
@@ -768,10 +780,8 @@ function offerHtml(){
     '</div><div data-a="msg" style="font-size:.75rem;opacity:.8;margin-top:6px;min-height:1em"></div></div>';
 }
 function showOffer(args,origGen){
-  var host=null;
-  try{host=appendAIBubble('action','')}catch(e){}
+  var host=mountCard(offerHtml());
   if(!(host&&host.nodeType===1))return false;
-  host.innerHTML=offerHtml();
   var msg=host.querySelector('[data-a=msg]'),say=function(t){if(msg)msg.textContent=t};
   var pend=lastUserText()||String(args.prompt||'');
   var go=host.querySelector('[data-a=go]'),no=host.querySelector('[data-a=no]');
@@ -792,6 +802,7 @@ function showOffer(args,origGen){
   if(!orig)return;
   g.handler=async function(args){
     args=args||{};
+    try{if(!args.aspect){var ga=guessAspect(lastUserText())||guessAspect(args.prompt);if(ga)args.aspect=ga}}catch(e){}
     try{
       if(args.saveToNote===true||Date.now()<skipUntil||declined()||!gwReady())return orig(args);
       var a=(typeof fbAuth!=='undefined')?fbAuth:null;
@@ -812,16 +823,148 @@ function showOffer(args,origGen){
 
 
 // ---------- كروت عامة: ربط أي موقع + اقتراح موقع جديد + كارت نسخ ----------
+// الكارت بقى صف عادي في الشات (زي رد المدرب) مش جوه فقاعة "الأسهم"، وبيتحفظ مع المحادثة (aiRecordCard) ويرجع بعد القفل.
+function chatRow(){
+  try{
+    var box=document.getElementById('aiChatMessages');
+    if(!box)return null;
+    var emp=document.getElementById('aiChatEmptyState');if(emp)emp.style.display='none';
+    var row=document.createElement('div');
+    row.className='mcp-card-row';
+    row.style.cssText='align-self:flex-start;max-width:100%;min-width:0;flex-shrink:0;direction:rtl;text-align:right';
+    if(typeof appendToAIMessages==='function')appendToAIMessages(row);else box.appendChild(row);
+    return row;
+  }catch(e){return null}
+}
+function scrollChat(){try{var b=document.getElementById('aiChatMessages');if(b)b.scrollTop=b.scrollHeight}catch(e){}}
+function rec(kind,data){try{if(typeof aiRecordCard==='function')aiRecordCard(kind,data)}catch(e){}}
+// عرض الكارت على حسب عرض الصورة: طولية تطلع طولية وعرضية عرضية (أقصى عرض 440)
+function fitImg(im){
+  try{
+    var nw=im.naturalWidth,nh=im.naturalHeight;if(!nw||!nh)return;
+    var box=document.getElementById('aiChatMessages');
+    var maxW=Math.min(440,((box&&box.clientWidth)||window.innerWidth)-48),maxH=Math.min(window.innerHeight*0.6,520);
+    var w=Math.max(120,Math.round(Math.min(nw,maxW,maxH*nw/nh)));
+    im.style.width=w+'px';im.style.height='auto';im.style.maxHeight='none';
+  }catch(e){}
+}
+function prepImgs(root,srcs){
+  Array.prototype.forEach.call(root.querySelectorAll('img[data-fit]'),function(im){
+    var u=srcs&&srcs[+im.getAttribute('data-s')];
+    im.onload=function(){fitImg(im)};
+    im.onerror=function(){
+      var p=im.parentNode;if(!p)return;
+      var n=document.createElement('div');
+      n.style.cssText='font-size:.78rem;opacity:.75;line-height:1.7;padding:14px 8px;text-align:center';
+      n.textContent='⚠️ الصورة مش بتتحمّل (رابطها ممكن يكون انتهى)';
+      p.replaceChild(n,im);
+    };
+    if(u)im.src=u;
+  });
+}
+function b64(buf){var s='',k=0x8000;for(var i=0;i<buf.length;i+=k)s+=String.fromCharCode.apply(null,buf.subarray(i,i+k));return btoa(s)}
+function hashStr(t){var h=5381;for(var i=0;i<t.length;i++)h=((h<<5)+h+t.charCodeAt(i))|0;return (h>>>0).toString(36)+t.length.toString(36)}
+// نسخة من الصورة في مخزن صور المحادثة (IndexedDB) عشان الكارت يفضل شغال حتى لو رابط كانفا انتهى
+async function fetchDataUrl(url){
+  try{
+    var u=String(url||''),buf,ct='';
+    if(/^data:image\//i.test(u))return u;
+    try{var f=await apiBin('/mcp/fetch',{url:u});buf=f.buf;ct=f.type||''}
+    catch(e1){var r=await fetch(u);if(!r.ok)return '';buf=new Uint8Array(await r.arrayBuffer());ct=(r.headers.get('content-type')||'').split(';')[0]}
+    if(ct.indexOf('image/')!==0||!buf||!buf.length||buf.length>8*1048576)return '';
+    return 'data:'+ct+';base64,'+b64(buf);
+  }catch(e){return ''}
+}
+async function cacheImage(url){
+  try{
+    if(typeof saveAIChatImageToDB!=='function')return '';
+    var d=await fetchDataUrl(url);if(!d)return '';
+    var id='mcpimg_'+hashStr(String(url));
+    await saveAIChatImageToDB(d,id);
+    return id;
+  }catch(e){return ''}
+}
+function saveMediaRec(mm){
+  try{
+    var okU=function(u){return /^https:\/\//i.test(u)};
+    var d={mm:{title:mm.title||'',images:(mm.images||[]).filter(okU).slice(0,6),links:(mm.links||[]).filter(okU).slice(0,4),linkLabel:mm.linkLabel||'',edit:!!mm.edit},refs:[]};
+    if(!d.mm.images.length&&!d.mm.links.length)return;
+    rec('mcpm',d);
+    (async function(){
+      for(var i=0;i<d.mm.images.length;i++)d.refs[i]=await cacheImage(d.mm.images[i]);
+      if(d.refs.some(Boolean)&&typeof persistAIChatState==='function')persistAIChatState();
+    })().catch(function(){});
+  }catch(e){}
+}
+function saveCardRec(c){
+  try{
+    var d={c:{title:c.title||'',design_id:c.design_id||'',edit_url:c.edit_url||'',thumbnail_url:c.thumbnail_url||''},ref:''};
+    rec('mcpc',d);
+    if(d.c.thumbnail_url)cacheImage(d.c.thumbnail_url).then(function(id){
+      if(id){d.ref=id;if(typeof persistAIChatState==='function')persistAIChatState()}
+    }).catch(function(){});
+  }catch(e){}
+}
+// رجوع الكروت لما المحادثة تتفتح تاني (index.html بينادي aiExtraReplay[نوع الكارت])
+window.aiExtraReplay=window.aiExtraReplay||{};
+window.aiExtraReplay.mcpm=function(d){
+  var m0=d&&d.mm;if(!m0)return;
+  var mm={title:m0.title||'',images:(m0.images||[]).slice(),links:(m0.links||[]).slice(),linkLabel:m0.linkLabel||'',edit:!!m0.edit};
+  mm.orig=mm.images.slice();
+  var row=chatRow();if(!row)return;
+  var refs=d.refs||[];
+  Promise.all(mm.images.map(function(u,i){
+    return (refs[i]&&typeof loadAIChatImageFromDB==='function')?loadAIChatImageFromDB(refs[i]).catch(function(){return null}):null;
+  })).then(function(srcs){
+    srcs.forEach(function(x,i){if(x)mm.images[i]=x});
+    row.innerHTML=mediaHtml(mm);prepImgs(row,mm.images);wireMedia(row,mm);
+  });
+};
+window.aiExtraReplay.mcpc=function(d){
+  var c0=d&&d.c;if(!c0)return;
+  var c={title:c0.title,design_id:c0.design_id,edit_url:c0.edit_url,thumbnail_url:c0.thumbnail_url};
+  var row=chatRow();if(!row)return;
+  var fin=function(src){
+    var th=src||safeUrl(c.thumbnail_url);
+    c._th=!!th;row.innerHTML=cardHtml(c);prepImgs(row,[th]);wireCard(row,c);
+  };
+  if(d.ref&&typeof loadAIChatImageFromDB==='function')loadAIChatImageFromDB(d.ref).then(function(x){fin(x)},function(){fin('')});else fin('');
+};
+window.aiExtraReplay.mcpcopy=function(d){
+  if(!d||!Array.isArray(d.items))return;
+  var h=mountCard(copyHtml(d.title,d.items));wireCopyCards(h,d.items);
+};
+
 function mountCard(html){
-  var host=null;
-  try{host=appendAIBubble('action','')}catch(e){}
-  if(host&&host.nodeType===1){host.innerHTML=html;return host}
+  var host=chatRow();
+  if(host){host.innerHTML=html;scrollChat();return host}
   var o=document.createElement('div');
   o.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:2147483200;display:flex;justify-content:center;padding:10px calc(10px + env(safe-area-inset-bottom,0px)) 10px';
   o.innerHTML='<div style="background:var(--card-bg,#1c1626);color:var(--text-primary,#fff);border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,.5);position:relative;max-width:360px;width:100%">'+html+'<button data-a="x" style="position:absolute;top:6px;left:8px;background:none;border:0;color:inherit;font-size:1.1rem;cursor:pointer">✕</button></div>';
   document.body.appendChild(o);
   var x=o.querySelector('[data-a=x]');if(x)x.onclick=function(){o.remove()};
   return o;
+}
+function copyHtml(title,items){
+  var h='<div style="'+CARDW+'">'+(title?'<div style="font-weight:800;margin-bottom:8px;line-height:1.6">'+esc(title)+'</div>':'');
+  items.forEach(function(it,i){
+    var t=String(it.text),short=t.length<=60&&t.indexOf('\n')<0,ar=/[؀-ۿ]/.test(t);
+    var box='flex:1 1 auto;min-width:0;box-sizing:border-box;padding:9px 11px;border-radius:12px;background:rgba(128,128,128,.14);line-height:1.9;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text;max-height:240px;overflow:auto;direction:'+(ar?'rtl':'ltr')+';text-align:'+(ar?'right':'left');
+    h+='<div style="margin-bottom:8px">'+(it.label?'<div style="font-size:.72rem;opacity:.75;margin-bottom:4px">'+esc(it.label)+'</div>':'')+
+      '<div style="display:flex;gap:6px;align-items:'+(short?'center':'stretch')+';'+(short?'':'flex-direction:column')+'">'+
+      '<div style="'+box+'">'+esc(t)+'</div>'+
+      '<button data-cc="'+i+'" class="btn btn-secondary" style="'+BTN+';'+(short?'flex:0 0 auto;min-width:84px':'width:100%;flex:none')+'">📋 نسخ</button></div></div>';
+  });
+  return h+'</div>';
+}
+function wireCopyCards(root,items){
+  Array.prototype.forEach.call(root.querySelectorAll('button[data-cc]'),function(b){
+    b.onclick=async function(){
+      var ok=await copyText(String((items[+b.getAttribute('data-cc')]||{}).text||''));
+      var old=b.textContent;b.textContent=ok?'✅ اتنسخ':'⚠️ مانفعش';
+      setTimeout(function(){b.textContent=old},1500);
+    };
+  });
 }
 function fbCopy(t){try{var ta=document.createElement('textarea');ta.value=t;ta.style.cssText='position:fixed;opacity:0';document.body.appendChild(ta);ta.select();var ok=document.execCommand('copy');ta.remove();return !!ok}catch(e){return false}}
 function copyText(t){
@@ -841,7 +984,7 @@ function wireCopy(root){
 var BOX='width:100%;box-sizing:border-box;padding:9px;border-radius:10px;direction:ltr;text-align:left';
 function field(id,label,val,ro,pw){
   return '<div style="margin-bottom:8px"><div style="font-size:.72rem;opacity:.75;margin-bottom:3px">'+esc(label)+'</div>'+
-    '<div style="display:flex;gap:6px;align-items:center"><input data-f="'+id+'"'+(pw?' type="password" autocomplete="off"':'')+' value="'+esc(val||'')+'"'+(ro?' readonly':'')+' style="'+BOX+';flex:1;min-width:0">'+
+    '<div style="display:flex;gap:6px;align-items:center"><input data-f="'+id+'"'+(pw?' type="password" autocomplete="off"':'')+' value="'+esc(val||'')+'"'+(ro?' readonly':'')+' style="'+BOX+(/[؀-ۿ]/.test(val||'')?';direction:rtl;text-align:right':'')+';flex:1;min-width:0">'+
     (pw?'':'<button data-copy="'+id+'" class="btn btn-secondary" style="padding:8px 10px;cursor:pointer;white-space:nowrap;flex:0 0 auto">📋 نسخ</button>')+'</div></div>';
 }
 var CARD=CARDW+';width:min(360px,calc(100vw - 64px))';
@@ -935,17 +1078,10 @@ reg('show_copy_card','📋 بجهّز كارت النسخ',
     if(!items.length&&a.text)items=[{label:'',text:a.text}];
     items=items.filter(function(x){return x&&x.text!=null&&String(x.text).length}).slice(0,8);
     if(!items.length)return er('محتاج text أو items_json.');
-    var html='<div style="'+CARD+'">'+(a.title?'<div style="font-weight:800;margin-bottom:8px">'+esc(String(a.title).slice(0,100))+'</div>':'');
-    items.forEach(function(it,i){
-      var t=String(it.text).slice(0,5000),long=t.length>120||t.indexOf('\n')>=0;
-      html+=long?
-        ('<div style="margin-bottom:8px">'+(it.label?'<div style="font-size:.72rem;opacity:.75;margin-bottom:3px">'+esc(String(it.label).slice(0,60))+'</div>':'')+
-         '<textarea data-f="c'+i+'" readonly rows="'+Math.min(8,Math.max(3,Math.ceil(t.length/45)))+'" style="'+BOX+';direction:rtl;text-align:right;display:block;margin-bottom:6px">'+esc(t)+'</textarea>'+
-         '<button data-copy="c'+i+'" class="btn btn-secondary" style="'+BTN+';width:100%;flex:none">📋 نسخ</button></div>'):
-        field('c'+i,String(it.label||'').slice(0,60),t,true);
-    });
-    html+='</div>';
-    wireCopy(mountCard(html));
+    items=items.map(function(it){return {label:String(it.label||'').slice(0,60),text:String(it.text).slice(0,5000)}});
+    var title=a.title?String(a.title).slice(0,100):'';
+    var host=mountCard(copyHtml(title,items));wireCopyCards(host,items);scrollChat();
+    rec('mcpcopy',{title:title,items:items});
     return ok({message:'عرضت كارت النسخ. متكررش النص في ردك.'});
   }catch(e){return er(e.message||String(e))}
  });

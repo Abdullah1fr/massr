@@ -1444,14 +1444,15 @@ window.__isDesk=function(){return d.classList.contains('dev-desktop')};})();</sc
         .ai-pending-image-label { font-size: 0.7rem; color: var(--text-secondary); flex: 1; }
         .ai-pending-image-remove { background: none; border: none; color: var(--text-secondary); font-size: 1rem; cursor: pointer; }
         .ai-msg-image {
-            max-width: 82%;
+            width: min(82%, 440px);
+            max-width: 100%;
             border-radius: 14px;
             overflow: hidden;
             align-self: flex-start;
             border: 1px solid var(--card-border);
             flex-shrink: 0;
         }
-        .ai-msg-image img { width: 100%; max-height: 320px; object-fit: cover; display: block; cursor: pointer; }
+        .ai-msg-image img { width: 100%; height: auto; max-height: none; object-fit: contain; display: block; cursor: pointer; }
         /* معرض نتائج البحث عن الصور: نتائج البحث ليست صورة مولّدة، لذلك لها واجهة مستقلة */
         /* معرض بحث الصور: قريب من شكل Image Group — صور فقط بدون عناوين ضخمة أو بطاقات مزدحمة */
         /* معرض بحث الصور — نفس فكرة صورة رئيسية كبيرة + صور مصغرة حولها */
@@ -7543,6 +7544,7 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
                 <button type="button" class="markup-close-btn" title="إغلاق" onclick="closeImageMarkupViewer()">✕</button>
                 <span class="markup-counter" id="markupCounter"></span>
                 <button type="button" class="markup-tool-btn" id="markupPenBtn" style="font-weight:800;" onclick="toggleMarkupPen()">✏️ قلم</button>
+                <button type="button" class="markup-tool-btn" id="markupPinBtn" style="font-weight:800;" onclick="toggleMarkupPin()">📍 ملاحظة</button>
                 <div class="markup-toolbar-group" id="markupPenTools" style="display:none;">
                     <input type="color" id="markupColorPicker" class="markup-color-swatch" value="#ff3b30" oninput="setMarkupColor(this.value)" title="لون القلم">
                     <input type="range" id="markupSizeSlider" min="2" max="24" value="5" style="width:80px;" oninput="setMarkupSize(this.value)" title="سمك القلم">
@@ -19968,6 +19970,7 @@ function aiReplayCards(list) {
                     case 'ytres': appendAIYouTubeResults(d.items); break;
                     case 'web': appendAIWebResultCard(d.item); break;
                     case 'webaudio': appendAIWebAudioBubble(d.item); break;
+                    default: { const xr = window.aiExtraReplay && window.aiExtraReplay[c.k]; if (typeof xr === 'function') xr(d); }
                 }
             } catch (e) {}
         });
@@ -22399,6 +22402,7 @@ const APP_ACTIONS = {
             type: 'object',
             properties: {
                 prompt: { type: 'string', description: 'وصف تفصيلي (يفضّل بالإنجليزي) للصورة المطلوب توليدها' },
+                aspect: { type: 'string', enum: ['1:1', '16:9', '9:16', '4:3', '3:4', '3:2', '2:3'], description: 'نسبة أبعاد الصورة حسب الغرض: 16:9 لليوتيوب/الغلاف/البانر/المناظر العرضية، 9:16 للستوري/الريلز/خلفية الموبايل، 3:4 أو 2:3 للبوستر والصور الطولية، 4:3 أو 3:2 للصور العادية العرضية، 1:1 للّوجو والأيقونات والبروفايل. سيبها فاضية لو مش واضح (والتطبيق يخمّن من كلام المستخدم).' },
                 saveToNote: { type: 'boolean', description: 'خليها true فقط لو المستخدم طلب صراحةً حفظ/إضافة الصورة كملاحظة في نفس رسالة طلب التوليد. غير كده سيبها false أو متبعتهاش.' },
                 noteTitle: { type: 'string', description: 'عنوان الملاحظة لو saveToNote كانت true. لو فيه ملاحظة موجودة بالفعل بنفس العنوان ده (زي واحدة عملتها لسه بـ create_note)، الصورة هتتضاف جواها بدل ما تعمل ملاحظة جديدة.' },
                 align: { type: 'string', enum: ['right', 'center', 'left'], description: 'محاذاة الصورة جوه الملاحظة لو saveToNote كانت true (افتراضي: center)' },
@@ -22409,7 +22413,7 @@ const APP_ACTIONS = {
         handler: async (args) => {
             appendAIBubble('action', '🎨 بيولّد الصورة دلوقتي... ممكن ياخد كام ثانية');
             try {
-                const imageDataUrl = await callPollinationsImageGeneration(args.prompt || '');
+                const imageDataUrl = await callPollinationsImageGeneration(args.prompt || '', args.aspect);
                 if (!imageDataUrl) return { status: 'error', message: 'الموديل مرجعش صورة، جرب توصيف مختلف أو أوضح' };
 
                 appendAIImageBubble(imageDataUrl);
@@ -23820,6 +23824,14 @@ function appendAIImageBubble(dataUrl) {
     const div = document.createElement('div');
     div.className = 'ai-msg-image';
     const img = document.createElement('img');
+    img.onload = () => {
+        try {
+            const nw = img.naturalWidth, nh = img.naturalHeight; if (!nw || !nh) return;
+            const maxW = Math.min(440, (messagesEl.clientWidth || window.innerWidth) - 48), maxH = Math.min(window.innerHeight * 0.65, 560);
+            div.style.width = Math.max(120, Math.round(Math.min(nw, maxW, maxH * nw / nh))) + 'px';
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        } catch (e) {}
+    };
     img.src = dataUrl;
     img.onclick = () => openImageMarkupViewer(dataUrl);
     div.appendChild(img);
@@ -23910,8 +23922,8 @@ function openImageMarkupViewer(dataUrl, options) {
     const g = options && Array.isArray(options.gallery) && options.gallery.length ? options.gallery : [dataUrl];
     imageMarkupState.gallery = g;
     imageMarkupState.index = Math.min(Math.max(0, (options && options.index) || 0), g.length - 1);
-    setMarkupPen(false);
-    if (useBtn) useBtn.style.display = imageMarkupState.onApply ? 'inline-block' : 'none';
+    setMarkupPen(false); setMarkupPin(false);
+    if (useBtn) { useBtn.style.display = 'inline-block'; useBtn.textContent = imageMarkupState.onApply ? '✅ استخدم الصورة دي' : '📤 ابعتها للمدرب'; }
     img.onload = () => setupImageMarkupCanvas();
     img.src = g[imageMarkupState.index];
     updateMarkupNavUI();
@@ -23951,11 +23963,50 @@ function setMarkupPen(on) {
     const stage = document.getElementById('imageMarkupStage');
     const btn = document.getElementById('markupPenBtn');
     const tools = document.getElementById('markupPenTools');
-    if (stage) stage.classList.toggle('pen-on', imageMarkupState.penOn);
+    if (on && imageMarkupState.pinOn) { imageMarkupState.pinOn = false; const pb = document.getElementById('markupPinBtn'); if (pb) { pb.classList.remove('active'); pb.textContent = '📍 ملاحظة'; } }
+    if (stage) stage.classList.toggle('pen-on', imageMarkupState.penOn || imageMarkupState.pinOn);
     if (btn) { btn.classList.toggle('active', imageMarkupState.penOn); btn.textContent = imageMarkupState.penOn ? '✏️ القلم شغال' : '✏️ قلم'; }
     if (tools) tools.style.display = imageMarkupState.penOn ? 'flex' : 'none';
 }
 function toggleMarkupPen() { setMarkupPen(!imageMarkupState.penOn); }
+
+// علامات مرقمة: دوس على مكان في الصورة واكتب التعديل المطلوب عنده
+function setMarkupPin(on) {
+    imageMarkupState.pinOn = !!on;
+    if (on && imageMarkupState.penOn) setMarkupPen(false);
+    const stage = document.getElementById('imageMarkupStage');
+    const btn = document.getElementById('markupPinBtn');
+    if (stage) stage.classList.toggle('pen-on', imageMarkupState.penOn || imageMarkupState.pinOn);
+    if (btn) { btn.classList.toggle('active', imageMarkupState.pinOn); btn.textContent = imageMarkupState.pinOn ? '📍 دوس على المكان' : '📍 ملاحظة'; }
+}
+function toggleMarkupPin() { setMarkupPin(!imageMarkupState.pinOn); }
+function addMarkupPin(pos) {
+    const n = imageMarkupState.strokes.filter(s => s.pin).length + 1;
+    const text = (window.prompt('اكتب التعديل المطلوب عند العلامة رقم ' + n + ':') || '').trim();
+    if (!text) return;
+    imageMarkupState.strokes.push({ pin: true, n, text, x: pos.x, y: pos.y });
+    redrawImageMarkup();
+}
+function drawMarkupPin(ctx, x, y, n, r) {
+    ctx.save();
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = '#ff3b30'; ctx.fill();
+    ctx.lineWidth = Math.max(2, r / 6); ctx.strokeStyle = '#fff'; ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.font = 'bold ' + Math.round(r * 1.2) + 'px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(String(n), x, y + r * 0.05);
+    ctx.restore();
+}
+// وصف العلامات بالنص (رقم + التعديل + مكانها) عشان المدرب يعرف كل تعديل فين بالظبط
+function getMarkupNotesText() {
+    const c = imageMarkupState.canvas; if (!c) return '';
+    return imageMarkupState.strokes.filter(s => s.pin).map(p => {
+        const fx = p.x / c.width, fy = p.y / c.height;
+        const h = fx < 0.33 ? 'الشمال' : fx > 0.66 ? 'اليمين' : 'النص';
+        const v = fy < 0.33 ? 'فوق' : fy > 0.66 ? 'تحت' : 'النص';
+        return p.n + ') ' + p.text + ' — مكانها: ' + h + ' / ' + v + ' (' + Math.round(fx * 100) + '% من الشمال، ' + Math.round(fy * 100) + '% من فوق)';
+    }).join(' | ');
+}
 
 let markupNavBound = false;
 function bindMarkupNavEvents() {
@@ -23965,7 +24016,7 @@ function bindMarkupNavEvents() {
     let sx = 0, sy = 0, multi = false;
     stage.addEventListener('touchstart', (e) => { multi = e.touches.length > 1; sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
     stage.addEventListener('touchend', (e) => {
-        if (imageMarkupState.penOn || multi || !e.changedTouches.length) return;
+        if (imageMarkupState.penOn || imageMarkupState.pinOn || multi || !e.changedTouches.length) return;
         if (stage.scrollWidth > stage.clientWidth + 4) return; // الصورة متكبّرة: السحب للتحريك مش للتقليب
         const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
         if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) markupGoTo(dx < 0 ? 1 : -1);
@@ -24019,6 +24070,7 @@ function bindImageMarkupEvents(canvas) {
     };
     const start = (e) => {
         e.preventDefault();
+        if (imageMarkupState.pinOn) { const pp = getPos(e); setTimeout(() => addMarkupPin(pp), 30); return; }
         imageMarkupState.drawing = true;
         const pos = getPos(e);
         imageMarkupState.currentStroke = { color: imageMarkupState.color, size: imageMarkupState.size, points: [pos] };
@@ -24063,6 +24115,7 @@ function redrawImageMarkup() {
         for (let i = 1; i < stroke.points.length; i++) ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
         ctx.stroke();
     });
+    all.forEach(p => { if (p.pin) drawMarkupPin(ctx, p.x, p.y, p.n, 14); });
 }
 
 function setMarkupColor(color) { imageMarkupState.color = color; }
@@ -24093,6 +24146,7 @@ function getFlattenedMarkupDataUrl(mimeType) {
         for (let i = 1; i < stroke.points.length; i++) outCtx.lineTo(stroke.points[i].x * scaleX, stroke.points[i].y * scaleY);
         outCtx.stroke();
     });
+    imageMarkupState.strokes.forEach(p => { if (p.pin) drawMarkupPin(outCtx, p.x * scaleX, p.y * scaleY, p.n, Math.max(14, 14 * avgScale)); });
     return outCanvas.toDataURL(mimeType || 'image/png');
 }
 
@@ -24111,11 +24165,33 @@ function downloadMarkedImage() {
 // بيستخدم الصورة بعد التعليم عليها بدل ما ينزّلها — بيستدعي onApply اللي اتبعت
 // وقت فتح العارض (مثلاً عشان يحدّث الصورة المرفقة قبل إرسالها للمساعد)
 function applyImageMarkup() {
-    if (!imageMarkupState.onApply) return;
     const outUrl = getFlattenedMarkupDataUrl('image/png'); // بدون ضغط: PNG بدقة الصورة الأصلية
     if (!outUrl) return;
-    imageMarkupState.onApply(outUrl, imageMarkupState.index);
+    const notes = getMarkupNotesText();
+    const hasDraw = imageMarkupState.strokes.some(s => !s.pin);
+    if (imageMarkupState.onApply) imageMarkupState.onApply(outUrl, imageMarkupState.index);
+    else aiAttachMarkedImage(outUrl);
+    aiPutMarkupNotesInChat(notes, hasDraw);
     closeImageMarkupViewer();
+}
+// صورة من الشات (مولّدة أو كارت) اتعلّم عليها: تتحط كمرفق جاهز للإرسال للمدرب
+function aiAttachMarkedImage(dataUrl) {
+    try {
+        fetch(dataUrl).then(r => r.blob()).then(b => {
+            addPendingAIFile(new File([b], 'صورة_معلمة.png', { type: b.type || 'image/png' }));
+            showToast('الصورة المعلَّم عليها اتحطت مرفق ✅ اكتب أي تفاصيل زيادة وابعت');
+        });
+    } catch (e) {}
+}
+function aiPutMarkupNotesInChat(notes, hasDraw) {
+    const inp = document.getElementById('aiChatInput');
+    if (!inp || (!notes && !hasDraw)) return;
+    let t = notes
+        ? 'عدّل الصورة المرفقة حسب العلامات الحمرا المرقمة عليها (كل رقم هو مكان التعديل): ' + notes + ' | (العلامات والأرقام مجرد إشارة للمكان، متظهرهاش في الصورة الجديدة.)'
+        : 'عدّل الصورة المرفقة في الأماكن اللي معلّم عليها بالقلم الأحمر (والتعليم نفسه متظهرهوش في الصورة الجديدة):';
+    inp.value = inp.value ? inp.value + ' ' + t : t;
+    try { if (typeof updateAIChatInputRowState === 'function') updateAIChatInputRowState(); } catch (e) {}
+    try { inp.dispatchEvent(new Event('input', { bubbles: true })); inp.focus(); } catch (e) {}
 }
 
 // بيحدّث الصورة المرفقة (اللي لسه ما اتبعتش للمساعد) بالنسخة المعلَّم عليها
@@ -24186,15 +24262,27 @@ function confirmAddImageToNewNote() {
 
 // بينادي خدمة Pollinations.ai (مجانية بالكامل، من غير API key) لتوليد الصور
 // ويرجع data URL جاهز (data:image/...;base64,...) أو يرمي خطأ لو فشل الطلب
-async function callPollinationsImageGeneration(prompt) {
+// نسبة الأبعاد -> مقاس (Pollinations): 1:1 افتراضي. بتقبل "16:9" أو "1280x720"
+function aiImageSizeFor(aspect) {
+    const a = String(aspect || '').toLowerCase().replace(/\s/g, '');
+    const map = { '1:1': [1024, 1024], '16:9': [1280, 720], '9:16': [720, 1280], '4:3': [1152, 864], '3:4': [864, 1152], '3:2': [1216, 832], '2:3': [832, 1216], '5:4': [1120, 896], '4:5': [896, 1120], '21:9': [1344, 576], '2:1': [1280, 640], '1:2': [640, 1280] };
+    if (map[a]) return map[a];
+    const m = a.match(/^(\d{3,4})[x×](\d{3,4})$/);
+    if (m) { const w = Math.min(1536, Math.max(256, +m[1])), h = Math.min(1536, Math.max(256, +m[2])); return [w, h]; }
+    return [1024, 1024];
+}
+async function callPollinationsImageGeneration(prompt, aspect) {
     const cleanPrompt = (prompt || '').trim();
     if (!cleanPrompt) throw new Error('لازم تبعت وصف للصورة عشان تتولد');
     const encodedPrompt = encodeURIComponent(cleanPrompt);
     // seed عشوائي عشان كل مرة تطلع صورة مختلفة حتى لو نفس الوصف
     const seed = Math.floor(Math.random() * 1000000);
-    const url = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&seed=${seed}&nologo=true`;
+    const url = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${aiImageSizeFor(aspect)[0]}&height=${aiImageSizeFor(aspect)[1]}&seed=${seed}&nologo=true`;
 
-    const res = await fetch(url);
+    // موديل flux + تحسين الوصف تلقائيًا (جودة أعلى)، ولو الخدمة رفضتهم نرجع للطلب العادي
+    let res = null;
+    try { res = await fetch(url + '&model=flux&enhance=true'); } catch (e) { res = null; }
+    if (!res || !res.ok) res = await fetch(url);
     if (!res.ok) {
         throw new Error(`Pollinations Image API error (${res.status}): تعذر توليد الصورة، جرب تاني بعد شوية`);
     }
@@ -36637,13 +36725,14 @@ const imgModels=async()=>{let list=null;try{const c=JSON.parse(LS.getItem('ai_im
  if(!list){try{const k=(typeof peekActiveAIKeyContext==='function'&&peekActiveAIKeyContext().key)||LS.getItem('app_gemini_api_key');if(k){const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key='+encodeURIComponent(k));if(r.ok){const j=await r.json(),ver=n=>{const m=/gemini-(\d+(?:\.\d+)?)/.exec(n);return m?parseFloat(m[1]):0};
   list=(j.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes('generateContent')).map(m=>String(m.name).replace(/^models\//,'')).filter(n=>/image/.test(n)&&!/live|tts|audio|embed|vision-only/.test(n)).sort((x,y)=>ver(y)-ver(x)||(/pro/.test(y)?1:0)-(/pro/.test(x)?1:0)||(/preview/.test(x)?1:0)-(/preview/.test(y)?1:0));if(list.length)LS.setItem('ai_img_models_v1',JSON.stringify({t:Date.now(),l:list}))}}}catch(e){}}
  const base=(typeof AI_IMAGE_MODEL==='string'?AI_IMAGE_MODEL:'gemini-2.5-flash-image');const out=(list||[]).slice();if(!out.includes(base))out.push(base);return out.slice(0,4)};
-const geminiImage=async(prompt,inline)=>{const models=await imgModels();let last='';
+const geminiOn=()=>{try{return LS.getItem('ai_img_gemini_on')==='1'}catch(e){return false}};
+const geminiImage=async(prompt,inline,aspect)=>{if(!geminiOn())throw new Error('تعديل/توليد الصور بموديلات Gemini مش متاح مع المفتاح المجاني. لو كانفا متوصّلة استخدم canva_image (ومعاها use_attachments لو عايز تعدّل صورة)، ولو لأ استخدم image_edit للتعديلات المحلية (إضاءة، نص، قص، دمج).');const models=await imgModels();let last='';const ASPS=['2:3','3:2','3:4','4:3','4:5','5:4','9:16','16:9','21:9'];const asp=ASPS.includes(String(aspect||'').replace(/\s/g,''))?String(aspect).replace(/\s/g,''):'';let noAsp=false;
  for(const m of models){for(let k=0;k<2;k++){const ctx=(typeof consumeActiveAIKeyContext==='function')?consumeActiveAIKeyContext():{key:LS.getItem('app_gemini_api_key')||''};if(!ctx.key)throw new Error('مفيش مفتاح متاح');
-  try{const parts=[{text:prompt}];if(inline)parts.push({inlineData:inline});const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+m+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':ctx.key},body:JSON.stringify({contents:[{role:'user',parts}],generationConfig:{responseModalities:['IMAGE','TEXT']}})});
+  try{const parts=[{text:(asp&&noAsp)?prompt+' (Compose the image in '+asp+' aspect ratio.)':prompt}];if(inline)parts.push({inlineData:inline});const r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+m+':generateContent',{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':ctx.key},body:JSON.stringify({contents:[{role:'user',parts}],generationConfig:Object.assign({responseModalities:['IMAGE','TEXT']},(asp&&!noAsp)?{imageConfig:{aspectRatio:asp}}:{})})});
    if(r.ok){const j=await r.json(),pp=((j.candidates||[])[0]||{}).content&&((j.candidates||[])[0].content.parts||[]);const im=(pp||[]).find(p=>(p.inlineData||p.inline_data)&&((p.inlineData||p.inline_data).data));if(im){const x=im.inlineData||im.inline_data;return 'data:'+(x.mimeType||x.mime_type||'image/png')+';base64,'+x.data}last=m+': ما رجّعش صورة';break}
-   last=m+' ('+r.status+')';if(r.status===429&&k===0)continue;break}catch(e){last=m+': '+e.message;break}}}
+   last=m+' ('+r.status+')';if(r.status===400&&asp&&!noAsp){noAsp=true;k--;continue}if(r.status===429&&k===0)continue;break}catch(e){last=m+': '+e.message;break}}}
  throw new Error('فشل توليد الصورة بموديلات Gemini: '+last)};
-if(typeof _poll==='function')window.callPollinationsImageGeneration=async function(prompt){try{return await geminiImage(prompt)}catch(e){console.warn('[AI] الصور: رجعت للخدمة المجانية',e.message);try{appendAIBubble('action','⚠️ موديل الصور المدفوع مش متاح دلوقتي، هستخدم الخدمة المجانية (جودتها أقل)')}catch(_){}return _poll.apply(this,arguments)}};
+if(typeof _poll==='function')window.callPollinationsImageGeneration=async function(prompt,aspect){if(!geminiOn())return _poll.apply(this,arguments);try{return await geminiImage(prompt,null,aspect)}catch(e){console.warn('[AI] الصور: رجعت للخدمة المجانية',e.message);try{appendAIBubble('action','⚠️ موديل الصور المدفوع مش متاح دلوقتي، هستخدم الخدمة المجانية (جودتها أقل)')}catch(_){}return _poll.apply(this,arguments)}};
 reg('image_ai_edit','🎨 بعدّل صورة بالذكاء','تعديل صورة موجودة بالذكاء الاصطناعي بتعليمات نصية (غيّر الخلفية، لوّن، شيل عنصر، غيّر الأسلوب، ضيف حاجة...). file = صورة من المحادثة، ولو متحددش بياخد آخر صورة اتولدت. الناتج صورة جديدة والأصل زي ما هو. للتعديلات الدقيقة (قص، إضاءة، نص) استخدم image_edit/image_tool.',{prompt:d(S,'التعليمات (يفضّل بالإنجليزي)'),file:d(S,'رقم أو اسم الصورة (اختياري)')},['prompt'],async a=>{
  try{let mime,b64,nm='صورة';if(a.file){const {f,bytes}=await aiFileBytes(a.file);if(!/^image\//.test(f.mime))return er('الملف مش صورة');mime=f.mime;b64=f.part.inlineData.data;nm=f.name}else if(typeof lastGeneratedImage!=='undefined'&&lastGeneratedImage){mime=lastGeneratedImage.mimeType;b64=lastGeneratedImage.base64}else return er('مفيش صورة أعدّلها. ابعت صورة أو ولّد واحدة الأول.');
  act('🎨 بعدّل الصورة بالذكاء الاصطناعي...');const url=await geminiImage(a.prompt,{mimeType:mime,data:b64});setLast(url,a.prompt);const m=/^data:([^;]+);base64,(.+)$/.exec(url);return ok({message:'اتعدّلت الصورة',file:await aiAddOutputFile(aiBase(nm,'_معدّلة_بالذكاء',m[1].indexOf('jpeg')>-1?'jpg':'png'),m[1],dataUrlBytes(url))})}catch(e){return er(e.message||String(e))}});
@@ -37941,7 +38030,7 @@ window.registerAppTile = function (o) {
 <script src="webtools.js?v=7" onerror="window.__webtoolsFailed=1"></script>
 <script src="filetools.js?v=1" onerror="window.__filetoolsFailed=1"></script>
 <script src="videotools.js?v=2" onerror="window.__videotoolsFailed=1"></script>
-<script src="mcptools.js?v=1"></script>
+<script src="mcptools.js?v=12"></script>
 <script src="aisteps.js?v=1" onerror="window.__aistepsFailed=1"></script>
 <script src="onboarding.js?v=15" onerror="window.__onbLoadFailed=1;window.__onbCoverOff&&window.__onbCoverOff()"></script>
 <script src="social.js?v=23" onerror="window.__socialLoadFailed=1"></script>
