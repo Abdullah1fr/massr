@@ -5,6 +5,7 @@ try{
 // بيكلّم بوابة الـ Worker (mcp-gateway.js) بس. مفيش أسرار هنا: الأسرار والتوكنز عند الـ Worker.
 // بيتحط في index.html بعد videotools.js:  <script src="mcptools.js"></script>   ولإلغائه: شيل السطر بس.
 // لو أي حاجة ناقصة (APP_ACTIONS / fbAuth) بيسكت ومبيكسرش حاجة.
+// v13: تشخيص أوضح لفشل التصميم (بيعرض رد كانفا)، بحث أوسع عن رقم التصميم، ومحاولات أقل (مش 7 دقايق).
 // v12: دوس على صورة الكارت تتفتح للتعليم (علامات مرقمة + ملاحظات) وتتبعت للمدرب.
 // v11: الكروت (صور/تصميم/نسخ) بقت صف عادي في الشات مش جوه فقاعة الأسهم، عرض الكارت على حسب عرض الصورة، بتتحفظ مع المحادثة وترجع بأزرارها (حتى لو رابط الصورة انتهى)، ونسبة الأبعاد للمولّد العادي.
 // v10: إعادة محاولة تلقائية عند 409، المدرب يعرف إن كانفا متوصّلة من غير ما يسأل (أسرع وطلبات أقل)، ودمج/تعديل صور المستخدم المرفوعة في canva_image.
@@ -697,9 +698,9 @@ function wireMedia(root,mm){
         var r=await canvaTool('import-design-from-url',{url:img,name:String(mm.title||'صورة').slice(0,60)},'فتح الصورة للتعديل');
         var t=textOf(r);
         if(r.isError)throw new Error(t.slice(0,200)||'كانفا رجّعت خطأ');
-        var m=t.match(/https:\/\/www\.canva\.com\/design\/[A-Za-z0-9_-]+[^\s"'<>\\)]*/),id=designIdOf(t);
+        var m=t.match(/https:\/\/www\.canva\.com\/design\/[A-Za-z0-9_-]+[^\s"'<>\\)]*/),id=designIdOf(t)||findDesignId(r.structuredContent);
         var u=m?m[0].replace(/[.,;]+$/,''):(id?'https://www.canva.com/design/'+id+'/edit':'');
-        if(!u)throw new Error('معرفتش ألاقي رابط التصميم');
+        if(!u)throw new Error('معرفتش ألاقي رابط التصميم | '+snip(t));
         go(u);say('✅ اتفتحت في كانفا للتعديل');
       }catch(x){
         go(fb);say('⚠️ معرفتش أفتحها في المحرر ('+(x.message||x)+')، فتحت صفحة الصورة في كانفا');
@@ -1100,6 +1101,18 @@ function guessAspect(t){
   if(/مربع|square|لوجو|logo|أيقونة|ايقونة|icon|انستجرام|instagram/.test(t))return '1:1';
   return '';
 }
+function snip(t){return String(t||'').replace(/\s+/g,' ').slice(0,350)}
+function findDesignId(o,d){
+  d=d||0;if(!o||typeof o!=='object'||d>6)return '';
+  for(var k in o){
+    var v=o[k];
+    if(typeof v==='string'){
+      if(/design/i.test(k)&&/^D[A-Za-z0-9_-]{10}$/.test(v))return v;
+      var mm=v.match(/canva\.com\/design\/(D[A-Za-z0-9_-]{10})/);if(mm)return mm[1];
+    }else if(v&&typeof v==='object'){var x=findDesignId(v,d+1);if(x)return x}
+  }
+  return '';
+}
 function sleep(ms){return new Promise(function(r){setTimeout(r,ms)})}
 async function canvaTool(tool,args,intent){
   args.user_intent=String(intent||'صورة').slice(0,200);
@@ -1237,7 +1250,7 @@ reg('canva_design','🎨 بعمل التصميم في كانفا',
     if(r.isError)return er((textOf(r)||'كانفا رجّعت خطأ').slice(0,400));
     var J=jobOf(r),last=r,DRX=/https:\/\/www\.canva\.com\/design\/(D[A-Za-z0-9_-]{10})[^\s"'<>\\)]*/;
     var t0=textOf(r);
-    for(var i=0;i<30&&!DRX.test(t0);i++){
+    for(var i=0;i<14&&!DRX.test(t0)&&!findDesignId(last.structuredContent);i++){
       if(!J.job||!J.tok)break;
       await sleep(J.wait*1000);
       last=await canvaTool('get-create-design-async-job',{job_id:J.job,continuation_token:J.tok},intent);
@@ -1246,9 +1259,9 @@ reg('canva_design','🎨 بعمل التصميم في كانفا',
       if(/\b(FAILED|FAILURE|ERROR)\b/i.test(t0)&&!DRX.test(t0))return er('كانفا ماقدرتش تعمل التصميم: '+t0.slice(0,300));
       var nj=jobOf(last);if(nj.tok)J.tok=nj.tok;if(nj.wait)J.wait=nj.wait;
     }
-    var m=t0.match(DRX);
-    if(!m)return er(J.job?'التصميم لسه ماخلصش أو مفيش رابط ليه. جرّب تاني بعد شوية.':'مفهمتش رد كانفا (مفيش job_id).');
-    var id=m[1],th=pickMedia(last).images.filter(function(u){return /^https:/i.test(u)})[0]||'';
+    var m=t0.match(DRX),id=m?m[1]:(findDesignId(last.structuredContent)||findDesignId(r.structuredContent));
+    if(!id)return er((J.job?'التصميم لسه ماخلصش أو مفيش رابط ليه.':'مفهمتش رد كانفا (مفيش job_id).')+' | رد كانفا: '+snip(t0));
+    var th=pickMedia(last).images.filter(function(u){return /^https:/i.test(u)})[0]||'';
     showCard({title:intent,design_id:id,edit_url:'https://www.canva.com/design/'+id+'/edit',thumbnail_url:th});
     return ok({shown_to_user:true,design_id:id,message:'اتعرض للمستخدم كارت التصميم بزرار تعديل وتنزيل. رد بجملة واحدة قصيرة بس ومتكررش أي رابط.'});
   }catch(e){return er(e.code==='not_connected'?(e.message+' (نادي mcp_open_connect)'):(e.message||String(e)))}

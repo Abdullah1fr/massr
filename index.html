@@ -19262,7 +19262,12 @@ async function aiUkApi(method, path, body) {
     const tok = window.__aiIdToken ? await window.__aiIdToken() : '';
     if (!tok) throw { code: 'noauth' };
     const headers = { Authorization: 'Bearer ' + tok }; if (body) headers['Content-Type'] = 'application/json';
-    const res = await fetch(gw + path, { method, headers, body: body ? JSON.stringify(body) : undefined });
+    const ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    const tm = ctl ? setTimeout(function () { try { ctl.abort(); } catch (e) {} }, 25000) : 0;
+    let res;
+    try { res = await fetch(gw + path, { method, headers, body: body ? JSON.stringify(body) : undefined, signal: ctl ? ctl.signal : undefined }); }
+    catch (e) { if (e && e.name === 'AbortError') throw { code: 'timeout', message: 'الطلب اتأخر أكتر من 25 ثانية ومارد' }; throw e; }
+    finally { if (tm) clearTimeout(tm); }
     let data = {}; try { data = await res.json(); } catch (e) {}
     return { status: res.status, data };
 }
@@ -19293,6 +19298,22 @@ async function aiUkRefresh() {
     } catch (e) {}
     return false;
 }
+function aiUkDlg(msg, ask) {
+    return new Promise(function (resolve) {
+        try {
+            var o = document.createElement('div');
+            o.style.cssText = 'position:fixed;inset:0;z-index:2147483647;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:18px;direction:rtl;';
+            var b = document.createElement('div');
+            b.style.cssText = 'background:#fff;color:#111;border-radius:16px;max-width:420px;width:100%;padding:18px;font:600 15px/1.8 Tajawal,sans-serif;white-space:pre-wrap;max-height:80vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.4);';
+            b.textContent = msg;
+            var r = document.createElement('div'); r.style.cssText = 'display:flex;gap:10px;margin-top:14px;';
+            function done(v) { try { o.remove(); } catch (e) {} resolve(v); }
+            function btn(t, v, main) { var x = document.createElement('button'); x.type = 'button'; x.textContent = t; x.style.cssText = 'flex:1;padding:11px;border:0;border-radius:12px;font:700 15px Tajawal,sans-serif;background:' + (main ? '#0f8a6c' : '#e5e7eb') + ';color:' + (main ? '#fff' : '#111') + ';'; x.onclick = function () { done(v); }; return x; }
+            if (ask) { r.appendChild(btn('أيوه، احفظه', true, true)); r.appendChild(btn('لأ', false, false)); } else r.appendChild(btn('تمام', true, true));
+            b.appendChild(r); o.appendChild(b); document.body.appendChild(o);
+        } catch (e) { resolve(ask ? false : true); }
+    });
+}
 function aiUkWhy(d) {
     return d.reason === 'API_KEY_HTTP_REFERRER_BLOCKED' ? 'المفتاح مقيّد بمواقع أو تطبيق معيّن.'
          : d.reason === 'API_KEY_IP_ADDRESS_BLOCKED' ? 'المفتاح مقيّد بعناوين معيّنة.'
@@ -19301,30 +19322,31 @@ function aiUkWhy(d) {
 }
 async function saveAIApiKey() {
     const input = document.getElementById('aiApiKeyInput');
-    const raw = (input && input.value) || '';
+    const raw = ((input && input.value) || '').replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF\u00AD"'`“”‘’«»]/g, '');
     const keys = Array.from(new Set(raw.split(/[\s,;،]+/).map(x => x.trim()).filter(Boolean)));
     if (!keys.length) { showToast('الصق المفتاح الأول ✍️'); return; }
-    if (!(typeof fbAuth !== 'undefined' && fbAuth && fbAuth.currentUser)) { alert('سجّل دخول بحسابك الأول من الإعدادات، وبعدين ضيف مفاتيحك. كده بتتحفظ مربوطة بحسابك وبأمان.'); return; }
+    if (!(typeof fbAuth !== 'undefined' && fbAuth && fbAuth.currentUser)) { aiUkDlg('سجّل دخول بحسابك الأول من الإعدادات، وبعدين ضيف مفاتيحك. كده بتتحفظ مربوطة بحسابك وبأمان.', false); return; }
     const good = keys.filter(k => AI_UK_FORMAT.test(k)), badFmt = keys.length - good.length;
-    if (!good.length) { alert('⚠️ اللي لصقته مش شكل مفتاح Gemini API صحيح.\n\nالمفتاح بيبدأ بـ AIza (39 حرف) أو AQ. — انسخه كامل من Google AI Studio.'); return; }
+    if (!good.length) { aiUkDlg('⚠️ اللي لصقته مش شكل مفتاح Gemini API صحيح.\n\nالمفتاح بيبدأ بـ AIza (39 حرف) أو AQ. — انسخه كامل من Google AI Studio.', false); return; }
     const btn = document.getElementById('aiApiKeyAddBtn'); if (btn) btn.disabled = true;
     showToast('بيتأكد من المفاتيح مع جوجل... ⏳');
-    let added = 0, dup = 0, invalid = 0, skipped = 0, other = 0, limit = false, down = false, lastKeys = null;
+    let added = 0, dup = 0, invalid = 0, skipped = 0, other = 0, limit = false, down = false, lastKeys = null, why = '', authProblem = false;
     try {
         for (const k of good) {
             try {
                 let r = await aiUkApi('POST', '/user-keys', { key: k });
                 if (r.status === 422 && r.data.error === 'unverified') {
-                    if (confirm('⚠️ ' + aiUkWhy(r.data) + '\n\nده مش معناه إن المفتاح غلط. تحب تحفظه برضو وتجرّبه في المساعد؟')) r = await aiUkApi('POST', '/user-keys', { key: k, force: true });
+                    if (await aiUkDlg('⚠️ ' + aiUkWhy(r.data) + '\n\nده مش معناه إن المفتاح غلط. تحب تحفظه برضو وتجرّبه في المساعد؟', true)) r = await aiUkApi('POST', '/user-keys', { key: k, force: true });
                     else { skipped++; continue; }
                 }
                 if (r.status === 200 && r.data.ok) { added++; if (r.data.keys) lastKeys = r.data.keys; }
                 else if (r.data.error === 'duplicate') dup++;
                 else if (r.data.error === 'invalid') invalid++;
                 else if (r.data.error === 'limit') { limit = true; break; }
-                else if (r.status === 404 || r.status === 503 || r.status === 401) { down = true; break; }
-                else other++;
-            } catch (e) { if (e && (e.code === 'nogw' || e.code === 'noauth')) { down = true; break; } other++; }
+                else if (r.status === 401) { authProblem = true; why = 'HTTP 401 ' + (r.data.error || ''); break; }
+                else if (r.status === 404 || r.status === 503) { down = true; why = 'HTTP ' + r.status + ' ' + (r.data.error || ''); break; }
+                else { other++; why = 'HTTP ' + r.status + (r.data.error ? ' ' + r.data.error : '') + (r.data.message ? ' ' + String(r.data.message).slice(0, 80) : ''); }
+            } catch (e) { if (e && e.code === 'timeout') { other++; why = e.message; } else if (e && e.code === 'noauth') { authProblem = true; why = 'noauth (مفيش توكن دخول)'; break; } if (e && e.code === 'nogw') { down = true; why = 'nogw'; break; } other++; why = 'اتصال: ' + ((e && (e.name + ': ' + e.message)) || 'خطأ شبكة') + (navigator.onLine === false ? ' (أوفلاين)' : ''); }
         }
     } finally { if (btn) btn.disabled = false; }
     if (added) { /* نعيد تحميل المفاتيح مرة واحدة (الذاكرة + القايمة بيتظبطوا مع بعض) */
@@ -19339,12 +19361,14 @@ async function saveAIApiKey() {
     if (skipped) parts.push(skipped + ' اتسابوا من غير حفظ');
     if (limit) parts.push('وصلت للحد الأقصى (10 مفاتيح)');
     if (other) parts.push(other + ' فشلوا، جرّب تاني');
+    if (authProblem) parts.push('⚠️ جلسة الدخول مش سليمة — اعمل تسجيل خروج وادخل تاني وجرّب');
     if (down) parts.push('⚠️ خدمة حفظ المفاتيح مش شغالة دلوقتي، جرّب بعد شوية');
+    if (why && (other || down || authProblem)) { parts.push('🔍 السبب: ' + why); try { console.warn('[UK add fail]', why); } catch (e) {} }
     if (input && (added || dup)) input.value = '';
     const total = aiUserKeyMeta().length;
     if (added && total) parts.push('عندك دلوقتي ' + total + ' مفتاح');
-    if (added && !invalid && !limit && !down && !other && !badFmt) showToast(parts.join(' — '));
-    else alert(parts.join('\n'));
+    if (added && !invalid && !limit && !down && !other && !badFmt && !authProblem) showToast(parts.join(' — '));
+    else await aiUkDlg(parts.join('\n'), false);
 }
 async function aiUkRemoveKey(id) {
     if (!confirm('تمسح المفتاح ده من حسابك؟')) return;
@@ -26724,7 +26748,7 @@ function connectAILiveSession(attempt) {
                 model: 'models/' + AI_LIVE_MODEL,
                 generationConfig: aiLiveGenerationConfig(),
                 systemInstruction: { parts: [{ text: buildAILiveSystemInstructionText() }] },
-                tools: AI_TOOLS_DECLARATION,
+                tools: [{ functionDeclarations: ((AI_TOOLS_DECLARATION[0] && AI_TOOLS_DECLARATION[0].functionDeclarations) || []).filter(function (f) { return !/^(mcp_|canva_|show_copy_card)/.test(f.name); }) }],
                 inputAudioTranscription: {},
                 outputAudioTranscription: {}
             }
@@ -38030,7 +38054,7 @@ window.registerAppTile = function (o) {
 <script src="webtools.js?v=7" onerror="window.__webtoolsFailed=1"></script>
 <script src="filetools.js?v=1" onerror="window.__filetoolsFailed=1"></script>
 <script src="videotools.js?v=2" onerror="window.__videotoolsFailed=1"></script>
-<script src="mcptools.js?v=12"></script>
+<script src="mcptools.js?v=13"></script>
 <script src="aisteps.js?v=1" onerror="window.__aistepsFailed=1"></script>
 <script src="onboarding.js?v=15" onerror="window.__onbLoadFailed=1;window.__onbCoverOff&&window.__onbCoverOff()"></script>
 <script src="social.js?v=23" onerror="window.__socialLoadFailed=1"></script>
