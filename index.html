@@ -5604,6 +5604,7 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
                         <div class="qrt-sub" id="quranReadingSub">—</div>
                     </div>
                     <button class="icon-btn" onclick="openQuranReciterPicker()" style="font-size:1.1rem;">🎙️</button>
+                    <button class="icon-btn" id="quranEyeTrackBtn" onclick="rpEyeToggle()" style="font-size:1.1rem;opacity:.45;" title="شغّل العين عشان تبدأ حساب وردك">👁</button>
                     <button class="icon-btn" onclick="openQuranDisplaySettingsSheet()" style="font-size:1.1rem;" title="اعدادات العرض">⚙️</button>
                 </div>
                 <div id="quranBismillahWrap"></div>
@@ -13224,7 +13225,7 @@ function restoreTimerState() {
         showToast('اتصفّر سجل القراءة');
     }
 
-    const RPR = { io: null, vis: new Set(), st: new Map(), t: 0, last: Date.now(), act: Date.now(), wrap: null };
+    const RPR = { on: false, io: null, vis: new Set(), st: new Map(), t: 0, last: Date.now(), act: Date.now(), wrap: null };
     ['scroll', 'touchstart', 'touchmove', 'pointerdown', 'pointermove', 'keydown', 'wheel', 'click'].forEach(ev =>
         window.addEventListener(ev, () => { RPR.act = Date.now(); }, { passive: true, capture: true }));
     // كلمات حقيقية بس (أي رمز وقف أو علامة مالوش حروف مش بيتعد)
@@ -13249,6 +13250,7 @@ function restoreTimerState() {
     }
     function rpReadTick() {
         const now = Date.now(), dt = Math.min(0.6, (now - RPR.last) / 1000); RPR.last = now;
+        if (!RPR.on) return;      // العين لازم تتشغّل بإيد المستخدم الأول — من غير كده مفيش أي حساب للورد
         const w = RPR.wrap;
         if (document.hidden || !w || !w.isConnected || w.offsetParent === null || !quranCurrentSurah) return;
         if (now - RPR.act > 75000 || dt <= 0) return;      // سايب الشاشة من غير أي لمس أو تمرير
@@ -13280,6 +13282,18 @@ function restoreTimerState() {
         c.st.acc += dt; L.sd[tk] = (L.sd[tk] || 0) + dt; rpQSchedule();
         const covered = c.st.cov.reduce((s, v) => s + v, 0);
         if (c.st.acc >= c.need && covered >= Math.ceil(c.st.n * 0.7)) { rpQuranAdd(sr, c.n, c.words); RPR.st.delete(c.key); }
+    }
+    function rpEyeSync() {
+        const e = document.getElementById('quranEyeTrackBtn'); if (!e) return;
+        e.style.opacity = RPR.on ? '1' : '.45';
+        e.style.background = RPR.on ? 'var(--accent-glow)' : '';
+        e.style.boxShadow = RPR.on ? '0 0 0 2px var(--accent)' : '';
+        e.title = RPR.on ? 'العين شغالة: بيتحسب وردك (دوس تقفلها)' : 'شغّل العين عشان تبدأ حساب وردك';
+    }
+    function rpEyeToggle() {
+        RPR.on = !RPR.on; RPR.last = Date.now(); RPR.act = Date.now(); try { RPR.st.clear(); } catch (e) { }
+        rpEyeSync();
+        try { showToast(RPR.on ? '👁 العين شغالة — بدأ حساب وردك' : '👁 العين اتقفلت — مش بيتحسب حاجة'); } catch (e) { }
     }
     function rpReadTrack(wrap) {
         try { if (RPR.io) RPR.io.disconnect(); } catch (e) { }
@@ -34136,6 +34150,8 @@ function endAIVoiceCall() {
                 const spans = Array.prototype.slice.call(box.querySelectorAll('.tw-lbl'));
                 if (!spans.length) return;
                 const boxR = box.getBoundingClientRect();
+                const subsMap = new Map();
+                try { if (window.quranTxSubsForBox) window.quranTxSubsForBox(box, spans).forEach((s, i) => { if (s) subsMap.set(spans[i], s); }); } catch (e) {}
                 const items = spans.map(sp => {
                     // الاسم المتثبّت على طبقة (حرف مقسوم أو علامة مد): الارتفاع من طبقة الكلمة الأساسية، والمكان الأفقي من حبر الحرف/العلامة نفسها
                     const dualB = sp.classList.contains('tw-dual-o') && sp.parentElement ? sp.parentElement.querySelector(':scope > .tw-dual-b') : null;
@@ -34143,7 +34159,8 @@ function endAIVoiceCall() {
                     const base = parseFloat(getComputedStyle(dualB || sp).fontSize);
                     const fs = base * 0.27;
                     ctx.font = '700 ' + fs + 'px Cairo, Tajawal, "Segoe UI", Tahoma, sans-serif';
-                    const lbl = sp.getAttribute('data-lbl') || '';
+                    let lbl = sp.getAttribute('data-lbl') || '';
+                    { const sb = subsMap.get(sp); if (sb && lbl.indexOf(sb) < 0) lbl += ' ' + sb; }
                     const w = ctx.measureText(lbl).width + fs * 0.5;
                     let cx = r.left + r.width / 2;
                     try {
@@ -34177,14 +34194,14 @@ function endAIVoiceCall() {
                         // بنحاول الأول نزحزح الاسم أفقيًا (يمين/شمال) عشان ما يلزقش في اللي جنبه على نفس المستوى، وبعدين بس نرفعه مستوى
                         const clash = (l, r, off) => placed.some(o => l < o.r + mx && r + mx > o.l && Math.abs(off - o.off) < gapY);
                         let lv = 0, dx = 0, done = false;
-                        while (lv < 6 && !done) {
+                        while (lv < 10 && !done) {
                             const off = it.lift + lv * it.fs * 1.7;
                             const cands = [0];
-                            for (let k = 1; k <= 20; k++) { const d = k * it.fs * 0.25; if (d > maxShift) break; cands.push(d, -d); }
+                            /* من غير أي زحزحة أفقية: الاسم دايمًا فوق حرفه بالظبط، والزحمة بتتحل برفعه لمستوى أعلى */
                             for (const d of cands) { if (!clash(it.l + d, it.r + d, off)) { dx = d; done = true; break; } }
                             if (!done) lv++;
                         }
-                        if (!done) { lv = 6; dx = 0; }
+                        if (!done) { lv = 10; dx = 0; }
                         it.lv = lv; it.dx = dx;
                         placed.push({ l: it.l + dx, r: it.r + dx, off: it.lift + lv * it.fs * 1.7 });
                     });
@@ -34410,7 +34427,9 @@ function endAIVoiceCall() {
         const before = qxlClusters(c.clean.slice(c.w.start, c.item.start));
         const after = qxlClusters(c.clean.slice(c.item.end, c.w.end));
         const prevC = before.length ? before[before.length - 1] : null;
-        const nextC = after.length ? after[0] : null;
+        const nextC0 = after.length ? after[0] : null;
+        const silentTail = !!nextC0 && after.length === 1 && nextC0.b === '\u0627' && /[\u06DF\u0652\u06E1]/.test(nextC0.m);
+        const nextC = silentTail ? null : nextC0;
         const nextWord = c.words[c.wi + 1] ? c.clean.slice(c.words[c.wi + 1].start, c.words[c.wi + 1].end) : null;
         const lettersAfter = qxlLetters(c.clean.slice(c.item.end)).length;
         const isLastWord = c.wi === c.words.length - 1;
@@ -34459,6 +34478,7 @@ function endAIVoiceCall() {
                 if (/[ۥۦ]/.test(seg)) return 'صلة كبرى';
                 if (nextC && QXL_HAMZA.test(nextC.t)) return 'منفصل';
                 if (!nextC && nextWord && QXL_HAMZA.test(nextWord.charAt(0))) return 'منفصل';
+                if (silentTail) return null;
                 if (isLastWord && lettersAfter <= 1) {
                     if ((base === 'و' || base === 'ي') && prevC && /َ/.test(prevC.m) && !/[ُِ]/.test(first.m)) return 'لين';
                     return 'عارض للسكون';
@@ -34637,6 +34657,32 @@ function endAIVoiceCall() {
         let picked = [], clones = [];
         function hlClear() { picked.forEach(n => n.classList.remove('tw-pick')); picked = []; clones.forEach(n => { if (n.parentNode) n.parentNode.removeChild(n); }); clones = []; }
         window.quranTwHlClear = hlClear;
+        window.quranTxSubsForBox = function (textEl, spans) {
+            const c = collect(textEl), out = [];
+            spans.forEach(sp => {
+                let r = null;
+                try {
+                    const m = QURAN_TXP_RE.exec(typeof sp.className === 'string' ? sp.className : '');
+                    const key = m ? 'tw-' + m[1] : '';
+                    if (/^tw-(madd-[nopm]|izhar|ikhfa|qalqalah)$/.test(key)) {
+                        let start = -1, end = -1;
+                        const k = keyOf(sp, textEl), item = k && c.items.find(z => z.el === k.el);
+                        if (item) { start = item.start; end = item.end; }
+                        else if (sp.classList.contains('tw-dual-o') && sp.parentElement) {
+                            const first = c.segs.find(z => sp.parentElement.contains(z.node));
+                            const v = (sp.getAttribute('data-hr') || '').split(';')[0].split(',').map(Number);
+                            if (first && v.length >= 4 && !v.some(isNaN)) { start = first.start + v[2]; end = first.start + v[3]; }
+                        }
+                        if (start >= 0) {
+                            let wi = c.words.findIndex(w => start >= w.start && start < w.end); if (wi < 0) wi = 0;
+                            r = quranTxClassify(key, { clean: c.clean, item: { start: start, end: end }, w: c.words[wi], wi: wi, words: c.words });
+                        }
+                    }
+                } catch (e) {}
+                out.push(r === 'طبيعي' ? null : r);
+            });
+            return out;
+        };
         // مكان عنصر (بالحروف) جوه نص الغلاف tw-dual (من غير الطبقات الزايدة) — نفس مقياس data-hr
         function spanRange(dual, sp) {
             let pos = 0, s = -1, e = -1;
