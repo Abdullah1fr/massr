@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>اختبار حي — MASSR Universal Search</title>
+<style>
+:root{color-scheme:dark light}body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#0b0f14;color:#e8eef5;line-height:1.6}
+h1{font-size:1.1rem;margin:0 0 6px}p{margin:4px 0 12px;opacity:.8;font-size:.9rem}
+button{font:inherit;padding:10px 16px;border-radius:10px;border:0;background:#2e7d32;color:#fff;margin:0 0 12px}
+.row{border:1px solid #2a3340;border-radius:10px;padding:10px 12px;margin:8px 0}.ok{border-color:#2e7d32}.bad{border-color:#c62828}
+.t{font-weight:700}.m{font-size:.82rem;opacity:.85;word-break:break-all}a{color:#7fb8ff}
+</style></head><body>
+<h1>🌐 اختبار حي لموصّلات البحث الشامل</h1>
+<p>بيشغّل كل موصّل على الإنترنت الحقيقي من جهازك ويعرض هل رجّع روابط فعلًا. مفيش تسجيل دخول ولا مفاتيح. الصفحة دي للاختبار بس.</p>
+<button id="go">شغّل كل الاختبارات</button> <button id="own" style="background:#1565c0">جرّب بحثك أنت</button>
+<div id="sum" class="m"></div><div id="out"></div>
+<script src="universalsearch.js"></script>
+<script>
+const M=window.MASSR_SEARCH,out=document.getElementById('out');
+const CASES=[
+ ['wikipedia','معلومة عامة (عربي)','القاهرة تاريخ'],['openlibrary','كتب','Pride and Prejudice'],['gutenberg','كتب ملك عام','Pride and Prejudice'],
+ ['internetarchive','أرشيف الإنترنت','moby dick'],['github','مستودعات GitHub','openserp'],['npm','مكتبات npm','dayjs'],
+ ['openalex','أبحاث OpenAlex','transformer attention'],['crossref','أبحاث Crossref','transformer attention'],
+ ['openverse','صور Openverse','cairo'],['commons','صور Wikimedia','cairo'],['itunes','أغاني (رسمي)','maher zain'],['gdelt','أخبار','egypt economy']];
+function ctx(q,limit){const cls=M.classify(q);return{cls,raw:q,limit:limit||5,q,qBook:q,qCode:q,qAcademic:q,qImage:q,qAudio:q,qNews:q,getJson:(u,o)=>M.fetchJson(u,o)}}
+function row(ok,title,meta,links){const d=document.createElement('div');d.className='row '+(ok?'ok':'bad');d.innerHTML='<div class="t">'+(ok?'✅ ':'❌ ')+title+'</div><div class="m">'+meta+'</div>'+(links||'');out.appendChild(d)}
+async function one(id,label,q){const c=M.connectors[id],t=Date.now();try{const r=await M.withTimeout(c.run(ctx(q)),c.timeout+3000);const ms=Date.now()-t;
+  const l=r.slice(0,3).map(x=>'<div class="m"><a href="'+x.url+'" target="_blank" rel="noopener">'+(x.title||x.url).replace(/</g,'&lt;')+'</a></div>').join('');
+  return[r.length>0,label+' ('+id+')',(r.length?r.length+' نتيجة':'0 نتيجة')+' · '+ms+'ms · بحث: '+q,l]}
+ catch(e){return[false,label+' ('+id+')','فشل: '+String(e.message||e)+' · بحث: '+q,'']}}
+document.getElementById('go').onclick=async()=>{out.innerHTML='';let pass=0;
+ const res=await Promise.all(CASES.map(c=>one(...c)));res.forEach(r=>{if(r[0])pass++;row(...r)});
+ document.getElementById('sum').textContent='النتيجة: '+pass+' / '+CASES.length+' موصّل رجّع روابط حقيقية. (CORS والشبكة اتختبروا من جهازك فعلًا)'};
+document.getElementById('own').onclick=async()=>{const q=prompt('اكتب طلب بحث');if(!q)return;out.innerHTML='';
+ const r=await M.run(q,{nocache:true},{tools:{}});document.getElementById('sum').textContent=r.status==='ok'?('النوع: '+r.detected_types.join(',')+' · '+r.result_count+' نتيجة · '+r.took_ms+'ms'):r.message;
+ (r.results||[]).forEach(x=>row(true,x.title,(x.rights||'')+' · '+x.type+' · '+x.from.join('+'),'<div class="m"><a href="'+x.url+'" target="_blank" rel="noopener">'+x.url+'</a></div>'));
+ (r.sources||[]).forEach(s=>row(s.ok,s.label,s.ok?s.count+' نتيجة':(s.error||'فشل'),''))};
+</script></body></html>

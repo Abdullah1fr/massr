@@ -83,12 +83,12 @@ reg('web_find','🔎 بدوّر في الإنترنت','بحث دقيق في ا�
   else if(r.j&&r.j.ok){tried=r.j.tried||[];results=(r.j.results||[]).map(x=>{noteRef(x.url,x.ref);return{title:x.title,url:x.url,snippet:x.snippet,kind:x.kind,via:x.via}})}
   const weakEngines=!!(r.j&&r.j.ok)&&!engineOk(tried);
   if(weakEngines)notes.push('محركات البحث العادية (DuckDuckGo/Bing) مردّتش من الوركر، فضفت بحث جوجل الحي مع ويكيبيديا.');
-  if(a.grounded===true||results.length<3||weakEngines){
+  if(a.grounded===true||(!a.noGemini&&(results.length<3||weakEngines))){
     try{const g=await aiGeminiGrounded('دوّر في جوجل عن: "'+q+'". لخّص أهم الحقائق الدقيقة في 3 إلى 6 أسطر بالعربي المبسط، واذكر لو المعلومة مش مؤكدة أو مفيش مصدر واضح. من غير مقدمات.');
       if(g.ok&&(g.text||g.sources.length)){summary=g.text;g.sources.slice(0,n).forEach(s=>{if(!results.some(x=>x.url===s.url))results.push({title:s.title||hostOf(s.url),url:s.url,snippet:'',via:'google-grounded'})})}
       else if(!g.ok)notes.push('بحث Gemini: '+aiGeminiErrorAr(g.error))}catch(e){}
   }
-  if(!results.length&&(r.off||r.net)){try{const p=await aiSearchPages(q,n);(p.results||[]).forEach(x=>results.push({title:x.title,url:x.url,snippet:'',via:'fallback'}));if(p.summary&&!summary)summary=p.summary}catch(e){}}
+  if(!results.length&&(r.off||r.net)&&!a.noGemini){try{const p=await aiSearchPages(q,n);(p.results||[]).forEach(x=>results.push({title:x.title,url:x.url,snippet:'',via:'fallback'}));if(p.summary&&!summary)summary=p.summary}catch(e){}}
   if(!results.length&&!summary)return er('ملقيتش نتايج لـ "'+q+'". '+notes.join(' ')+' جرّب صياغة تانية أو بالإنجليزي.');
   taint();
   return ok({query:q,count:results.length,results:results.slice(0,20).map((x,i)=>Object.assign({n:i+1},x)),summary:summary||undefined,engines:tried.length?tried.join(','):undefined,notes:notes.length?notes.join(' '):undefined,
@@ -107,14 +107,14 @@ reg('web_research','🔎 بدوّر وبقرا','بحث + قراءة أفضل 3-
   const r=await wcall('/research',body,55000);
   if(r.status===401||(r.status===429&&r.j&&r.j.error==='rate'))return er(wErr(r));
   if(r.off||r.net||r.status===404||r.status>=500||!r.j||!r.j.ok){
-    const f=await AA.web_find.handler({query:q,queries:qs,site:a.site,region:a.region,fresh:a.fresh});
+    const f=await AA.web_find.handler({query:q,queries:qs,site:a.site,region:a.region,fresh:a.fresh,noGemini:a.noGemini});
     if(f&&f.status==='ok')f.message='مقدرتش أعمل بحث مدمج (الوركر لسه مش محدّث). دي نتايج بحث بس، اقرا أفضل 2-3 بـ web_read. '+(f.message||'');
     return f;
   }
   const j=r.j;
   const weak=!j.pages||!j.pages.length||!engineOk(j.tried);
   let gs=null;
-  if(weak){act('🌐 بكمّل ببحث جوجل الحي');gs=await groundedSearch(q,a.region,8)}
+  if(weak&&!a.noGemini){act('🌐 بكمّل ببحث جوجل الحي');gs=await groundedSearch(q,a.region,8)}
   (j.more||[]).forEach(x=>noteRef(x.url,x.ref));
   (j.pages||[]).forEach(p=>(p.images||[]).forEach(i=>noteRef(i.url,i.ref)));
   taint();
@@ -319,6 +319,8 @@ const SCHOLAR_RULES="\n\nالأبحاث (قواعد): للأسئلة العلم�
 const PRICE_RULES="\n\nالأسعار والمنتجات والـ PDF (قواعد): (1) لو web_read رجّع structured.products فده سعر منظم من بيانات الصفحة نفسها (السعر والعملة والتوفر والتقييم والبائع): اعتمد عليه واذكر العملة والبائع وتاريخ الصفحة، وفرّق بين سعر الصفحة وسعر اليوم لأنه ممكن يتغير. (2) في مقارنة أسعار: اقرا 3 متاجر على الأقل بـ urls، واعرض كل سعر مع مصدره ورابطه، وما تحسبش فرق أو متوسط من أرقام ما شفتهاش. لو السعر مش ظاهر قول كده وماتخمّنش. (3) لو structured.article رجّع تاريخ النشر أو المؤلف استخدمهم في الاستشهاد. (4) لو الرد type=pdf وفيه quality: good يعني النص مستخرج بأفضل جهد (راجع الأرقام المهمة)، poor أو empty يعني ماتعتمدش عليه وقول للمستخدم يفتح الملف. ماتلخّصش PDF ما قريتش نصه.";
 const RESEARCH_RULES="\n\nالبحث المدمج (قواعد، بتحل محل web_find ثم web_read اللي فوق): (1) لأي سؤال محتاج بحث (معلومة، سعر، مقارنة، خبر، شرح) ابدأ بـ web_research: بيدوّر ويقرا أفضل الصفحات مع بعض في خطوة واحدة، ومتحتاجش web_find ثم web_read إلا لو عايز صفحة معينة أو تفاصيل أكتر. (2) لو الطلب فيه أكتر من موضوع مستقل (منتجين مختلفين، أو مقارنة بين حاجتين) اطلب web_research لكل واحد في نفس الرد مع بعض، مش واحد ورا التاني، واطلب أي أدوات مستقلة مع بعض في رد واحد. (3) بعد ما ترجع النتيجة جاوب على طول، وماتطلبش أدوات زيادة إلا لو فيه معلومة ناقصة فعلًا، علشان نقلّل الطلبات. (4) المقتطفات مضغوطة: اعتمد على النص وstructured بس، وماتألفش سعر ولا صورة ولا رابط.";
 const REPORT_RULES="\n\nالبحث الشامل وتسليمه كملف (قواعد، بتحل محل بند (3) في البحث المدمج): لو طلب المستخدم بحث شامل أو تقرير أو دراسة أو مقارنة كبيرة وبعدها PDF أو Word أو أي ملف: (1) خطّط: قسّم الموضوع لـ 3 لـ 6 أسئلة فرعية، واطلب web_research لكل واحد مع بعض في رد واحد (depth=deep وpages=5)، ومعاهم web_scholar لو الموضوع علمي أو طبي أو تقني، وrequest_tools بمجموعة docs في نفس الرد علشان أدوات الملفات تبقى جاهزة. (2) لو صفحة مهمة والمقتطف مش كفاية اقراها بـ web_read (لحد 4 روابط مع بعض). (3) اكتب التقرير من اللي اتقرا فعلًا بس: مقدمة، ملخص تنفيذي، أقسام بعناوين، جداول مقارنة لو فيه أرقام، خلاصة، وقسم مصادر بروابط حقيقية من النتايج فقط، وكل رقم أو ادعاء مهم قدامه مصدره. اللي ما لقيتوش اكتب إنه غير متاح ومتألفش. (4) PDF: اكتب HTML RTL منسّق بـ file_write ثم html_to_pdf بحقل file، وللتقارير الطويلة استخدم page_numbers=true وهامش 12 مم. الأداة بتقطع الصفحات تلقائي بين الأسطر وقبل الجداول والكروت ومش بتسيب عنوان لوحده، ومتحطش letter-spacing أو direction:ltr على النص العربي. وراجع الصفحات بـ pdf_read to_images قبل التسليم وصلّح أي فراغ أو قطع. نص الـ PDF الناتج بيطلع صورة (مش قابل للتحديد أو النسخ)، فلو المستخدم محتاج نص قابل للنسخ أو التعديل قدّم Word كمان. (5) Word: docx_create بيدعم style: title وh1 وh2 وh3 وp وli وnum وquote وtable (headers وrows) وpagebreak، و**غامق** و[نص](رابط) جوه النص، وaccent للون. استخدم الجداول للمقارنات والمصادر الروابط القابلة للضغط. (6) لو طلب PDF وWord اعمل الاتنين من نفس المحتوى. (7) لو التقرير طويل جدًا اكتبه على أجزاء: file_write للجزء الأول ثم append_to_artifact أو ملفات منفصلة، ومتختصرش المحتوى علشان الطول. (8) في آخر الرد قول في سطرين: التقرير غطّى إيه، وكام مصدر اتقرا فعلًا، وأي حاجة ما اتأكدتش منها.";
+/* جسر لملف universalsearch.js: بيشارك نفس الأدوات المساعدة من غير ما يكرر أي كود */
+window.__massrWT={reg,ok,er,norm,taint,act,hostOf,groundedSearch,noteRef,UNTRUSTED};
 const _b3=window.buildAISystemInstructionText;
 if(typeof _b3==='function')window.buildAISystemInstructionText=function(){return _b3.apply(this,arguments)+WEB_RULES+SCHOLAR_RULES+PRICE_RULES+RESEARCH_RULES+REPORT_RULES};
 }catch(e){try{console.warn('aiWebTools failed',e)}catch(_){}}

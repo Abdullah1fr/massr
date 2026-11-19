@@ -37969,7 +37969,7 @@ try{
 // =====================================================================
 const AA=APP_ACTIONS,DECL=AI_TOOLS_DECLARATION[0].functionDeclarations,LB=AI_FN_STATUS_LABELS;
 const G={
- core:['close_project','navigate_to','get_current_datetime','web_search','web_find','web_research','web_scholar','web_read','web_images','web_show_images','web_lib','sandbox_run','files_list','file_read','file_write','create_artifact','build_document','calculate','memory_manage','chats_manage','undo_manage','request_tools'],
+ core:['close_project','navigate_to','get_current_datetime','massr_universal_search','web_search','web_find','web_research','web_scholar','web_read','web_images','web_show_images','web_lib','sandbox_run','files_list','file_read','file_write','create_artifact','build_document','calculate','memory_manage','chats_manage','undo_manage','request_tools'],
  tasks:['create_task','complete_task','delete_task','list_tasks','search_tasks','update_task','postpone_task','restore_postponed_task','add_subtask','toggle_subtask','bulk_tasks','tasks_overview','get_productivity_summary','plan_schedule','export_report','add_category','delete_category','update_category'],
  timer:['start_timer','pause_timer','reset_timer','set_timer_duration','get_timer_status','start_custom_duration_session','set_pomo_mode','attach_task_to_timer','toggle_focus_mode','set_daily_focus_goal','control_focus_audio','create_alarm','list_alarms','delete_alarm','link_alarm_to_task','refresh_smart_compass'],
  notes:['create_note','list_notes','search_notes','open_note','edit_note','delete_note','read_note_part','note_outline','search_in_note','patch_note','insert_in_note','save_last_image_to_note','manage_note_image'],
@@ -37997,7 +37997,7 @@ const GK={
  system:/(مكالمة|كلمني|صوتي|محادثات|محادثة|الحافظة|clipboard)/i
 };
 // أدوات قراءة فقط (آمنة تتنفذ مع بعض) / أدوات بتنتج ملف أو مخرج جديد (بتتنفذ مع بعض لو أسماء مخرجاتها مختلفة)
-const READ=new Set(['web_search','web_find','web_research','web_scholar','web_read','web_images','web_lib','youtube_search','files_list','file_read','file_read_lines','file_grep','pdf_read','analyze_pdf_shape','list_tasks','list_notes','list_alarms','list_task_tables','list_artifacts','search_tasks','search_notes','get_timer_status','get_current_datetime','get_productivity_summary','tasks_overview','calculate','text_stats','date_math','unit_convert','regex_extract','diff_texts','read_note_part','note_outline','search_in_note','read_artifact_part','color_palette','contrast_check']);
+const READ=new Set(['massr_universal_search','web_search','web_find','web_research','web_scholar','web_read','web_images','web_lib','youtube_search','files_list','file_read','file_read_lines','file_grep','pdf_read','analyze_pdf_shape','list_tasks','list_notes','list_alarms','list_task_tables','list_artifacts','search_tasks','search_notes','get_timer_status','get_current_datetime','get_productivity_summary','tasks_overview','calculate','text_stats','date_math','unit_convert','regex_extract','diff_texts','read_note_part','note_outline','search_in_note','read_artifact_part','color_palette','contrast_check']);
 const PROD=new Set(['docx_create','xlsx_tool','pptx_create','draw_svg','make_chart','file_write','create_artifact','build_document']);
 const S={groups:new Set(['core']),all:false,sticky:{},fail:{}};
 const mapped=new Set(Object.values(G).flat());
@@ -38097,7 +38097,8 @@ window.registerAppTile = function (o) {
 };
 </script>
 <script>window.__socialErrs=[];window.addEventListener('error',function(e){try{if(e&&e.filename&&/social\.js/.test(e.filename))window.__socialErrs.push((e.message||'خطأ')+(e.lineno?' @'+e.lineno:''))}catch(x){}},true);</script>
-<script src="webtools.js?v=7" onerror="window.__webtoolsFailed=1"></script>
+<script src="webtools.js?v=8" onerror="window.__webtoolsFailed=1"></script>
+<script src="universalsearch.js?v=1" onerror="window.__universalSearchFailed=1"></script>
 <script src="filetools.js?v=1" onerror="window.__filetoolsFailed=1"></script>
 <script src="videotools.js?v=2" onerror="window.__videotoolsFailed=1"></script>
 <script src="mcptools.js?v=13"></script>
