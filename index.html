@@ -21843,7 +21843,11 @@ const APP_ACTIONS = {
                 }
                 // البحث القديم (Gemini + وسطاء جوجل) اتلغى: أي بحث عن صفحات ومعلومات بيروح للبحث الشامل (universalsearch.js) على طول
                 const uni = (typeof APP_ACTIONS !== 'undefined') ? APP_ACTIONS.massr_universal_search : null;
-                if (!uni || typeof uni.handler !== 'function') return { status: 'error', message: 'أداة البحث الشامل مش متحمّلة دلوقتي. قول للمستخدم يقفل التطبيق ويفتحه مرتين، ولو فضلت المشكلة يبلّغ المطوّر.' };
+                if (!uni || typeof uni.handler !== 'function') {
+                    const dg = 'ملف البحث: ' + (window.__universalSearchFailed ? 'ماتحمّلش' : 'اتحمّل') + ' | ويب تولز: ' + (window.__webtoolsFailed ? 'ماتحمّلش' : 'اتحمّل') + ' | المحرك: ' + (window.MASSR_SEARCH ? 'موجود' : 'مش موجود') + ' | الجسر: ' + (window.__massrWT ? 'موجود' : 'مش موجود');
+                    appendAIBubble('action', '⚠️ أداة البحث الشامل مش متسجلة. ' + dg);
+                    return { status: 'error', message: 'أداة البحث الشامل مش متسجلة (' + dg + '). قول للمستخدم الحالة دي بالظبط.' };
+                }
                 let ur;
                 try { ur = await uni.handler({ query, max_results: limit }); }
                 catch (e) { ur = { status: 'error', message: 'البحث الشامل وقع بخطأ: ' + ((e && e.message) || e) }; }
