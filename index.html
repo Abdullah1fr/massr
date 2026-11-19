@@ -21841,15 +21841,19 @@ const APP_ACTIONS = {
                     appendAIBubble('action', `⚠️ البحث فشل: ${(yt.diag || []).join(' — ') || 'مفيش نتايج'}`);
                     return { status: 'error', message: `معرفتش ألاقي ملف صوتي مطابق لـ "${query}".${aiSearchFailText(yt.diag)} ما عرضتش أي لينك. قول للمستخدم السبب بصراحة وبجملة واحدة، ومتعتذرش كتير.` };
                 }
-                // البحث الشامل الجديد (universalsearch.js) هو الأول؛ لو مش موجود أو فشل نكمّل بالبحث القديم
-                if (typeof APP_ACTIONS !== 'undefined' && APP_ACTIONS.massr_universal_search && typeof APP_ACTIONS.massr_universal_search.handler === 'function') {
-                    try { const us = await APP_ACTIONS.massr_universal_search.handler({ query }); if (us && us.status === 'ok') return us; } catch (e) { }
+                // البحث القديم (Gemini + وسطاء جوجل) اتلغى: أي بحث عن صفحات ومعلومات بيروح للبحث الشامل (universalsearch.js) على طول
+                const uni = (typeof APP_ACTIONS !== 'undefined') ? APP_ACTIONS.massr_universal_search : null;
+                if (!uni || typeof uni.handler !== 'function') return { status: 'error', message: 'أداة البحث الشامل مش متحمّلة دلوقتي. قول للمستخدم يقفل التطبيق ويفتحه مرتين، ولو فضلت المشكلة يبلّغ المطوّر.' };
+                let ur;
+                try { ur = await uni.handler({ query, max_results: limit }); }
+                catch (e) { ur = { status: 'error', message: 'البحث الشامل وقع بخطأ: ' + ((e && e.message) || e) }; }
+                // لو فشل: السبب يظهر للمستخدم نفسه في الشات (مش بس للمساعد)، وبعده المساعد يشرحه بجملة
+                if (!ur || ur.status !== 'ok') {
+                    const why = String((ur && ur.message) || 'السبب مش واضح').slice(0, 600);
+                    appendAIBubble('action', `⚠️ البحث فشل: ${why}`);
+                    return { status: 'error', message: why + ' قول للمستخدم السبب ده بصراحة وبجملة واحدة، ومتعتذرش كتير.' };
                 }
-                appendAIBubble('action', `🌐 بدوّر على معلومات لـ "${query}"...`);
-                const ps = await aiSearchPages(query, limit);
-                if (!ps.results.length && !ps.summary) return { status: 'error', message: `معرفتش أجيب نتائج ويب لـ "${query}".${aiSearchFailText(ps.diag)} جرّب تاني بعد شوية أو غيّر صيغة البحث.` };
-                ps.results.forEach(appendAIWebResultCard);
-                return { status: 'ok', message: `لقيت ${ps.results.length} مصدر وعرضتهم كروابط داخل الشات.${ps.summary ? ' استخدم الملخص في ردك واذكر إن المصدر بحث جوجل.' : ''}`, summary: ps.summary || '', results: ps.results };
+                return ur;
             } catch (e) {
                 return { status: 'error', message: 'حصل خطأ غير متوقع أثناء البحث: ' + ((e && e.message) || e) + '. جرّب تاني بعد شوية.' };
             }
