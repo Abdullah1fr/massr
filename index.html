@@ -21841,6 +21841,10 @@ const APP_ACTIONS = {
                     appendAIBubble('action', `⚠️ البحث فشل: ${(yt.diag || []).join(' — ') || 'مفيش نتايج'}`);
                     return { status: 'error', message: `معرفتش ألاقي ملف صوتي مطابق لـ "${query}".${aiSearchFailText(yt.diag)} ما عرضتش أي لينك. قول للمستخدم السبب بصراحة وبجملة واحدة، ومتعتذرش كتير.` };
                 }
+                // البحث الشامل الجديد (universalsearch.js) هو الأول؛ لو مش موجود أو فشل نكمّل بالبحث القديم
+                if (typeof APP_ACTIONS !== 'undefined' && APP_ACTIONS.massr_universal_search && typeof APP_ACTIONS.massr_universal_search.handler === 'function') {
+                    try { const us = await APP_ACTIONS.massr_universal_search.handler({ query }); if (us && us.status === 'ok') return us; } catch (e) { }
+                }
                 appendAIBubble('action', `🌐 بدوّر على معلومات لـ "${query}"...`);
                 const ps = await aiSearchPages(query, limit);
                 if (!ps.results.length && !ps.summary) return { status: 'error', message: `معرفتش أجيب نتائج ويب لـ "${query}".${aiSearchFailText(ps.diag)} جرّب تاني بعد شوية أو غيّر صيغة البحث.` };
