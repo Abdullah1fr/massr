@@ -53,12 +53,46 @@
     book: ['كتاب', 'كتب', 'روايه', 'روايات', 'قصه', 'قصص', 'ebook', 'ebooks', 'epub', 'book', 'books', 'novel', 'novels', 'story', 'stories', 'مؤلف', 'كتاب الكتروني'],
     file: ['pdf', 'تحميل', 'download', 'ملف', 'تقرير', 'تقارير', 'وثيقه', 'وثائق', 'whitepaper', 'report', 'reports', 'document', 'documents', 'filetype'],
     product: ['سعر', 'اسعار', 'بكام', 'ثمن', 'منتج', 'منتجات', 'شراء', 'اشتري', 'متجر', 'مقارنه اسعار', 'price', 'prices', 'buy', 'product', 'products', 'shopping', 'deal', 'deals', 'discount', 'عروض'],
-    code: ['github', 'مستودع', 'مستودعات', 'كود', 'اكواد', 'مكتبه برمجيه', 'مكتبات برمجيه', 'library', 'libraries', 'package', 'npm', 'pypi', 'repo', 'repository', 'repositories', 'source code', 'documentation', 'api docs', 'framework', 'sdk', 'open source', 'مفتوح المصدر', 'مفتوحه المصدر'],
-    news: ['خبر', 'اخبار', 'عاجل', 'اخر الاخبار', 'news', 'headline', 'headlines', 'breaking']
+    code: ['github', 'مستودع', 'مستودعات', 'كود', 'اكواد', 'مكتبه برمجيه', 'مكتبات برمجيه', 'library', 'libraries', 'package', 'npm', 'pypi', 'repo', 'repository', 'repositories', 'source code', 'documentation', 'api docs', 'framework', 'sdk', 'open source', 'مفتوح المصدر', 'مفتوحه المصدر', 'مكتبه جافاسكربت', 'مكتبات جافاسكربت', 'مكتبه جافا سكريبت', 'مكتبات جافا سكريبت', 'javascript library', 'javascript libraries', 'js library', 'js libraries', 'cdn'],
+    news: ['خبر', 'اخبار', 'عاجل', 'اخر الاخبار', 'news', 'headline', 'headlines', 'breaking'],
+    live: ['نتيجه', 'نتايج', 'ماتش', 'مباراه', 'مباريات', 'دوري', 'كاس', 'ترتيب الدوري', 'هدافين', 'سعر الدولار', 'سعر الذهب', 'سعر العمله', 'طقس', 'الطقس', 'درجه الحراره', 'score', 'scores', 'fixtures', 'standings', 'weather', 'exchange rate']
   };
   const RECENCY = ['اليوم', 'النهارده', 'الان', 'حاليا', 'حديث', 'حديثه', 'اخر', 'latest', 'today', 'now', 'recent', 'newest', 'currently'];
   const PLAY = ['شغل', 'شغلي', 'شغلها', 'شغله', 'play', 'استمع', 'اسمع', 'سماع', 'listen'];
   const INTENT_KEYS = Object.keys(KW);
+
+  // منصات ومواقع مشهورة: لو اسمها في الطلب بنبحث جواها (site:) عبر محرك البحث — صفحات عامة بس
+  const PLATFORMS = [
+    { id: 'facebook', label: 'فيسبوك', site: 'facebook.com', k: ['فيسبوك', 'فيس بوك', 'facebook'] },
+    { id: 'instagram', label: 'انستجرام', site: 'instagram.com', k: ['انستجرام', 'انستغرام', 'instagram'] },
+    { id: 'tiktok', label: 'تيك توك', site: 'tiktok.com', k: ['تيك توك', 'تيكتوك', 'tiktok'] },
+    { id: 'twitter', label: 'تويتر/X', site: 'x.com', k: ['تويتر', 'twitter'] },
+    { id: 'reddit', label: 'ريديت', site: 'reddit.com', k: ['ريديت', 'reddit'] },
+    { id: 'linkedin', label: 'لينكدإن', site: 'linkedin.com', k: ['لينكدان', 'لينكد ان', 'linkedin'] },
+    { id: 'telegram', label: 'تيليجرام', site: 't.me', k: ['تيليجرام', 'تليجرام', 'telegram'] },
+    { id: 'stackoverflow', label: 'Stack Overflow', site: 'stackoverflow.com', k: ['ستاك اوفرفلو', 'stackoverflow', 'stack overflow'] },
+    { id: 'imdb', label: 'IMDb', site: 'imdb.com', k: ['imdb', 'اي ام دي بي'] },
+    { id: '365scores', label: '365Scores', site: '365scores.com', k: ['365scores', '365 scores', '365 سكورز', '365سكورز'] },
+    { id: 'filgoal', label: 'في الجول', site: 'filgoal.com', k: ['في الجول', 'فيلجول', 'filgoal'] },
+    { id: 'yallakora', label: 'يلا كورة', site: 'yallakora.com', k: ['يلا كوره', 'يلاكوره', 'yallakora'] },
+    { id: 'kooora', label: 'كورة', site: 'kooora.com', k: ['kooora', 'كووورة'] }
+  ];
+  function detectPlatforms(query) {
+    const padded = ' ' + normAr(query) + ' ';
+    return PLATFORMS.filter(pl => pl.k.some(w => { const nw = normAr(w); return nw && padded.includes(' ' + nw + ' '); }));
+  }
+  function stripPlatformWords(q, pls) {
+    const toks = String(q || '').split(/\s+/).filter(Boolean), nt = toks.map(normAr), drop = new Set();
+    pls.forEach(pl => pl.k.forEach(w => {
+      const kw = normAr(w).split(' ');
+      for (let i = 0; i + kw.length <= nt.length; i++) if (kw.every((x, j) => nt[i + j] === x)) for (let j = 0; j < kw.length; j++) drop.add(i + j);
+    }));
+    const kept = toks.filter((_, i) => !drop.has(i));
+    while (kept.length && FILLER.includes(normAr(kept[0]))) kept.shift();
+    while (kept.length && FILLER.includes(normAr(kept[kept.length - 1]))) kept.pop();
+    const out = kept.join(' ').trim();
+    return out.length >= 2 ? out : String(q || '').trim();
+  }
 
   function classify(query, hints) {
     const n = normAr(query), padded = ' ' + n + ' ';
@@ -285,6 +319,42 @@
     }
   });
 
+  // مكتبات JavaScript على cdnjs: رابط CDN جاهز + الإصدار + الصفحة الرئيسية
+  registerConnector({
+    id: 'cdnjs', label: 'cdnjs (مكتبات JavaScript)', kinds: ['code'], timeout: 8000,
+    when: (cls, raw) => /javascript|\bjs\b|جافا ?سكريبت|جافاسكربت|\bcdn\b|مكتبه|مكتبات|librar|plugin|اضافه/i.test(normAr(raw)),
+    async run(c) {
+      const term = String(c.qCode || '').replace(/جافا ?سكريبت|جافاسكربت|javascript|\bjs\b|\bcdn\b/gi, ' ').replace(/\s+/g, ' ').trim();
+      if (term.length < 2) return [];
+      const j = await c.getJson('https://api.cdnjs.com/libraries?' + qs({ search: term, fields: 'name,description,version,latest,homepage', limit: Math.min(c.limit, 8) }));
+      return (j.results || []).filter(r => r && r.name && /^https:\/\//.test(r.latest || '')).map(r => ({
+        title: r.name + (r.version ? ' v' + r.version : ''), url: r.latest,
+        snippet: (r.description || 'مكتبة JavaScript') + ' · رابط CDN جاهز' + (r.homepage ? ' · الصفحة: ' + r.homepage : ''),
+        type: 'package', rights: 'open-access', meta: { version: r.version, homepage: r.homepage, cdn: r.latest }
+      }));
+    }
+  });
+
+  // صوت وفيديو مفتوح على Internet Archive: صفحة العنصر + رابط التنزيل (الحقوق من رخصة العنصر لو مكتوبة)
+  registerConnector({
+    id: 'ia_media', label: 'Internet Archive (صوت وفيديو)', kinds: ['audio', 'video'], timeout: 12000,
+    async run(c) {
+      const term = String(c.qAudio || c.q || '').replace(/[\"():]/g, ' ').replace(/\s+/g, ' ').trim();
+      if (term.length < 2) return [];
+      const I = (c.cls && c.cls.intents) || {};
+      const media = I.video && !I.audio ? 'movies' : (I.audio && !I.video ? 'audio' : '(audio OR movies)');
+      const j = await c.getJson('https://archive.org/advancedsearch.php?' + qs({ q: '(' + term + ') AND mediatype:' + media, 'fl[]': 'identifier', rows: Math.min(c.limit, 8), output: 'json', 'sort[]': 'downloads desc' }) +
+        '&fl%5B%5D=title&fl%5B%5D=creator&fl%5B%5D=year&fl%5B%5D=downloads&fl%5B%5D=mediatype&fl%5B%5D=licenseurl');
+      return ((j.response && j.response.docs) || []).filter(d => d && d.identifier).map(d => ({
+        title: (Array.isArray(d.title) ? d.title[0] : d.title || d.identifier) + (d.creator ? ' — ' + (Array.isArray(d.creator) ? d.creator[0] : d.creator) : ''),
+        url: 'https://archive.org/details/' + d.identifier,
+        snippet: 'مرفوع على Archive.org' + (d.year ? ' · ' + d.year : '') + (d.licenseurl ? ' · رخصة مفتوحة مكتوبة على العنصر' : ' · الرخصة مش مكتوبة: اتأكد قبل التنزيل'),
+        type: d.mediatype === 'audio' ? 'audio' : 'video', rights: d.licenseurl ? 'open-license' : 'unverified',
+        meta: { identifier: d.identifier, year: d.year, dl: 'https://archive.org/download/' + d.identifier, license: d.licenseurl || undefined }
+      }));
+    }
+  });
+
   registerConnector({
     id: 'github', label: 'GitHub', kinds: ['code'], timeout: 10000,
     async run(c) {
@@ -443,7 +513,7 @@
     });
     return { records: Array.from(map.values()), blocked, invalid };
   }
-  const TYPE_FOR_INTENT = { image: ['image'], video: ['video'], audio: ['audio', 'video'], academic: ['paper'], book: ['book'], file: ['book', 'page'], product: ['page'], code: ['repo', 'package'], news: ['news', 'page'] };
+  const TYPE_FOR_INTENT = { image: ['image'], video: ['video'], audio: ['audio', 'video'], academic: ['paper'], book: ['book'], file: ['book', 'page'], product: ['page'], code: ['repo', 'package'], news: ['news', 'page'], live: ['page', 'news'] };
   function rank(records, query, cls) {
     const qt = uniq(relTokens(query));
     const wantTypes = new Set(); (cls.types || []).forEach(k => (TYPE_FOR_INTENT[k] || []).forEach(t => wantTypes.add(t)));
@@ -459,7 +529,7 @@
       const trust = trustOf(r.url);
       const fit = wantTypes.size ? (wantTypes.has(r.type) ? 1 : (r.type === 'page' ? 0.55 : 0.35)) : 0.7;
       const agree = clamp((r.sources.length - 1) * 0.5, 0, 1);
-      const bonus = (r.read ? 0.05 : 0) + (r.rights === 'public-domain' || r.rights === 'open-access' ? 0.05 : 0) + (r.meta && r.meta.archived ? -0.1 : 0);
+      const bonus = (r.read ? 0.05 : 0) + (r.rights === 'public-domain' || r.rights === 'open-access' ? 0.05 : 0) + (r.meta && r.meta.archived ? -0.1 : 0) + (r.meta && r.meta.platform ? 0.15 : 0);
       r.score = Math.round((0.40 * rel + 0.15 * pos + 0.20 * trust + 0.15 * fit + 0.10 * agree + bonus) * 1000) / 1000;
       r.trust = trust;
     });
@@ -629,6 +699,20 @@
     if (I.news) {
       connectorJob('gdelt');
     }
+    if (I.code && CONNECTORS.cdnjs && CONNECTORS.cdnjs.when(cls, raw)) connectorJob('cdnjs');
+    if (I.audio || I.video) connectorJob('ia_media');
+    // منصات ومواقع مسمّاة في الطلب: بحث جواها عبر محرك البحث (صفحات عامة بس)
+    const plats = detectPlatforms(raw).slice(0, 2);
+    if (plats.length && tools.web_find) {
+      const pq = stripPlatformWords(cleanQuery(raw, cls), plats);
+      plats.forEach(pl => job('site_' + pl.id, 'بحث داخل ' + pl.label, 40000, async () => {
+        const r = await viaTool('web_find', { query: pq, site: pl.site, num: limit, region, noGemini: true });
+        r.records = r.records.filter(x => { const h = hostOf(x.url); return h === pl.site || h.endsWith('.' + pl.site); }).map(x => Object.assign({}, x, { type: 'page', meta: Object.assign({}, x.meta, { platform: pl.label }) }));
+        r.ok = r.records.length > 0;
+        if (!r.ok && !r.error) r.error = 'مفيش نتايج عامة من ' + pl.label + ' (غالبًا محتواه محتاج تسجيل دخول)';
+        return r;
+      }));
+    }
     // ويكيبيديا: معلومة عامة سريعة وروابط موثوقة (بتتشغّل لو الطلب مش منتجات/صور/كود بحت)
     if (!I.product && !I.image && !I.code && !I.audio) connectorJob('wikipedia');
     // موصّلات سجّلها المستخدم لاحقًا
@@ -646,10 +730,10 @@
 
     // ---- 4) Gemini: احتياطي أخير فقط لو النتايج المفيدة أقل من 3
     let fallback = null;
-    if (ranked.length < 3 && typeof deps.grounded === 'function' && opts.gemini !== false) {
+    if ((ranked.length < 3 || I.live) && typeof deps.grounded === 'function' && opts.gemini !== false) {
       const t = Date.now();
       try {
-        const g = await withTimeout(deps.grounded(raw, region, 8), 25000);
+        const g = await withTimeout(deps.grounded(I.live ? raw + ' (اذكر النتيجة أو الرقم بالظبط مع التاريخ والتوقيت واسم المصدر)' : raw, region, 8), 25000);
         if (g && g.ok) {
           googleSummary = g.text || '';
           const gl = (g.sources || []).map(s => ({ title: s.title || hostOf(s.url), url: s.url, snippet: '', type: 'page' }));
@@ -670,7 +754,7 @@
       if (DIRECT_FILE.test(r.url)) o.direct_file = true;
       if (r.read) o.read_by_search = true;
       if (r.meta) {
-        const m = {}; ['doi', 'year', 'citations', 'pdf', 'authors', 'stars', 'language', 'license', 'updated', 'files', 'artist', 'preview', 'channel', 'published', 'image', 'creator', 'ia', 'openLibrary'].forEach(k => { if (r.meta[k] != null && r.meta[k] !== '') m[k] = r.meta[k]; });
+        const m = {}; ['doi', 'year', 'citations', 'pdf', 'authors', 'stars', 'language', 'license', 'updated', 'files', 'artist', 'preview', 'channel', 'published', 'image', 'creator', 'ia', 'openLibrary', 'dl', 'platform', 'cdn', 'version', 'homepage'].forEach(k => { if (r.meta[k] != null && r.meta[k] !== '') m[k] = r.meta[k]; });
         if (Object.keys(m).length) o.meta = m;
       }
       return o;
@@ -684,7 +768,8 @@
     const notes = [];
     if (!webOk) notes.push('البحث العام (الوركر) ماردّش' + (webSrc && webSrc.error ? ' (' + webSrc.error + ')' : '') + ' فاعتمدت على المصادر المباشرة المتاحة.');
     if (merged.blocked) notes.push('اتشالت ' + merged.blocked + ' نتيجة من مواقع قرصنة/تنزيل غير مصرّح به.');
-    if (fallback === 'gemini') notes.push('النتايج كانت قليلة فاستخدمت بحث جوجل الحي عبر Gemini كاحتياطي أخير: اعتبره ملخصًا مش قراءة مباشرة.');
+    if (I.live) notes.push('طلب حي (نتيجة/ترتيب/سعر/طقس): الأرقام في google_summary من بحث جوجل الحي وبتتغيّر مع الوقت. اذكر المصدر والتوقيت لو ظاهر، ولو مفيش رقم أكيد قول كده وماتخمّنش. لو المستخدم سمّى موقع (365Scores/في الجول/يلا كورة) شوف results اللي من الموقع ده.');
+    if (fallback === 'gemini' && !I.live) notes.push('النتايج كانت قليلة فاستخدمت بحث جوجل الحي عبر Gemini كاحتياطي أخير: اعتبره ملخصًا مش قراءة مباشرة.');
     if (I.book || I.file) notes.push('مفيش رابط تحميل يتقدّم كـ"مجاني/قانوني" غير اللي عليه rights (ملك عام/مفتوح/منصة رسمية). صفحة الكتاب مش هي ملف PDF مباشر إلا لو direct_file=true.');
     if (I.audio || I.video) notes.push('قدّم مصادر الاستماع/المشاهدة الرسمية فقط (يوتيوب الرسمي، Apple Music...)، وماتدلّش على مواقع تنزيل.');
     if (results.some(r => r.from && r.from.some(f => ['openlibrary', 'gutenberg', 'internetarchive', 'github', 'npm', 'wikipedia', 'openalex', 'crossref', 'openverse', 'commons', 'itunes', 'gdelt'].includes(f))))
@@ -724,9 +809,74 @@
     const W = window.__massrWT, M = window.MASSR_SEARCH;
     const S = { type: 'string' }, N = { type: 'number' }, SA = { type: 'array', items: { type: 'string' } };
     const d = (t, x) => Object.assign({}, t, { description: x });
-    const TYPES = ['image', 'video', 'audio', 'academic', 'book', 'file', 'product', 'code', 'news'];
+    const TYPES = ['image', 'video', 'audio', 'academic', 'book', 'file', 'product', 'code', 'news', 'live'];
+    const MODES = ['summary', 'full', 'pdf', 'product', 'download_link'];
+    const CHUNK = 14000; // حجم الجزء الواحد من web_read
+    const LEGAL_OK = /^(ملك عام|مصدر مفتوح|منصة رسمية|رخصة مفتوحة)/;
+    const FILE_EXT = /\.(pdf|epub|mobi|djvu|azw3?|docx?|xlsx?|pptx?|mp3|m4a|flac|ogg|zip)(?:[?#]|$)/i;
+    const okUrl = u => /^https?:\/\//i.test(String(u || '')) && M.isSafeUrl(u) && !M.isBlocked(u);
+
+    // كارت تحميل في الشات (نفس شكل كارت الملفات + زرار ⬇)، بيتحفظ ويتعاد رسمه مع المحادثة
+    function appendDownloadCard(item, replay) {
+      try {
+        const m = document.getElementById('aiChatMessages');
+        if (!m || !item || !item.url) return;
+        if (typeof aiBuildFileCard !== 'function' || typeof appendToAIMessages !== 'function') { if (typeof appendAIWebResultCard === 'function') appendAIWebResultCard({ url: item.url, title: item.title }); return; }
+        const es = document.getElementById('aiChatEmptyState'); if (es) es.style.display = 'none';
+        let host = ''; try { host = new URL(item.url).hostname; } catch (e) { }
+        const ext = ((FILE_EXT.exec(item.url) || [])[1] || 'pdf').toLowerCase();
+        const name = String(item.title || host || 'ملف').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 70) + '.' + ext;
+        const card = document.createElement('div'); card.className = 'ai-web-result-card';
+        const box = aiBuildFileCard(name, '', 0, item.url);
+        const dl = box.querySelector('.aiFC-dl');
+        if (dl) { dl.removeAttribute('download'); dl.target = '_blank'; dl.rel = 'noopener noreferrer'; dl.title = 'تحميل'; }
+        const note = document.createElement('div');
+        note.style.cssText = 'font-size:.7rem;color:var(--text-secondary);margin-top:6px;text-align:right;direction:rtl;white-space:normal';
+        note.textContent = [host, item.rights].filter(Boolean).join(' · ');
+        card.append(box, note);
+        appendToAIMessages(card); m.scrollTop = m.scrollHeight;
+        if (!replay && typeof aiRecordCard === 'function' && !(typeof aiReplayingUI !== 'undefined' && aiReplayingUI)) aiRecordCard('dl', { item: { url: item.url, title: item.title, rights: item.rights } });
+      } catch (e) { }
+    }
+    window.aiExtraReplay = window.aiExtraReplay || {};
+    window.aiExtraReplay.dl = function (d) { appendDownloadCard(d && d.item, true); };
+
+    // قراءة كاملة لرابط واحد بأجزاء (web_read بيرجّع 14000 حرف في الجزء)؛ بيرجّع {ok,parts,more,...}
+    async function readFull(url, maxParts) {
+      const tl = APP_ACTIONS.web_read; if (!tl || typeof tl.handler !== 'function') return { ok: false, url, error: 'web_read مش متاح' };
+      let first;
+      try { first = await tl.handler({ url, max_chars: CHUNK, page: 0 }); } catch (e) { return { ok: false, url, error: String((e && e.message) || e).slice(0, 120) }; }
+      if (!first || first.status !== 'ok') return { ok: false, url, error: (first && first.message) || 'القراءة فشلت' };
+      const t0 = String(first.text || '');
+      if (first.warning || t0.trim().length < 400 || first.quality === 'poor' || first.quality === 'empty') return { ok: false, url, error: first.warning || first.pdfNote || 'النص ناقص أو فاضي' };
+      const total = Number(first.totalChars) || t0.length;
+      const need = Math.max(1, Math.min(maxParts, Math.ceil(total / CHUNK)));
+      const texts = [t0];
+      if (need > 1) {
+        const rest = await Promise.all(Array.from({ length: need - 1 }, (_, i) => tl.handler({ url, max_chars: CHUNK, page: i + 1 }).catch(() => null)));
+        for (const r of rest) { if (r && r.status === 'ok' && r.text) texts.push(String(r.text)); else break; }
+      }
+      const covered = Math.min(total, texts.length * CHUNK);
+      return {
+        ok: true, url: first.url || url, title: first.title || '', type: first.type || 'html', total_chars: total,
+        parts: texts.map((t, i) => ({ part: i + 1, text: t })), parts_count: texts.length,
+        more: covered < total ? { next_page: texts.length, remaining_chars: total - covered, how: 'web_read بنفس الرابط وpage=' + texts.length + ' وmax_chars=' + CHUNK } : undefined
+      };
+    }
+    // مرشحين للقراءة الكاملة: PDF المفتوح الأول (للأوراق) ثم صفحة النتيجة، من غير صور/فيديو/صوت
+    function readCandidates(r, limit) {
+      const out = [], seen = new Set();
+      const add = u => { if (u && okUrl(u) && !seen.has(u)) { seen.add(u); out.push(u); } };
+      (r.results || []).filter(x => x && x.url && !/^(image|video|audio)$/.test(x.type) && !(x.meta && x.meta.shownInChat)).forEach(x => {
+        if (x.meta && x.meta.pdf) add(x.meta.pdf);
+        if (x.direct_file) add(x.url);
+      });
+      (r.results || []).filter(x => x && x.url && !/^(image|video|audio)$/.test(x.type)).forEach(x => add(x.url));
+      return out.slice(0, limit);
+    }
+    const slimObj = o => { const x = {}; Object.keys(o || {}).slice(0, 14).forEach(k => { const v = o[k]; if (v == null) return; if (typeof v === 'string') x[k] = v.slice(0, 300); else if (typeof v === 'number' || typeof v === 'boolean') x[k] = v; else { try { x[k] = JSON.stringify(v).slice(0, 200); } catch (e) { } } }); return x; };
     W.reg('massr_universal_search', '🌐 بحث شامل — MASSR',
-      'المدخل الأول لأي طلب بحث بلغة طبيعية (عربي أو إنجليزي): مواقع ومقالات ومعلومات وأخبار وكتب وروايات وPDF وأبحاث علمية وصور وفيديوهات ويوتيوب وأغاني وأناشيد ومنتجات وأسعار ومستودعات GitHub ومكتبات. بيفهم النوع تلقائيًا ويشغّل البحث العام دايمًا + المصادر المتخصصة المناسبة بالتوازي، ويشيل المكرر ومواقع القرصنة، ويرتّب بالصلة والجودة، ويرجّع روابط حقيقية وحالة كل مصدر (اللي فشل بيتذكر). لو عايز تشغّل أنشودة/أغنية مباشرة جوه الشات استخدم youtube_search؛ ولقراءة صفحة معيّنة web_read.',
+      'المدخل الأول لأي طلب بحث بلغة طبيعية (عربي أو إنجليزي): مواقع ومقالات ومعلومات وأخبار وكتب وروايات وPDF وأبحاث علمية وصور وفيديوهات ويوتيوب وأغاني وأناشيد ومنتجات وأسعار ومستودعات GitHub ومكتبات. بيفهم النوع تلقائيًا ويشغّل البحث العام دايمًا + المصادر المتخصصة المناسبة بالتوازي، ويشيل المكرر ومواقع القرصنة، ويرتّب بالصلة والجودة، ويرجّع روابط حقيقية وحالة كل مصدر (اللي فشل بيتذكر). لو عايز تشغّل أنشودة/أغنية مباشرة جوه الشات استخدم youtube_search؛ ولقراءة صفحة معيّنة web_read. باراميتر mode بيحدد المطلوب: summary (افتراضي: مقتطفات وروابط) | full (النص الكامل للبحث أو المقال أو الورقة مقسّم لأجزاء، مش ملخص) | pdf (النص الكامل جاهز تترجمه وتعمل منه PDF بأدوات الملفات) | product (بيانات المنتج: الاسم والسعر والمواصفات والروابط) | download_link (بيدوّر على رابط تحميل مباشر قانوني وبيعرضه للمستخدم كارت فيه زر تحميل).',
       {
         query: d(S, 'طلب المستخدم بلغته (كلمات مفتاحية أو جملة طبيعية).'),
         types: d(SA, 'اختياري، تلميح منك لنوع الطلب لو واضح: ' + TYPES.join(' | ') + ' (تقدر تبعت أكتر من نوع).'),
@@ -734,27 +884,713 @@
         region: d(S, 'اختياري: منطقة ولغة مثل eg-ar أو us-en (للأسعار والأخبار المحلية).'),
         fresh: d(S, 'اختياري: حداثة d يوم | w أسبوع | m شهر | y سنة.'),
         depth: d(S, 'brief (افتراضي) أو deep لبحث أوسع وقراءة أطول.'),
-        max_results: d(N, 'عدد الروابط المرجّعة 3-15 (افتراضي 8).')
+        max_results: d(N, 'عدد الروابط المرجّعة 3-15 (افتراضي 8).'),
+        mode: { type: 'string', enum: MODES, description: 'المطلوب بالظبط: summary (افتراضي) | full (النص الكامل) | pdf (النص الكامل للترجمة وعمل PDF) | product (بيانات منتج) | download_link (رابط تحميل في كارت). اختار full لما المستخدم يقول بحث كامل أو عايز النص كله، وproduct لما يسأل عن منتج أو سعر، وdownload_link لما يطلب رابط تحميل.' },
+        url: d(S, 'اختياري مع full أو pdf: رابط محدد من نتيجة سابقة عايز نصه الكامل (من غير بحث جديد).')
       },
       ['query'],
       async a => {
         const q = W.norm(a.query);
         if (q.length < 2) return W.er('اكتب موضوع البحث أو السؤال.');
+        const mode = MODES.indexOf(a.mode) >= 0 ? a.mode : 'summary';
+
+        // قراءة كاملة لرابط محدد من غير بحث جديد
+        if ((mode === 'full' || mode === 'pdf') && a.url) {
+          const u = String(a.url || '').trim();
+          if (!okUrl(u)) return W.er('الرابط مش صالح أو مش مسموح.');
+          W.act('📖 بقرا كامل: ' + W.hostOf(u));
+          const f = await readFull(u, mode === 'pdf' ? 6 : 3);
+          if (!f.ok) return W.er('مقدرتش أقرا الرابط كامل (' + f.error + '). جرّب مصدر تاني من نتايج البحث.');
+          W.taint();
+          return W.ok({ mode, query: q, full: f, message: fullMessage(mode, f) + W.UNTRUSTED });
+        }
+
         W.act('🌐 بحث شامل: ' + q.slice(0, 60));
         const tools = {}; ['web_research', 'web_find', 'web_scholar', 'web_images', 'youtube_search'].forEach(n => { if (APP_ACTIONS[n] && APP_ACTIONS[n].handler) tools[n] = APP_ACTIONS[n]; });
+        let types = Array.isArray(a.types) ? a.types.slice() : [];
+        if (mode === 'product' && types.indexOf('product') < 0) types.push('product');
+        if (mode === 'download_link') ['book', 'file'].forEach(t => { if (types.indexOf(t) < 0) types.push(t); });
         let r;
-        try { r = await M.run(q, { query: q, types: a.types, queries: a.queries, region: a.region, fresh: a.fresh, depth: a.depth, max_results: a.max_results }, { tools, grounded: W.groundedSearch, fetch: window.fetch ? window.fetch.bind(window) : undefined }); }
+        try { r = await M.run(q, { query: q, types: types.length ? types : a.types, queries: a.queries, region: a.region, fresh: a.fresh, depth: a.depth, max_results: a.max_results }, { tools, grounded: W.groundedSearch, fetch: window.fetch ? window.fetch.bind(window) : undefined }); }
         catch (e) { return W.er('البحث الشامل فشل: ' + String((e && e.message) || e).slice(0, 160)); }
         if (!r || r.status !== 'ok') return r || W.er('مفيش نتايج.');
         W.taint();
         const imgs = r.__inlineImages; delete r.__inlineImages;
+        r = Object.assign({}, r); // الكاش بيرجّع نفس الكائن: ما نعدّلش عليه
         r.message = 'دي نتايج حقيقية من مصادر متعددة (النوع المكتشف: ' + (r.detected_types.join('، ') || 'عام') + '). استخدم الروابط اللي في results بس، وماتألفش رابط ولا سعر ولا رابط تحميل. اقرا pages (مقتطفات اتقرت فعلًا) واعتمد عليها، ولو محتاج صفحة تانية افتحها بـ web_read. اذكر للمستخدم المصادر اللي فشلت (sources_failed) بصراحة لو أثّرت على الرد. rights بيوضح القانونية: ماتقدّمش أي رابط كتحميل مجاني إلا لو عليه ملك عام/مصدر مفتوح/منصة رسمية. '
           + (imgs ? 'الصور المرفقة هي مرشحين لطلب المستخدم: شوفها واختار المطابق وبعدين web_show_images بالأرقام. ' : '') + W.UNTRUSTED;
         if (imgs && imgs.length) r.__imageInlineDataList = imgs;
+
+        r.mode = mode;
+        try {
+          if (mode === 'full' || mode === 'pdf') {
+            const cands = readCandidates(r, 4);
+            let f = null; const failed = [];
+            for (const u of cands) { f = await readFull(u, mode === 'pdf' ? 6 : 3); if (f.ok) break; failed.push({ url: u, error: f.error }); f = null; }
+            if (f) {
+              r.full = f; delete r.pages; r.results = (r.results || []).slice(0, 5);
+              r.message = fullMessage(mode, f) + W.UNTRUSTED;
+            } else {
+              r.full_failed = failed;
+              r.message = 'طلب mode=' + mode + ' بس مقدرتش أقرا نص كامل من أي رابط (الصفحات محجوبة أو بتتحمّل بجافاسكربت أو النص ناقص). اعتمد على pages والروابط في results، وقول للمستخدم بصراحة إن النص الكامل مش متاح، وماتألفش محتوى. ' + r.message;
+            }
+          } else if (mode === 'product') {
+            const offers = [];
+            (r.pages || []).forEach(p => { const sp = p && p.structured && p.structured.products; if (Array.isArray(sp)) sp.slice(0, 4).forEach(x => offers.push(Object.assign({}, slimObj(x), { source_url: p.url, source_title: p.title }))); });
+            const specPages = (r.pages || []).slice().sort((x, y) => (y.structured && y.structured.products ? 1 : 0) - (x.structured && x.structured.products ? 1 : 0)).slice(0, 2).filter(p => p && okUrl(p.url));
+            const rd = APP_ACTIONS.web_read && APP_ACTIONS.web_read.handler;
+            const specs = rd ? (await Promise.all(specPages.map(p => rd({ url: p.url, focus: 'المواصفات specifications specs features تفاصيل', max_chars: 2500 }).then(x => (x && x.status === 'ok' && x.text) ? { url: p.url, title: x.title || p.title, text: String(x.text).slice(0, 2500) } : null, () => null)))).filter(Boolean) : [];
+            r.product = { offers: offers.slice(0, 10), specs, links: (r.results || []).filter(x => x.type === 'page').slice(0, 6).map(x => ({ title: x.title, url: x.url })) };
+            r.message = 'طلب mode=product: اعرض اسم المنتج والسعر (من product.offers بس مع العملة والبائع والرابط)، والمواصفات من product.specs، والروابط من product.links. لو السعر مش ظاهر قول كده وماتخمّنش، وقول إن السعر ممكن يتغير. ' + r.message;
+          } else if (mode === 'download_link') {
+            const items = [], seen = new Set();
+            (r.results || []).forEach(x => {
+              [x.meta && x.meta.pdf ? x.meta.pdf : '', x.direct_file ? x.url : '', x.meta && x.meta.dl ? x.meta.dl : ''].forEach(u => {
+                if (!u || seen.has(u) || !okUrl(u)) return; seen.add(u);
+                items.push({ title: x.title, url: u, rights: x.rights, direct_file: true, legal: LEGAL_OK.test(x.rights || '') });
+              });
+            });
+            const legal = items.filter(i => i.legal).slice(0, 3);
+            legal.forEach(i => appendDownloadCard(i));
+            let pagesShown = 0;
+            if (!legal.length && typeof appendAIWebResultCard === 'function') (r.results || []).filter(x => (x.type === 'book' || x.type === 'paper' || x.type === 'page') && okUrl(x.url)).slice(0, 2).forEach(x => { appendAIWebResultCard({ url: x.url, title: x.title }); pagesShown++; });
+            r.download = { cards_shown: legal.length, page_cards_shown: pagesShown, items: items.slice(0, 8).map(i => ({ title: i.title, url: i.url, rights: i.rights, legal: i.legal })) };
+            r.message = (legal.length
+              ? 'طلب mode=download_link: اتعرض للمستخدم ' + legal.length + ' كارت تحميل بزرار (مصادر قانونية/مفتوحة). ماتكرّرش الروابط كنص؛ قول بسطر واحد اسم الملف ومصدره وحقوقه. '
+              : 'طلب mode=download_link: مفيش رابط تحميل مباشر قانوني ظاهر (ملك عام/مصدر مفتوح/منصة رسمية). ' + (pagesShown ? 'اتعرض كارت أو اتنين لصفحات المصدر للفتح بس (مش تحميل). ' : '') + 'قول للمستخدم كده بصراحة وماتدلّش على مواقع قرصنة ولا تألف رابط. ') + r.message;
+          }
+        } catch (e) { r.mode_error = String((e && e.message) || e).slice(0, 160); }
         return W.ok(r);
+
+        function fullMessage(md, f) {
+          const more = f.more ? ' النص كبير: اتعرض ' + f.parts_count + ' جزء من أصل ' + f.total_chars + ' حرف، وباقي ' + f.more.remaining_chars + ' حرف: كمّل بـ ' + f.more.how + ' قبل ما تخلّص الشغل لو محتاج النص كله.' : '';
+          return (md === 'pdf'
+            ? 'طلب mode=pdf: ده النص الكامل في full.parts (مرتّب). ترجمه أو اكتبه كامل من غير ما تلخّص أو تحذف أجزاء، وبعدين اعمل PDF: اطلب request_tools بمجموعة docs لو أدوات الملفات مش جاهزة، واكتب HTML RTL منسّق بـ file_write ثم html_to_pdf. اذكر المصدر (full.url) في أول الملف. '
+            : 'طلب mode=full: ده النص الكامل (مش ملخص) في full.parts مرتّب. اعتمد عليه واعرضه أو لخّصه حسب طلب المستخدم، واذكر المصدر (full.url). ') + more + ' ';
+        }
       });
     const RULES = '\n\nMASSR Universal Search (قواعد، بتحل محل أي قاعدة قديمة بتتعارض معاها): لأي طلب بحث أو استكشاف بلغة طبيعية (معلومة، مقال، خبر، كتاب، رواية، PDF، بحث علمي، صور، فيديو، أغنية/أنشودة، منتج وسعر، مستودع GitHub، مكتبة...) ابدأ بـ massr_universal_search واحدة، ومتطلبش من المستخدم يختار محرك أو نوع بحث. ابعت في types تلميح نوع الطلب لو واضح، وفي queries صياغة إنجليزي لو الموضوع عالمي. الأداة بتدوّر في الويب دايمًا وبتضيف المصادر المتخصصة وبتقولك مين فشل. بعدها: اقرا pages واعتمد على اللي اتقرا فعلًا، وافتح أهم رابط بـ web_read لو محتاج تفاصيل، وماتألفش أي رابط أو سعر أو رابط تحميل. الكتب والملفات: فرّق بين صفحة الكتاب وملف PDF المباشر (direct_file)، واعرض كرابط تحميل مجاني بس اللي rights بتاعه ملك عام/مصدر مفتوح/منصة رسمية، ولو مفيش قول إن مفيش مصدر قانوني ظاهر بدل ما تدلّ على مواقع قرصنة. الأغاني والأناشيد: مصادر رسمية فقط. لو الطلب مجرد "شغّل أنشودة/أغنية كذا" فاستخدم youtube_search مباشرة. الاستثناءات: طلبات التقارير الشاملة بملف تفضل زي ما هي (web_research عميق + أدوات الملفات)، وgemini احتياطي أخير جوه الأداة نفسها.';
+    const MODE_RULES = '\n\nباراميتر mode في massr_universal_search (قواعد): الافتراضي summary للأسئلة العادية. اطلب mode=full لما المستخدم يقول بحث كامل أو عايز النص كله أو الورقة أو المقال كامل. mode=pdf لما يطلب ترجمة أو تحويل ما تلاقيه لـ PDF. mode=product لما يسأل عن منتج أو سعر أو مواصفات. mode=download_link لما يطلب رابط تحميل (كتاب أو ملف أو بحث): الأداة بتعرض كارت بزرار تحميل للمصادر القانونية بس. لو عندك رابط محدد من نتيجة سابقة وعايز نصه الكامل ابعت url مع mode=full أو pdf. للنتايج والأرقام الحية (ماتش، ترتيب دوري، سعر دولار أو ذهب، طقس) ابعت types=live واعتمد على google_summary مع ذكر المصدر والتوقيت. لو المستخدم سمّى منصة أو موقع (فيسبوك، انستجرام، تيك توك، ريديت، 365Scores، في الجول، يلا كورة، GitHub، يوتيوب...) الأداة بتبحث جواه تلقائيًا، وماتوعدش بمحتوى محتاج تسجيل دخول. للمكتبات: github وnpm وcdnjs (رابط CDN جاهز). تحميل الفيديو والأغاني والأناشيد: المسموح روابط المشاهدة/الاستماع الرسمية وملفات الرخص المفتوحة (Internet Archive/Openverse) في كارت mode=download_link بس، وماتدلّش على أدوات تنزيل يوتيوب ولا مواقع قرصنة. لو رد الأداة فيه full.more كمّل القراءة بـ web_read بالصفحة اللي في how، وماتخلّصش الشغل على نص ناقص.';
     const _b = window.buildAISystemInstructionText;
-    if (typeof _b === 'function') window.buildAISystemInstructionText = function () { return _b.apply(this, arguments) + RULES; };
+    if (typeof _b === 'function') window.buildAISystemInstructionText = function () { return _b.apply(this, arguments) + RULES + MODE_RULES; };
   } catch (e) { try { console.warn('massr universal search register failed', e); } catch (_) { } }
+})();
+
+// ============================================================================
+// MASSR Cards v2 — كروت ورسومات الشات
+// 1) بلوكات ``` في الشات العادي (flow / items / callout / stats / timeline / match / info / gallery / ui)
+// 2) أداة show_card (للمكالمة الصوتية أو لو المدرب عايز يعرض كارت من غير نص)
+// الكارت لقطة وقت الطلب (مش بيتحدّث لوحده)، وبيتحفظ مع المحادثة.
+// ============================================================================
+(function () {
+  try {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    const S = { type: 'string' };
+    const d = (t, x) => Object.assign({}, t, { description: x });
+
+    const str = (v, n) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, n || 200);
+    const httpUrl = u => { u = String(u || '').trim(); return /^https?:\/\/[^\s"'<>]+$/i.test(u) ? u.slice(0, 1500) : ''; };
+    const host = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return ''; } };
+    const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null && txt !== '') e.textContent = txt; return e; };
+    const hhmm = t => { try { return new Date(t).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }); } catch (e) { return ''; } };
+    const emo = (v, n) => Array.from(str(v, 12)).slice(0, n || 2).join('');
+    const COLORS = ['green', 'blue', 'amber', 'red', 'purple', 'neutral'];
+    const col = v => { v = String(v || '').toLowerCase(); return COLORS.indexOf(v) >= 0 ? v : 'neutral'; };
+    const KIND = { info: ['blue', 'ℹ️'], tip: ['green', '💡'], warn: ['amber', '⚠️'], success: ['green', '✅'], error: ['red', '⛔'] };
+
+    // ---------------- الشكل (CSS) ----------------
+    function injectCss() {
+      if (document.getElementById('massrCardsCss')) return;
+      const st = document.createElement('style'); st.id = 'massrCardsCss';
+      st.textContent = `
+.mc{width:100%;max-width:430px;direction:rtl;text-align:right;background:var(--card-bg);border:1px solid var(--card-border);border-radius:18px;box-shadow:var(--shadow-sm);color:var(--text-primary);overflow:hidden;font-family:inherit;line-height:1.5;white-space:normal;animation:mcIn .28s ease both}
+.aix .mc{max-width:100%;margin:.7em 0;box-shadow:none}
+@keyframes mcIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.mc-c-green{--cc:#22c55e}.mc-c-blue{--cc:#3b82f6}.mc-c-amber{--cc:#f59e0b}.mc-c-red{--cc:#ef4444}.mc-c-purple{--cc:#a855f7}.mc-c-neutral{--cc:var(--text-secondary)}
+[data-theme="light"] .mc-c-green{--cc:#15803d}[data-theme="light"] .mc-c-blue{--cc:#1d4ed8}[data-theme="light"] .mc-c-amber{--cc:#b45309}[data-theme="light"] .mc-c-red{--cc:#b91c1c}[data-theme="light"] .mc-c-purple{--cc:#7e22ce}
+.mc-cell,.mc-callout,.mc-tag{background:rgba(127,127,127,.10);background:color-mix(in srgb,var(--cc) 12%,transparent);border:1px solid rgba(127,127,127,.3);border:1px solid color-mix(in srgb,var(--cc) 38%,transparent)}
+.mc-top{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 13px;font-size:.68rem;color:var(--text-secondary);border-bottom:1px solid var(--card-border);background:var(--input-bg)}
+.mc-top b{font-weight:800;color:var(--text-primary);font-size:.72rem}
+.mc-badge{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:99px;font-size:.66rem;font-weight:800;background:var(--card-border);color:var(--text-secondary);white-space:nowrap}
+.mc-badge.live{background:rgba(239,68,68,.14);color:#ef4444}
+.mc-badge.live::before{content:"";width:7px;height:7px;border-radius:50%;background:#ef4444;animation:mcPulse 1.2s ease-in-out infinite}
+@keyframes mcPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.7)}}
+.mc-match{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:6px;padding:16px 10px 12px;direction:rtl}
+.mc-team{display:flex;flex-direction:column;align-items:center;gap:7px;min-width:0;text-align:center}
+.mc-team span{font-size:.78rem;font-weight:800;line-height:1.3;max-width:100%;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.mc-flag{width:52px;height:52px;border-radius:50%;object-fit:cover;border:2px solid var(--card-border);background:var(--input-bg);display:block}
+.mc-ini{width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:1.05rem;color:#fff;border:2px solid var(--card-border)}
+.mc-score{display:flex;flex-direction:column;align-items:center;gap:3px;min-width:78px}
+.mc-score .n{display:flex;align-items:center;gap:9px;direction:rtl;font-size:1.9rem;font-weight:900;line-height:1;font-variant-numeric:tabular-nums}
+.mc-score .n.live{color:#ef4444}
+.mc-score .vs{font-size:1.15rem;font-weight:900;color:var(--text-secondary)}
+.mc-score .s{font-size:.66rem;font-weight:700;color:var(--text-secondary)}
+.mc-line{padding:0 13px 10px;font-size:.7rem;color:var(--text-secondary);text-align:center;line-height:1.6}
+.mc-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 13px;border-top:1px solid var(--card-border);font-size:.62rem;color:var(--text-secondary)}
+.mc-foot a{color:var(--accent);font-weight:700;text-decoration:none;direction:ltr}
+.mc-pimg{width:100%;aspect-ratio:16/10;background:#fff;display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--card-border)}
+.mc-pimg img{width:100%;height:100%;object-fit:contain;display:block}
+.mc-ph{display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:2.4rem;background:var(--input-bg);color:var(--text-secondary)}
+.mc-body{padding:12px 14px;display:flex;flex-direction:column;gap:7px}
+.mc-brand{font-size:.66rem;font-weight:800;color:var(--accent)}
+.mc-name{font-size:.9rem;font-weight:800;line-height:1.5}
+.mc-price{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.mc-price b{font-size:1.25rem;font-weight:900}
+.mc-price s{font-size:.72rem;color:var(--text-secondary)}
+.mc-stars{font-size:.74rem;color:#f59e0b;font-weight:700}
+.mc-stars i{font-style:normal;color:var(--text-secondary);font-weight:600;margin-inline-start:4px}
+.mc-desc{font-size:.74rem;line-height:1.7;color:var(--text-secondary);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.mc-chips{display:flex;flex-wrap:wrap;gap:5px}
+.mc-chips span{font-size:.64rem;padding:3px 9px;border-radius:99px;background:var(--input-bg);border:1px solid var(--card-border)}
+.mc-btn{display:flex;align-items:center;justify-content:center;gap:6px;padding:10px;border-radius:12px;background:var(--accent);color:#fff;font-weight:800;font-size:.78rem;text-decoration:none;border:none;cursor:pointer;font-family:inherit}
+.mc-grid{display:grid;gap:4px;padding:4px}
+.mc-grid.c1{grid-template-columns:1fr}.mc-grid.c2{grid-template-columns:1fr 1fr}.mc-grid.c3{grid-template-columns:1fr 1fr 1fr}
+.mc-tile{position:relative;aspect-ratio:1/1;border-radius:12px;overflow:hidden;background:var(--input-bg);cursor:zoom-in;border:none;padding:0}
+.mc-grid.c1 .mc-tile{aspect-ratio:16/10}
+.mc-tile img{width:100%;height:100%;object-fit:cover;display:block}
+.mc-tile em{position:absolute;inset:auto 0 0 0;padding:14px 7px 5px;font-style:normal;font-size:.6rem;color:#fff;background:linear-gradient(transparent,rgba(0,0,0,.72));text-align:right;direction:rtl;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mc-code{direction:ltr;text-align:left;background:#0f172a;color:#e2e8f0;border-radius:12px;padding:10px 12px;font-family:ui-monospace,Consolas,monospace;font-size:.68rem;line-height:1.6;word-break:break-all;position:relative}
+.mc-copy{position:absolute;top:6px;right:6px;border:none;border-radius:8px;padding:3px 9px;font-size:.62rem;font-weight:800;background:rgba(255,255,255,.14);color:#fff;cursor:pointer;font-family:inherit}
+.mc-rows{display:flex;flex-direction:column}
+.mc-row{display:flex;justify-content:space-between;gap:10px;padding:8px 14px;font-size:.76rem;border-top:1px solid var(--card-border)}
+.mc-row span{color:var(--text-secondary)}.mc-row b{font-weight:800;text-align:left}
+.mc-ihead{display:flex;align-items:center;gap:10px;padding:13px 14px 10px}
+.mc-ihead .e{font-size:1.8rem;line-height:1}.mc-ihead .t{font-size:.9rem;font-weight:800}.mc-ihead .u{font-size:.68rem;color:var(--text-secondary)}
+.mc-flow{display:flex;flex-direction:column;gap:6px;padding:4px 12px 14px}
+.mc-frow{display:grid;gap:8px}
+.mc-cell{border-radius:14px;padding:12px 10px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:3px;min-width:0}
+.mc-cell .i{font-size:1.4rem;line-height:1.2}.mc-cell .t{font-size:.86rem;font-weight:800;color:var(--cc);line-height:1.4}.mc-cell .s{font-size:.7rem;color:var(--text-secondary);line-height:1.5}
+.mc-cell.mc-c-neutral .t{color:var(--text-primary)}
+.mc-arrow{text-align:center;font-size:1.1rem;line-height:1;color:var(--text-secondary);font-weight:700}
+.mc-list{display:flex;flex-direction:column;padding:0 14px}
+.mc-li{display:flex;gap:12px;align-items:flex-start;padding:14px 0;border-bottom:1px solid var(--card-border)}
+.mc-li:last-child{border-bottom:0}
+.mc-limg{flex:0 0 88px;width:88px;height:88px;border-radius:14px;overflow:hidden;background:var(--input-bg)}
+.mc-limg img{width:100%;height:100%;object-fit:cover;display:block}
+.mc-lbody{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px;align-items:flex-start}
+.mc-lt{font-size:.92rem;font-weight:800;line-height:1.5}
+.mc-ld{font-size:.8rem;line-height:1.7;color:var(--text-secondary)}
+.mc-ll{font-size:.78rem;font-weight:700;color:var(--accent);text-decoration:none}
+.mc-tag{display:inline-block;font-size:.68rem;font-weight:700;padding:2px 10px;border-radius:99px;color:var(--cc)}
+.mct-callout{background:transparent;border:0;box-shadow:none;max-width:100%;overflow:visible}
+.mc-callout{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:14px}
+.mc-callout .e{font-size:1.2rem;line-height:1.3}.mc-callout .t{font-weight:800;font-size:.86rem;color:var(--cc)}.mc-callout .x{font-size:.8rem;line-height:1.7;color:var(--text-primary)}
+.mc-stats{display:grid;gap:8px;padding:4px 12px 12px;grid-template-columns:1fr 1fr}
+.mc-stat{background:var(--input-bg);border:1px solid var(--card-border);border-radius:14px;padding:11px 12px;display:flex;flex-direction:column;gap:2px}
+.mc-stat .i{font-size:1.1rem}.mc-stat .v{font-size:1.45rem;font-weight:900;line-height:1.2}.mc-stat .l{font-size:.7rem;color:var(--text-secondary)}
+.mc-stat .dl{font-size:.7rem;font-weight:800;color:#22c55e}.mc-stat .dl.neg{color:#ef4444}
+.mc-tl{padding:4px 16px 14px 14px;display:flex;flex-direction:column}
+.mc-ev{position:relative;padding:0 18px 14px 0;margin:0}
+.mc-ev::before{content:"";position:absolute;right:4px;top:8px;bottom:-2px;width:2px;background:var(--card-border)}
+.mc-ev:last-child::before{display:none}
+.mc-ev::after{content:"";position:absolute;right:0;top:5px;width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px var(--card-bg)}
+.mc-ev .w{font-size:.68rem;font-weight:800;color:var(--accent)}.mc-ev .t{font-size:.86rem;font-weight:800}.mc-ev .x{font-size:.76rem;color:var(--text-secondary);line-height:1.65}
+.mct-ui{background:transparent;border:0;box-shadow:none;overflow:visible;max-width:100%}
+.mc-ui{display:block;width:100%;border:0;background:transparent;color-scheme:normal}
+.mct-chips,.mct-sources{background:transparent;border:0;box-shadow:none;max-width:100%}
+.mc-chips2{display:flex;flex-wrap:wrap;gap:8px;margin:.2em 0}
+.mc-chip{font:inherit;font-size:.78rem;font-weight:700;color:var(--text-primary);background:var(--card-bg);border:1px solid var(--card-border);border-radius:99px;padding:7px 14px;cursor:pointer;transition:background .15s,transform .15s}
+.mc-chip:active{transform:scale(.96)}
+.mc-srcs{display:flex;flex-direction:column}
+.mc-src{display:flex;align-items:center;gap:10px;padding:9px 12px;text-decoration:none;color:var(--text-primary);border-top:1px solid var(--card-border)}
+.mc-src:first-child{border-top:0}
+.mc-src img{width:20px;height:20px;border-radius:5px;flex:0 0 20px}
+.mc-src b{display:block;font-size:.78rem;font-weight:700;line-height:1.4;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.mc-src span{display:block;font-size:.66rem;color:var(--text-secondary);direction:ltr;text-align:right}
+.mc-lb{position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.88);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px;cursor:zoom-out}
+.mc-lb img{max-width:94vw;max-height:80vh;border-radius:12px;object-fit:contain}
+.mc-lb div{color:#fff;font-size:.8rem;text-align:center;direction:rtl}`;
+      document.head.appendChild(st);
+    }
+
+    // ---------------- صور بحل احتياطي: مباشر ← weserv (بيعدّي حظر الهوتلينك) ← شكل بديل ----------------
+    const ph = emoji => el('div', 'mc-ph', emoji || '🖼️');
+    function iniEl(name) {
+      let h = 0; for (const ch of String(name)) h = (h * 31 + ch.charCodeAt(0)) % 360;
+      const e = el('div', 'mc-ini', Array.from(String(name).replace(/[^\p{L}\p{N} ]/gu, '').trim())[0] || '⚽');
+      e.style.background = 'hsl(' + h + ',55%,42%)'; return e;
+    }
+    // fb: 'ini:<اسم>' | 'ph:<إيموجي>' | 'hide'  (متخزّن كـ attribute عشان الكارت يتحوّل لنص HTML ويفضل شغّال)
+    function img(url, alt, cls, fb) {
+      const i = el('img', 'mc-img' + (cls ? ' ' + cls : '')); i.alt = alt || ''; i.loading = 'lazy'; i.decoding = 'async'; i.referrerPolicy = 'no-referrer';
+      i.setAttribute('data-mc-u', url); i.setAttribute('data-mc-fb', fb || 'hide'); i.src = url; return i;
+    }
+    document.addEventListener('error', ev => {
+      try {
+        const i = ev.target; if (!i || i.tagName !== 'IMG' || !i.classList || !i.classList.contains('mc-img')) return;
+        const u = i.getAttribute('data-mc-u');
+        if (!i.getAttribute('data-mc-s') && u && !/images\.weserv\.nl/.test(i.src)) { i.setAttribute('data-mc-s', '1'); i.src = 'https://images.weserv.nl/?url=' + encodeURIComponent(u) + '&w=800&output=webp&q=85'; return; }
+        const fb = i.getAttribute('data-mc-fb') || 'hide';
+        if (fb.indexOf('ini:') === 0) i.replaceWith(iniEl(fb.slice(4)));
+        else if (fb.indexOf('ph:') === 0) i.replaceWith(ph(fb.slice(3)));
+        else { const t = i.closest('.mc-tile,.mc-limg'); (t || i).style.display = 'none'; }
+      } catch (e) { }
+    }, true);
+
+    // ---------------- علم/شعار الفريق ----------------
+    function toIso(c) {
+      c = String(c || '').trim();
+      const cps = Array.from(c).map(ch => ch.codePointAt(0));
+      if (cps.length === 2 && cps.every(x => x >= 0x1F1E6 && x <= 0x1F1FF)) return cps.map(x => String.fromCharCode(x - 0x1F1E6 + 97)).join('');
+      c = c.toLowerCase();
+      return /^[a-z]{2}(-[a-z]{2,3})?$/.test(c) ? c : '';
+    }
+    function teamBadge(name, code, logo) {
+      const lg = httpUrl(logo), iso = toIso(code);
+      const url = lg || (iso ? 'https://flagcdn.com/w160/' + iso + '.png' : '');
+      return url ? img(url, name, 'mc-flag', 'ini:' + name) : iniEl(name);
+    }
+
+    // ---------------- مساعدين ----------------
+    function footer(data, extra) {
+      const su = httpUrl(data.source_url);
+      if (!extra && !su && !data.source) return null;
+      const f = el('div', 'mc-foot');
+      const l = el('span', '', extra || '');
+      const r = su ? Object.assign(el('a', '', '🔗 ' + (str(data.source, 40) || host(su))), { href: su, target: '_blank', rel: 'noopener noreferrer' }) : el('span', '', str(data.source, 40));
+      f.append(l, r); return f;
+    }
+    function copyText(t, btn) {
+      const done = () => { const o = btn.getAttribute('data-o') || btn.textContent; btn.setAttribute('data-o', o); btn.textContent = 'اتنسخ ✓'; setTimeout(() => { btn.textContent = o; }, 1400); };
+      const fb = () => { try { const ta = el('textarea'); ta.value = t; ta.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); done(); } catch (e) { } };
+      try { if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(t).then(done, fb); return; } } catch (e) { }
+      fb();
+    }
+    function lightbox(url, cap) {
+      const lb = el('div', 'mc-lb');
+      lb.append(img(url, cap, '', 'ph:🖼️'));
+      if (cap) lb.append(el('div', '', cap));
+      const close = () => { lb.remove(); document.removeEventListener('keydown', onKey); };
+      const onKey = ev => { if (ev.key === 'Escape') close(); };
+      lb.addEventListener('click', close); document.addEventListener('keydown', onKey);
+      document.body.appendChild(lb);
+    }
+    // أزرار الكروت بتشتغل بالتفويض (عشان تفضل شغالة حتى لو الكارت اتحوّل لنص HTML)
+    document.addEventListener('click', ev => {
+      try {
+        const t = ev.target && ev.target.closest && ev.target.closest('.mc-tile,.mc-copy'); if (!t) return;
+        if (t.classList.contains('mc-copy')) { ev.preventDefault(); copyText(t.getAttribute('data-copy') || '', t); return; }
+        const u = t.getAttribute('data-full'); if (u) lightbox(u, t.getAttribute('data-cap') || '');
+      } catch (e) { }
+    });
+
+    document.addEventListener('click', ev => {
+      try {
+        const b = ev.target && ev.target.closest && ev.target.closest('.mc-chip'); if (!b) return;
+        const inp = document.getElementById('aiChatInput'); if (!inp || typeof sendAIChatMessage !== 'function') return;
+        inp.value = b.getAttribute('data-send') || ''; const box = b.closest('.mc-chips2'); if (box) box.style.display = 'none';
+        sendAIChatMessage();
+      } catch (e) { }
+    });
+
+    // ---------------- بلوك ui الحر: إطار معزول (من غير شبكة، ومن غير وصول لبيانات التطبيق) ----------------
+    const uiH = {};
+    const uiHash = s => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
+    function themeVars() {
+      try {
+        const cs = getComputedStyle(document.body), g = (n, f) => (cs.getPropertyValue(n) || f).trim().replace(/[<>{};]/g, '');
+        return ':root{--fg:' + g('--text-primary', '#e5e7eb') + ';--muted:' + g('--text-secondary', '#9ca3af') + ';--card:' + g('--card-bg', '#1f2937') + ';--border:' + g('--card-border', 'rgba(127,127,127,.3)') + ';--accent:' + g('--accent', '#14b8a6') + ';--soft:' + g('--input-bg', 'rgba(127,127,127,.12)') + '}';
+      } catch (e) { return ':root{--fg:#e5e7eb;--muted:#9ca3af;--card:#1f2937;--border:rgba(127,127,127,.3);--accent:#14b8a6;--soft:rgba(127,127,127,.12)}'; }
+    }
+    const UI_KIT = '*{box-sizing:border-box}html,body{margin:0;padding:0}body{padding:2px;font:14px/1.7 system-ui,-apple-system,"Segoe UI",Tahoma,Arial,sans-serif;color:var(--fg);background:transparent;direction:rtl;text-align:right;overflow-wrap:anywhere}' +
+      'img,svg,video{max-width:100%}a{color:var(--accent);font-weight:700}.muted{color:var(--muted)}.h{font-weight:800;font-size:16px}.big{font-size:28px;font-weight:900;line-height:1.2}' +
+      '.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:14px}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.col{display:flex;flex-direction:column;gap:8px}' +
+      '.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}' +
+      '.pill{display:inline-block;padding:2px 10px;border-radius:99px;background:var(--soft);border:1px solid var(--border);font-size:12px;font-weight:700}' +
+      '.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 16px;border-radius:12px;border:0;background:var(--accent);color:#fff;font:inherit;font-weight:800;cursor:pointer;text-decoration:none}' +
+      '.g{--c:#22c55e}.b{--c:#3b82f6}.a{--c:#f59e0b}.r{--c:#ef4444}.p{--c:#a855f7}.tint{color:var(--c);background:rgba(127,127,127,.12);background:color-mix(in srgb,var(--c) 14%,transparent);border:1px solid rgba(127,127,127,.3);border:1px solid color-mix(in srgb,var(--c) 40%,transparent)}';
+    function uiDoc(html, id) {
+      return '<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+        '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src https: data:; style-src \'unsafe-inline\'; script-src \'unsafe-inline\'; font-src data:; media-src https:">' +
+        '<style>' + themeVars() + UI_KIT + '</style></head><body>' + html +
+        '<script>(function(){var id=' + JSON.stringify(id) + ';function s(){try{parent.postMessage({mcUi:id,h:Math.ceil(document.documentElement.getBoundingClientRect().height)},"*")}catch(e){}}if(window.ResizeObserver)new ResizeObserver(s).observe(document.documentElement);addEventListener("load",s);s();setTimeout(s,250)})()<\/script></body></html>';
+    }
+    window.addEventListener('message', ev => {
+      try {
+        const m = ev.data; if (!m || typeof m !== 'object' || !m.mcUi) return;
+        Array.prototype.forEach.call(document.querySelectorAll('iframe.mc-ui'), f => {
+          if (f.contentWindow === ev.source && f.getAttribute('data-mc-id') === String(m.mcUi)) {
+            const h = Math.min(Math.max(Math.ceil(+m.h || 0), 40), 1600); uiH[m.mcUi] = h; f.style.height = h + 'px';
+          }
+        });
+      } catch (e) { }
+    });
+
+    // ---------------- بناء الكروت ----------------
+    const BUILD = {
+      match(c, x) {
+        const st = x.status;
+        const top = el('div', 'mc-top');
+        top.append(el('b', '', x.competition || '⚽ مباراة'));
+        top.append(el('span', 'mc-badge' + (st === 'live' ? ' live' : ''),
+          st === 'live' ? 'لايف' + (x.minute ? ' · \u2066' + x.minute + (/['′’]|\+|انتهى/.test(x.minute) ? '' : "'") + '\u2069' : '') : st === 'halftime' ? 'استراحة' : st === 'finished' ? 'انتهت' : 'قريبًا'));
+        c.append(top);
+        const row = el('div', 'mc-match');
+        const home = el('div', 'mc-team'); home.append(teamBadge(x.home, x.home_code, x.home_logo), el('span', '', x.home));
+        const away = el('div', 'mc-team'); away.append(teamBadge(x.away, x.away_code, x.away_logo), el('span', '', x.away));
+        const mid = el('div', 'mc-score');
+        if (st === 'upcoming' || (x.home_score === '' && x.away_score === '')) { mid.append(el('div', 'vs', 'VS')); if (x.kickoff) mid.append(el('div', 's', x.kickoff)); }
+        else { const nn = el('div', 'n' + (st === 'live' ? ' live' : '')); nn.append(el('span', '', x.home_score), el('span', '', '-'), el('span', '', x.away_score)); mid.append(nn); if (x.kickoff && st !== 'live') mid.append(el('div', 's', x.kickoff)); }
+        row.append(home, mid, away); c.append(row);
+        const line = [x.scorers, x.venue ? '🏟️ ' + x.venue : ''].filter(Boolean).join('  ·  ');
+        if (line) c.append(el('div', 'mc-line', line));
+        const f = footer(x, x.at ? '📸 لقطة الساعة ' + hhmm(x.at) + ' — اسألني تاني للتحديث' : '📸 لقطة وقت السؤال — اسألني تاني للتحديث'); if (f) c.append(f);
+      },
+      product(c, x) {
+        if (x.image) { const w = el('div', 'mc-pimg'); w.append(img(x.image, x.name, '', 'ph:🛍️')); c.append(w); }
+        const b = el('div', 'mc-body');
+        if (x.brand) b.append(el('div', 'mc-brand', x.brand));
+        b.append(el('div', 'mc-name', x.name));
+        const pr = el('div', 'mc-price');
+        pr.append(el('b', '', x.price ? (x.price + (x.currency ? ' ' + x.currency : '')) : 'السعر مش ظاهر'));
+        if (x.old_price) pr.append(el('s', '', x.old_price));
+        b.append(pr);
+        const rt = parseFloat(x.rating);
+        if (rt > 0 && rt <= 5) { const s = el('div', 'mc-stars', '★'.repeat(Math.round(rt)) + '☆'.repeat(5 - Math.round(rt)) + ' ' + rt); if (x.reviews) s.append(el('i', '', '(' + x.reviews + ')')); b.append(s); }
+        if (x.availability) b.append(el('div', 'mc-brand', x.availability));
+        if (x.description) b.append(el('div', 'mc-desc', x.description));
+        if (x.specs.length) { const ch = el('div', 'mc-chips'); x.specs.forEach(sp => ch.append(el('span', '', sp))); b.append(ch); }
+        const u = httpUrl(x.url);
+        if (u) b.append(Object.assign(el('a', 'mc-btn', '🔗 فتح المنتج'), { href: u, target: '_blank', rel: 'noopener noreferrer' }));
+        c.append(b);
+        const f = footer({ source: x.source || host(u) }, ''); if (f && (x.source || u)) c.append(f);
+      },
+      images(c, x) {
+        if (x.title) { const t = el('div', 'mc-top'); t.append(el('b', '', '🖼️ ' + x.title)); c.append(t); }
+        const n = x.images.length;
+        const g = el('div', 'mc-grid ' + (n === 1 ? 'c1' : n >= 6 ? 'c3' : 'c2'));
+        x.images.forEach(im => {
+          const tile = el('button', 'mc-tile'); tile.type = 'button'; tile.setAttribute('data-full', im.url); tile.setAttribute('data-cap', im.caption || '');
+          tile.append(img(im.url, im.caption, '', 'hide'));
+          if (im.caption) tile.append(el('em', '', im.caption));
+          g.append(tile);
+        });
+        c.append(g);
+        const f = footer(x, ''); if (f) c.append(f);
+      },
+      lib(c, x) {
+        const b = el('div', 'mc-body');
+        const h = el('div', 'mc-price'); h.append(el('b', '', '📦 ' + x.name)); if (x.version) h.append(el('span', 'mc-badge', 'v' + x.version)); b.append(h);
+        if (x.description) b.append(el('div', 'mc-desc', x.description));
+        const cdn = httpUrl(x.cdn_url);
+        if (cdn) {
+          const snip = /\.css(\?|$)/i.test(cdn) ? '<link rel="stylesheet" href="' + cdn + '">' : '<script src="' + cdn + '"></script>';
+          const code = el('div', 'mc-code', snip); const cb = el('button', 'mc-copy', 'نسخ'); cb.type = 'button'; cb.setAttribute('data-copy', snip);
+          code.append(cb); b.append(code);
+        }
+        const u = httpUrl(x.url);
+        if (u) b.append(Object.assign(el('a', 'mc-btn', '🔗 الصفحة الرسمية'), { href: u, target: '_blank', rel: 'noopener noreferrer' }));
+        c.append(b);
+        const f = footer(x, ''); if (f) c.append(f);
+      },
+      info(c, x) {
+        const h = el('div', 'mc-ihead'); h.append(el('div', 'e', x.emoji || 'ℹ️'));
+        const tx = el('div'); tx.append(el('div', 't', x.title)); if (x.subtitle) tx.append(el('div', 'u', x.subtitle)); h.append(tx); c.append(h);
+        if (x.rows.length) { const r = el('div', 'mc-rows'); x.rows.forEach(rw => { const e = el('div', 'mc-row'); e.append(el('span', '', rw.label), el('b', '', rw.value)); r.append(e); }); c.append(r); }
+        if (x.note) c.append(el('div', 'mc-line', x.note));
+        const f = footer(x, x.at ? '📸 لقطة الساعة ' + hhmm(x.at) : ''); if (f) c.append(f);
+      },
+      flow(c, x) {
+        if (x.title) { const t = el('div', 'mc-ihead'); t.append(el('div', 't', x.title)); c.append(t); }
+        const fl = el('div', 'mc-flow');
+        const groups = []; x.steps.forEach(s => { const g = groups[groups.length - 1]; if (g && s.row !== '' && g[0].row === s.row) g.push(s); else groups.push([s]); });
+        groups.forEach((g, gi) => {
+          if (gi) fl.append(el('div', 'mc-arrow', '↓'));
+          const n = g.length, cols = n <= 2 ? n : n === 4 ? 2 : 3;
+          const r = el('div', 'mc-frow'); r.style.gridTemplateColumns = 'repeat(' + cols + ',minmax(0,1fr))';
+          g.forEach(s => {
+            const cell = el('div', 'mc-cell mc-c-' + s.color);
+            if (s.icon) cell.append(el('div', 'i', s.icon));
+            cell.append(el('div', 't', s.title)); if (s.sub) cell.append(el('div', 's', s.sub));
+            r.append(cell);
+          });
+          fl.append(r);
+        });
+        c.append(fl);
+      },
+      items(c, x) {
+        if (x.title) { const t = el('div', 'mc-ihead'); t.append(el('div', 't', x.title)); c.append(t); }
+        const ls = el('div', 'mc-list');
+        x.items.forEach((it, i) => {
+          const li = el('div', 'mc-li');
+          if (it.image) { const w = el('div', 'mc-limg'); w.append(img(it.image, it.title, '', 'hide')); li.append(w); }
+          const b = el('div', 'mc-lbody');
+          b.append(el('div', 'mc-lt', (x.numbered ? (i + 1) + '. ' : '') + it.title));
+          if (it.text) b.append(el('div', 'mc-ld', it.text));
+          if (it.url) b.append(Object.assign(el('a', 'mc-ll', (it.link || host(it.url) || 'فتح') + ' ↗'), { href: it.url, target: '_blank', rel: 'noopener noreferrer' }));
+          if (it.tag) b.append(el('span', 'mc-tag mc-c-' + it.tag_color, it.tag));
+          li.append(b); ls.append(li);
+        });
+        c.append(ls);
+      },
+      callout(c, x) {
+        const k = KIND[x.kind] || KIND.info;
+        const box = el('div', 'mc-callout mc-c-' + k[0]);
+        box.append(el('div', 'e', x.emoji || k[1]));
+        const b = el('div'); if (x.title) b.append(el('div', 't', x.title)); if (x.text) b.append(el('div', 'x', x.text));
+        box.append(b); c.append(box);
+      },
+      stats(c, x) {
+        if (x.title) { const t = el('div', 'mc-ihead'); t.append(el('div', 't', x.title)); c.append(t); }
+        const g = el('div', 'mc-stats'); if (x.stats.length === 3) g.style.gridTemplateColumns = 'repeat(3,minmax(0,1fr))';
+        x.stats.forEach(s => {
+          const e = el('div', 'mc-stat');
+          if (s.icon) e.append(el('div', 'i', s.icon));
+          e.append(el('div', 'v', s.value), el('div', 'l', s.label));
+          if (s.delta) e.append(el('div', 'dl' + (/^[-−–]/.test(s.delta) ? ' neg' : ''), s.delta));
+          g.append(e);
+        });
+        c.append(g);
+      },
+      timeline(c, x) {
+        if (x.title) { const t = el('div', 'mc-ihead'); t.append(el('div', 't', x.title)); c.append(t); }
+        const tl = el('div', 'mc-tl');
+        x.events.forEach(ev => {
+          const e = el('div', 'mc-ev');
+          if (ev.when) e.append(el('div', 'w', ev.when));
+          e.append(el('div', 't', ev.title)); if (ev.text) e.append(el('div', 'x', ev.text));
+          tl.append(e);
+        });
+        c.append(tl);
+      },
+      chips(c, x) {
+        const w = el('div', 'mc-chips2');
+        x.chips.forEach(t => { const b = el('button', 'mc-chip', t); b.type = 'button'; b.setAttribute('data-send', t); w.append(b); });
+        c.append(w);
+      },
+      sources(c, x) {
+        const t = el('div', 'mc-top'); t.append(el('b', '', '🔗 المصادر')); c.append(t);
+        const l = el('div', 'mc-srcs');
+        x.sources.forEach(s => {
+          const a = Object.assign(el('a', 'mc-src'), { href: s.url, target: '_blank', rel: 'noopener noreferrer' });
+          const ic = img('https://www.google.com/s2/favicons?domain=' + encodeURIComponent(host(s.url)) + '&sz=64', '', '', 'hide');
+          const d = el('div'); d.append(el('b', '', s.title || host(s.url)), el('span', '', host(s.url)));
+          a.append(ic, d); l.append(a);
+        });
+        c.append(l);
+      },
+      ui(c, x) {
+        const id = uiHash(x.html);
+        const f = el('iframe', 'mc-ui');
+        f.setAttribute('sandbox', 'allow-scripts allow-popups allow-popups-to-escape-sandbox');
+        f.setAttribute('data-mc-id', id); f.setAttribute('title', 'عرض تفاعلي');
+        f.setAttribute('srcdoc', uiDoc(x.html, id)); f.style.height = (uiH[id] || 140) + 'px';
+        c.append(f);
+      }
+    };
+
+    // ---------------- تنضيف البيانات (بتتخزّن مع المحادثة) ----------------
+    const arr = v => Array.isArray(v) ? v : [];
+    function normalize(type, a, opt) {
+      a = a || {};
+      const x = { at: opt && opt.fence ? 0 : Date.now(), source: str(a.source, 60), source_url: httpUrl(a.source_url) };
+      if (type === 'match') {
+        x.home = str(a.home, 40); x.away = str(a.away, 40);
+        if (!x.home || !x.away) return null;
+        x.home_code = str(a.home_code, 12); x.away_code = str(a.away_code, 12);
+        x.home_logo = httpUrl(a.home_logo); x.away_logo = httpUrl(a.away_logo);
+        x.home_score = str(a.home_score, 4); x.away_score = str(a.away_score, 4);
+        const s = String(a.status || '').toLowerCase();
+        x.status = /live|لايف|جارية|مباشر/.test(s) ? 'live' : /half|استراحة/.test(s) ? 'halftime' : /final|finish|ended|full|انتهت|انتهى|نهاية/.test(s) ? 'finished' : /upcoming|scheduled|not|قريب|لم تبدأ/.test(s) ? 'upcoming' : ((x.home_score !== '' && x.away_score !== '') ? 'finished' : 'upcoming');
+        x.minute = str(a.minute, 8); x.competition = str(a.competition, 50); x.kickoff = str(a.kickoff, 40); x.venue = str(a.venue, 50); x.scorers = str(a.scorers, 160);
+      } else if (type === 'product') {
+        x.name = str(a.name, 140); if (!x.name) return null;
+        x.brand = str(a.brand, 50); x.price = str(a.price, 24); x.currency = str(a.currency, 12); x.old_price = str(a.old_price, 24);
+        x.rating = str(a.rating, 5); x.reviews = str(a.reviews, 12); x.availability = str(a.availability, 40); x.description = str(a.description, 300);
+        x.image = httpUrl(a.image); x.url = httpUrl(a.url);
+        x.specs = arr(a.specs).map(v => str(v, 40)).filter(Boolean).slice(0, 6);
+      } else if (type === 'images') {
+        x.title = str(a.title, 60);
+        x.images = arr(a.images).map(i => ({ url: httpUrl(i && i.url), caption: str(i && i.caption, 60) })).filter(i => i.url).slice(0, 9);
+        if (!x.images.length) return null;
+      } else if (type === 'lib') {
+        x.name = str(a.name, 60); if (!x.name) return null;
+        x.version = str(a.version, 20); x.description = str(a.description, 220); x.cdn_url = httpUrl(a.cdn_url); x.url = httpUrl(a.url);
+      } else if (type === 'info') {
+        x.title = str(a.title, 80); if (!x.title) return null;
+        x.emoji = emo(a.emoji); x.subtitle = str(a.subtitle, 80); x.note = str(a.note, 200);
+        x.rows = arr(a.rows).map(r => ({ label: str(r && r.label, 40), value: str(r && r.value, 60) })).filter(r => r.label && r.value).slice(0, 10);
+      } else if (type === 'flow') {
+        x.title = str(a.title, 80);
+        x.steps = arr(a.steps).slice(0, 14).map(s => ({ title: str(s && s.title, 60), sub: str(s && s.sub, 100), icon: emo(s && s.icon), color: col(s && s.color), row: s && s.row != null ? str(s.row, 6) : '' })).filter(s => s.title);
+        if (!x.steps.length) return null;
+      } else if (type === 'items') {
+        x.title = str(a.title, 80); x.numbered = !!a.numbered && a.numbered !== 'false';
+        x.items = arr(a.items).slice(0, 12).map(i => ({ title: str(i && i.title, 90), text: str(i && i.text, 280), image: httpUrl(i && i.image), url: httpUrl(i && i.url), link: str(i && i.link, 40), tag: str(i && i.tag, 40), tag_color: col(i && i.tag_color) })).filter(i => i.title);
+        if (!x.items.length) return null;
+      } else if (type === 'callout') {
+        x.kind = KIND[String(a.kind || a.type || '').toLowerCase()] ? String(a.kind || a.type).toLowerCase() : 'info';
+        x.title = str(a.title, 80); x.text = str(a.text, 420); x.emoji = emo(a.emoji);
+        if (!x.title && !x.text) return null;
+      } else if (type === 'stats') {
+        x.title = str(a.title, 80);
+        x.stats = arr(a.stats).slice(0, 6).map(s => ({ icon: emo(s && s.icon), label: str(s && s.label, 40), value: str(s && s.value, 24), delta: str(s && s.delta, 16) })).filter(s => s.label && s.value);
+        if (!x.stats.length) return null;
+      } else if (type === 'timeline') {
+        x.title = str(a.title, 80);
+        x.events = arr(a.events).slice(0, 10).map(e => ({ when: str(e && e.when, 30), title: str(e && e.title, 80), text: str(e && e.text, 200) })).filter(e => e.title);
+        if (!x.events.length) return null;
+      } else if (type === 'chips') {
+        const list = Array.isArray(a) ? a : arr(a.chips || a.items);
+        x.chips = list.map(v => str(typeof v === 'string' ? v : (v && (v.text || v.title)), 60)).filter(Boolean).slice(0, 4);
+        if (!x.chips.length) return null;
+      } else if (type === 'sources') {
+        const list = Array.isArray(a) ? a : arr(a.sources || a.items);
+        x.sources = list.map(v => ({ title: str(v && v.title, 100), url: httpUrl(v && v.url) })).filter(v => v.url).slice(0, 8);
+        if (!x.sources.length) return null;
+      } else if (type === 'ui') {
+        x.html = String(a.html == null ? '' : a.html).slice(0, 40000);
+        if (x.html.trim().length < 8) return null;
+      } else return null;
+      return x;
+    }
+
+    function build(type, x) { injectCss(); const c = el('div', 'mc mct-' + type); BUILD[type](c, x); return c; }
+
+    function renderCard(type, x, replay) {
+      try {
+        const m = document.getElementById('aiChatMessages');
+        if (!m || !BUILD[type] || typeof appendToAIMessages !== 'function') return false;
+        const es = document.getElementById('aiChatEmptyState'); if (es) es.style.display = 'none';
+        appendToAIMessages(build(type, x)); m.scrollTop = m.scrollHeight;
+        if (!replay && typeof aiRecordCard === 'function' && !(typeof aiReplayingUI !== 'undefined' && aiReplayingUI)) aiRecordCard('card', { t: type, x });
+        return true;
+      } catch (e) { return false; }
+    }
+    window.aiExtraReplay = window.aiExtraReplay || {};
+    window.aiExtraReplay.card = function (dd) { if (dd && dd.t && dd.x) renderCard(dd.t, dd.x, true); };
+
+    // بلوكات الشات: ```flow ... ``` وغيرها (aixBlock بينادي على fence)
+    const FENCES = { match: 'match', info: 'info', flow: 'flow', diagram: 'flow', items: 'items', callout: 'callout', stats: 'stats', timeline: 'timeline', gallery: 'images', chips: 'chips', suggest: 'chips', sources: 'sources', ui: 'ui' };
+    window.MASSR_CARDS = {
+      has: l => Object.prototype.hasOwnProperty.call(FENCES, l),
+      fence(lang, code) {
+        const type = FENCES[lang];
+        const x = normalize(type, type === 'ui' ? { html: code } : JSON.parse(code), { fence: true });
+        if (!x) throw new Error('bad card');
+        return build(type, x).outerHTML;
+      },
+      render: renderCard, normalize
+    };
+
+    // ---------------- الأداة (للمكالمة الصوتية أو عرض كارت من غير نص) ----------------
+    const W = window.__massrWT;
+    const JSON_TYPES = ['flow', 'items', 'callout', 'stats', 'timeline'];
+    if (W && typeof APP_ACTIONS !== 'undefined') {
+      const OBJ = props => ({ type: 'array', items: { type: 'object', properties: props } });
+      W.reg('show_card', '🃏 كارت في الشات',
+        'بتعرض كارت شيك في الشات بدل سرد النص (مفيدة خصوصًا وإنت بتتكلم صوت): match نتيجة/مباراة بأعلام الفرق، product منتج بصورته وسعره، images معرض صور، lib مكتبة جافاسكربت برابط CDN، info معلومة منظمة (سعر عملة، طقس، ترتيب)، flow مخطط خطوات بأسهم وألوان، items قايمة بصور ولينكات، callout تنبيه أو نصيحة، stats أرقام كبيرة، timeline خط زمني، ui تصميم حر بـ HTML. الكارت لقطة وقت الطلب ومش بيتحدّث لوحده. استخدمها بعد ما تجيب بيانات حقيقية، وماتألفش أي رقم أو سعر أو رابط صورة: الحقل اللي مش معاك سيبه فاضي.',
+        {
+          type: { type: 'string', enum: ['match', 'product', 'images', 'lib', 'info', 'flow', 'items', 'callout', 'stats', 'timeline', 'ui'], description: 'نوع الكارت.' },
+          data: d(S, 'للأنواع flow وitems وcallout وstats وtimeline: JSON كنص بنفس صيغة بلوك الشات بالظبط (مثلًا {"steps":[{"title":"..","color":"green"}]}). لنوع ui: كود HTML فقط.'),
+          home: d(S, 'match: اسم الفريق الأول.'), away: d(S, 'match: اسم الفريق التاني.'),
+          home_code: d(S, 'match: كود دولة الفريق الأول بحروف صغيرة ISO زي eg أو sa أو gb-eng (للمنتخبات). للأندية سيبه فاضي.'), away_code: d(S, 'match: كود دولة الفريق التاني.'),
+          home_logo: d(S, 'match: اختياري، رابط شعار النادي من نتيجة حقيقية.'), away_logo: d(S, 'match: اختياري، رابط شعار الفريق التاني.'),
+          home_score: d(S, 'match: أهداف الفريق الأول (رقم كنص، أو فاضي لو لسه).'), away_score: d(S, 'match: أهداف الفريق التاني.'),
+          status: d(S, 'match: live | halftime | finished | upcoming.'), minute: d(S, 'match: الدقيقة لو لايف زي 67.'),
+          competition: d(S, 'match: البطولة أو الدوري.'), kickoff: d(S, 'match: موعد المباراة أو تاريخها.'), venue: d(S, 'match: الملعب.'), scorers: d(S, 'match: اختياري، الأهداف والمسجلين في سطر.'),
+          name: d(S, 'product أو lib: الاسم.'), brand: d(S, 'product: الشركة أو البراند.'),
+          price: d(S, 'product: السعر كرقم كنص من مصدر حقيقي.'), currency: d(S, 'product: العملة.'), old_price: d(S, 'product: السعر قبل الخصم.'),
+          rating: d(S, 'product: التقييم من 5.'), reviews: d(S, 'product: عدد التقييمات.'), availability: d(S, 'product: متاح أو غير متاح.'),
+          description: d(S, 'product أو lib: وصف مختصر.'), image: d(S, 'product: رابط صورة المنتج من نتايج حقيقية (https).'),
+          url: d(S, 'product: رابط المنتج، lib: الصفحة الرسمية.'), specs: d({ type: 'array', items: S }, 'product: لحد 6 مواصفات قصيرة.'),
+          images: d(OBJ({ url: S, caption: S }), 'images: لحد 9 صور {url,caption} من نتايج حقيقية.'), title: d(S, 'images أو info: العنوان.'),
+          version: d(S, 'lib: الإصدار.'), cdn_url: d(S, 'lib: رابط CDN المباشر.'),
+          emoji: d(S, 'info: إيموجي واحد للعنوان.'), subtitle: d(S, 'info: عنوان فرعي.'),
+          rows: d(OBJ({ label: S, value: S }), 'info: صفوف {label,value}.'), note: d(S, 'info: ملاحظة تحت الصفوف.'),
+          source: d(S, 'اسم المصدر.'), source_url: d(S, 'رابط المصدر.')
+        },
+        ['type'],
+        async a => {
+          const type = String(a.type || '').toLowerCase();
+          let src = a || {};
+          if (type === 'ui') src = { html: a.data || a.html || '' };
+          else if (JSON_TYPES.indexOf(type) >= 0) {
+            let j = {}; try { j = typeof a.data === 'string' ? JSON.parse(a.data) : (a.data || {}); } catch (e) { return W.er('data لازم يكون JSON صحيح بنفس صيغة بلوك ' + type + '.'); }
+            src = Object.assign({}, a, j);
+          }
+          const x = normalize(type, src);
+          if (!x) return W.er('بيانات الكارت ناقصة أو مش بالصيغة المطلوبة لنوع ' + type + '.');
+          if (!renderCard(type, x)) return W.er('مقدرتش أعرض الكارت دلوقتي.');
+          return W.ok({ shown: type, message: 'اتعرض كارت (' + type + ') للمستخدم. ماتكرّرش بياناته كنص؛ علّق بجملة قصيرة بس. لو المستخدم سأل بعدين عن تحديث (الدقيقة، النتيجة، السعر) ابحث تاني واعرض كارت جديد.' });
+        });
+      const VOICE = '\n\nكروت في المكالمة والشات: لما تجيب بيانات حقيقية (نتيجة مباراة، منتج، صور، سعر، خطوات) اعرضها بأداة show_card بدل ما تسردها بالكلام الطويل، وعلّق عليها بجملة واحدة بس. الكارت لقطة وقت السؤال: لو سأل تاني "دلوقتي بقت كام" ابحث واعرض كارت جديد. ماتألفش أرقام ولا روابط ولا صور.';
+      const _b2 = window.buildAISystemInstructionText;
+      if (typeof _b2 === 'function') window.buildAISystemInstructionText = function () { return _b2.apply(this, arguments) + VOICE; };
+    }
+
+    // قواعد الشات العادي (بتتضاف لـ AIX_RULE في index.html)
+    window.MASSR_CARD_RULES = ' كروت ورسومات جاهزة في الشات (بتتكتب كتل ``` زي الرسوم، من غير أداة): ' +
+      '```flow مخطط خطوات بأسهم وألوان: {"title":"..","steps":[{"title":"..","sub":"..","icon":"💻","color":"green|blue|amber|red|purple|neutral","row":1}]} (الخطوات اللي ليها نفس row بتتعرض جنب بعض في صف). ' +
+      '```items قايمة بصور ولينكات وتاجات: {"title":"..","numbered":true,"items":[{"title":"..","text":"..","image":"https://..","url":"https://..","link":"التوثيق الرسمي","tag":"..","tag_color":"green"}]}. ' +
+      '```callout تنبيه أو نصيحة: {"kind":"info|tip|warn|success|error","title":"..","text":".."}. ' +
+      '```stats أرقام كبيرة: {"title":"..","stats":[{"icon":"📈","label":"..","value":"..","delta":"+12%"}]}. ' +
+      '```timeline خط زمني: {"title":"..","events":[{"when":"..","title":"..","text":".."}]}. ' +
+      '```match نتيجة مباراة: {"home":"مصر","away":"الأردن","home_code":"eg","away_code":"jo","home_score":"2","away_score":"1","status":"live|halftime|finished|upcoming","minute":"67","competition":"..","kickoff":"..","scorers":"..","source":"..","source_url":"https://.."} (home_code للمنتخبات بس بكود الدولة ISO صغير، وللأندية سيبه فاضي). ' +
+      '```info معلومة منظمة (سعر عملة، طقس، ترتيب): {"emoji":"💵","title":"..","subtitle":"..","rows":[{"label":"..","value":".."}],"note":"..","source":".."}. ' +
+      '```gallery معرض صور: {"title":"..","images":[{"url":"https://..","caption":".."}]}. ' +
+      '```ui تصميم حر بـ HTML وCSS (وJS خفيف لو محتاج تفاعل) جوه إطار معزول: اكتب الكود بس من غير html/body. فيه متغيرات الألوان var(--fg) var(--muted) var(--card) var(--border) var(--accent) var(--soft) وكلاسات جاهزة: card وrow وcol وgrid2 وgrid3 وpill وbtn وmuted وh وbig، وألوان g وb وa وr وp مع tint (مثال: class="pill tint g"). الاتجاه RTL تلقائي. ممنوع fetch أو أي اتصال نت أو وحدات vh أو ملفات خارجية، والصور https بس، وخلّي التصميم أنيق وبسيط ومتجاوب مع الموبايل. استخدمه لما الكتل الجاهزة مش كفاية (لوحة، بطاقة تعريف، مقارنة مصممة، شرح بصري، أداة تفاعلية صغيرة). ' +
+      '```chips اقتراحات متابعة قصيرة في آخر الرد لما تفيد (مش في كل رد): ["سؤال تاني قريب",".."] (2 لـ 3 بس، كل واحد أقل من 8 كلمات ومن نفس سياق الكلام). ```sources مصادر الرد بعد أي بحث ويب: [{"title":"..","url":"https://.."}] من نتايج الأدوات الفعلية بس. ' +
+      'قواعد الكتل دي: JSON صحيح (تنصيص مزدوج ومن غير فواصل زيادة)، ماتشرحش صيغة الكتلة ولا تكتب نفس البيانات تاني كنص، حط جملة تمهيد قصيرة قبلها وجملة بعدها، ماتألفش أرقام ولا روابط ولا صور (البيانات الحقيقية من أدوات الويب بس، والحقل اللي ملقتوش سيبه)، واستخدمها لما بتفيد القارئ فعلًا (خطوات، مقارنة، أرقام، نتيجة، مصادر) مش في كل رد. الكارت لقطة وقت السؤال مش بيتحدّث: لو سأل تاني عن تحديث ابحث تاني واعرض كتلة جديدة.';
+  } catch (e) { try { console.warn('massr cards register failed', e); } catch (_) { } }
+})();
+
+
+// ============================================================================
+// أوامر صوتية للمكالمة: كتم الميكروفون، قفل المكالمة، تغيير عنوان المحادثة
+// (بتشتغل حتى والدايرة مركونة على الحافة، لأن المكالمة نفسها فاضلة شغالة)
+// ============================================================================
+(function () {
+  try {
+    const W = window.__massrWT;
+    if (!W || typeof APP_ACTIONS === 'undefined') return;
+    W.reg('voice_mic_mute', '🔇 كتم الميكروفون',
+      'بتكتم أو بتفتح ميكروفون المستخدم (يعني المساعد مش هيسمعه) أثناء المكالمة. استخدمها بس لو قال صراحة "اكتم الميكروفون" (mute=true) أو "افتح الميكروفون" (mute=false). كلمة "اسكت" لوحدها ماتكتمش الميكروفون: دي معناها وقّف كلامك، واستخدم stop_speaking.',
+      { mute: { type: 'boolean', description: 'true للكتم، false للفتح. لو اتساب فاضي بتبدّل الحالة.' } }, [],
+      async a => {
+        if (typeof aiLiveCallActive === 'undefined' || !aiLiveCallActive) return W.er('مفيش مكالمة صوتية شغالة دلوقتي.');
+        const want = (a && a.mute === undefined) ? !aiLiveMicMuted : (a.mute === true || a.mute === 'true');
+        if (want !== aiLiveMicMuted) { try { toggleAIVoiceCallMute(); } catch (e) { return W.er('مقدرتش أغيّر حالة الميكروفون.'); } }
+        return W.ok({ muted: !!aiLiveMicMuted, message: aiLiveMicMuted ? 'الميكروفون اتكتم. المستخدم يفتحه من الدايرة أو من زر الميكروفون.' : 'الميكروفون اتفتح.' });
+      });
+    W.reg('stop_speaking', '⏹ وقف الكلام',
+      'بتوقّف كلامك فورًا أثناء المكالمة الصوتية والميكروفون فاضل شغال. استخدمها فورًا لما المستخدم يقول "اسكت" أو "كفاية" أو "بس" أو "وقف" أو "خلاص". بعدها ماتردّش بأي كلام (ولا حتى تأكيد) لحد ما يكلمك هو.',
+      {}, [],
+      async () => {
+        if (typeof aiLiveCallActive === 'undefined' || !aiLiveCallActive) return W.er('مفيش مكالمة صوتية شغالة دلوقتي.');
+        try { aiLiveHush(); } catch (e) { return W.er('مقدرتش أوقّف الكلام.'); }
+        return W.ok({ message: 'الصوت اتوقف. خليك ساكت تمامًا ومترّدش بأي كلمة لحد ما المستخدم يتكلم تاني.' });
+      });
+    W.reg('rename_chat', '✏️ تغيير عنوان المحادثة',
+      'بتغيّر عنوان المحادثة الحالية لما المستخدم يقول "غيّر عنوان المحادثة دي لكذا" أو "سمّي المحادثة كذا". العنوان اللي بيحدده المستخدم عمره ما بيتغيّر تلقائي بعد كده. من غير طلب منه، عنوان المحادثة بيتكتب تلقائي من محتواها.',
+      { title: { type: 'string', description: 'العنوان الجديد بالعربي، قصير (لحد 8 كلمات).' } }, ['title'],
+      async a => {
+        const t = String((a && a.title) || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+        if (t.length < 2) return W.er('العنوان فاضي.');
+        let id = (typeof aiActiveConvId !== 'undefined') ? aiActiveConvId : null;
+        window.__aiCustomTitle = t;
+        if (Array.isArray(aiChatHistory) && aiChatHistory.length) {
+          try { const cid = await archiveCurrentAIChatIfNeeded(); if (cid != null) { id = cid; try { setAIActiveConv(cid); } catch (e) { } } } catch (e) { }
+        }
+        const list = getAIConversations(), c = list.find(z => z.id === id);
+        if (c) { c.title = t; c.titleSrc = 'user'; saveAIConversationsList(list); window.__aiCustomTitle = null; }
+        const tt = document.getElementById('amTT'); if (tt) tt.textContent = t;
+        try { if (typeof renderAIConversationsList === 'function') renderAIConversationsList(); } catch (e) { }
+        return W.ok({ title: t, message: 'اتغيّر عنوان المحادثة لـ "' + t + '". أكّد بجملة قصيرة.' });
+      });
+
+    const CMDS = '\n\nأوامر صوتية (نفّذها فورًا بالأداة من غير ما تسأل): لو قال "اسكت" أو "كفاية" أو "بس" أو "وقف" استدعي stop_speaking فورًا وبعدها ماتتكلمش خالص لحد ما يكلمك (ده مش كتم ميكروفون). ولو قال صراحة "اكتم الميكروفون" استدعي voice_mic_mute بـ mute=true، و"افتح الميكروفون" mute=false. لو قال "اقفل المحادثة/المكالمة" أو "خلاص كفاية" استدعي end_voice_call. لو قال "غيّر عنوان المحادثة (دي) لـ كذا" أو "سمّي المحادثة كذا" استدعي rename_chat بالعنوان. بعد التنفيذ علّق بجملة قصيرة جدًا.';
+    ['buildAILiveSystemInstructionText', 'buildAISystemInstructionText'].forEach(nm => {
+      const f = window[nm];
+      if (typeof f === 'function' && !f.__massrCmds) {
+        const g = function () { return f.apply(this, arguments) + CMDS; }; g.__massrCmds = true; window[nm] = g;
+      }
+    });
+    // الكروت كمان تتعرض في المكالمة: نفس قاعدة الصوت بتتضاف للجلسة الصوتية
+    const f2 = window.buildAILiveSystemInstructionText;
+    if (typeof f2 === 'function' && !f2.__massrVoiceCards) {
+      const VC = '\n\nكروت في المكالمة: لما تجيب بيانات حقيقية (نتيجة مباراة، منتج، صور، سعر، خطوات) اعرضها بأداة show_card بدل السرد الطويل وعلّق بجملة واحدة. الكارت لقطة وقت السؤال، ولو سأل عن تحديث ابحث تاني واعرض كارت جديد. ماتألفش أرقام ولا روابط ولا صور.';
+      const g2 = function () { return f2.apply(this, arguments) + VC; }; g2.__massrVoiceCards = true; g2.__massrCmds = true; window.buildAILiveSystemInstructionText = g2;
+    }
+  } catch (e) { try { console.warn('massr voice tools failed', e); } catch (_) { } }
 })();
