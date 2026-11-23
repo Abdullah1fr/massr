@@ -391,6 +391,19 @@
   /* --- نسيت كلمة المرور: كود 6 أرقام على الإيميل (Worker: sanjiz-auth) → تأكيد → كلمة مرور جديدة → دخول --- */
   var RESET_API = 'https://sanjiz-auth.abdo-qpwogty1.workers.dev';
   var rs = { email: '', token: '', until: 0 }, rsT = null;
+  /* رابط «افتح سأنجزها» من إيميل الكود: #rc=الكود&re=الإيميل، بنقراه مرة واحدة وبنمسحه من العنوان فورًا */
+  var dl = null;
+  (function () {
+    try {
+      var h = String(location.hash || '');
+      if (h.indexOf('rc=') < 0) return;
+      var m = h.match(/[#&]rc=(\d{6})(?![\d])/), e = h.match(/[&#]re=([^&]+)/);
+      var em = e ? decodeURIComponent(e[1]) : '';
+      if (m && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) dl = { code: m[1], email: em.toLowerCase() };
+      try { history.replaceState(null, '', location.pathname + location.search); } catch (x) { }
+    } catch (x) { }
+  })();
+  function takeDeepLink() { var d = dl; dl = null; return d; }
   function resetCall(path, body) {
     return withTimeout(fetch(RESET_API + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) { j.status = r.status; return j; });
@@ -412,6 +425,12 @@
     var b = $(btnId); if (!b) return;
     b.onmousedown = function (e) { e.preventDefault(); };
     b.onclick = function () { var p = $(inId), show = p.type === 'password'; p.type = show ? 'text' : 'password'; this.innerHTML = show ? EYE_OFF : EYE; this.setAttribute('aria-label', show ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'); };
+  }
+  /* بيرجّع true لو فتح شاشة الكود من رابط الإيميل */
+  function openFromLink() {
+    var d = takeDeepLink(); if (!d) return false;
+    rs.email = d.email; rs.until = Date.now() + 10000; mode = 'login';
+    showCode('', d.code); return true;
   }
   function doForgot() { showForgot($('onbEmail') ? $('onbEmail').value : '', ''); }
   /* الخطوة 1: الإيميل */
@@ -438,11 +457,12 @@
     }).catch(function () { busy(false); setMsg('مفيش اتصال، جرّب تاني', true); });
   }
   /* الخطوة 2: كود الـ 6 أرقام + زرار تأكيد */
-  function showCode(note) {
+  function showCode(note, autoCode) {
     openGate(); phase = 'reset'; rsStop();
     paint(shell(backBtn('onbRBack') + '<div class="hero">' + logo(true) + '<h1>اكتب الكود</h1><p>بعتنا كود من 6 أرقام على <b dir="ltr" style="unicode-bidi:isolate">' + esc(maskMail(rs.email)) + '</b></p></div>' +
       '<input type="text" id="onbRCode" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" dir="ltr" placeholder="000000" aria-label="كود التحقق" style="text-align:center;font-size:1.8rem;letter-spacing:.45em;font-weight:800">' +
       '<div id="onbMsg" class="msg" role="alert"></div>' +
+      '<button type="button" class="sec" id="onbRPaste">لصق الكود</button>' +
       '<button type="button" class="pri" id="onbRGo">تأكيد</button>' +
       '<button type="button" class="lnk" id="onbRResend"></button>' +
       '<button type="button" class="lnk" id="onbRChange">غيّر الإيميل</button>'), 'ob-auth');
@@ -454,6 +474,17 @@
     inp.onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); confirmCode(); } };
     $('onbRGo').onclick = confirmCode;
     $('onbRResend').onclick = resendReset;
+    $('onbRPaste').onclick = function () {
+      try {
+        if (!navigator.clipboard || !navigator.clipboard.readText) { setMsg('اضغط مطوّلًا على الخانة والصق الكود', true); return; }
+        navigator.clipboard.readText().then(function (t) {
+          var d = String(t || '').replace(/\D/g, '').slice(0, 6);
+          if (d.length === 6) { inp.value = d; setMsg('', false); inp.focus(); }
+          else setMsg('مفيش كود من 6 أرقام منسوخ، انسخه من الإيميل الأول', true);
+        }, function () { setMsg('اضغط مطوّلًا على الخانة والصق الكود', true); });
+      } catch (e) { setMsg('اضغط مطوّلًا على الخانة والصق الكود', true); }
+    };
+    if (autoCode && /^\d{6}$/.test(autoCode)) { inp.value = autoCode; confirmCode(); }
     function tick() {
       var el = $('onbRResend'); if (!el || phase !== 'reset') { rsStop(); return; }
       var left = Math.ceil((rs.until - Date.now()) / 1000);
@@ -833,17 +864,17 @@
       if (resolved) return;
       /* فيه حساب خلّص التسجيل على الجهاز ده: ما نقولوش «إنشاء حساب»، نستنى Firebase يرد */
       if (LS.getItem(DONE)) { showSlow(); return; }
-      resolved = true; showWelcome();
+      resolved = true; if (!openFromLink()) showWelcome();
     }, 8000);
     a.onAuthStateChanged(function (u) {
       resolved = true; clearTimeout(timer);
       var uid = u ? u.uid : '';
-      if (u) { if (uid !== prev || gateOpen) { prev = uid; handleUser(u); } else prev = uid; }
+      if (u) { dl = null; if (uid !== prev || gateOpen) { prev = uid; handleUser(u); } else prev = uid; }
       else {
         prev = ''; ctx.user = null; busy(false);
         if (!tempBypass) {
           var re = window.__redirectErr; window.__redirectErr = null;
-          if (re && re.code && !/popup-closed|cancelled/.test(re.code)) { mode = 'login'; showAuth(errMsg(re)); } else showWelcome();
+          if (re && re.code && !/popup-closed|cancelled/.test(re.code)) { mode = 'login'; showAuth(errMsg(re)); } else if (!openFromLink()) showWelcome();
         }
       }
     });
