@@ -389,7 +389,7 @@
     });
   }
   /* --- نسيت كلمة المرور: كود 6 أرقام على الإيميل (Worker: sanjiz-auth) → تأكيد → كلمة مرور جديدة → دخول --- */
-  var RESET_API = 'https://sanjiz-auth.abdo-k99999.workers.dev';
+  var RESET_API = 'https://sanjiz-auth.abdo-qpwogty1.workers.dev';
   var rs = { email: '', token: '', until: 0 }, rsT = null;
   function resetCall(path, body) {
     return withTimeout(fetch(RESET_API + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(function (r) {
