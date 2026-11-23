@@ -27,7 +27,7 @@
   }
   /* الإيميل: لو كتب الاسم بس بنكمّله @gmail.com، ولو كتبه كامل بيفضل زي ما هو */
   function normEmail(s) {
-    s = String(s == null ? '' : s).replace(/[\s‎‏]/g, '').toLowerCase();
+    s = String(s == null ? '' : s).replace(/[\s\u200e\u200f]/g, '').toLowerCase();
     if (!s) return '';
     if (s.indexOf('@') < 0) return /^[a-z0-9._%+-]+$/.test(s) ? s + '@gmail.com' : s;
     var m = s.match(/^([^@]+)@(gmail|gmail\.|gmail\.c|gmail\.co|gmial\.com|gamil\.com|gmai\.com)$/);
@@ -360,19 +360,22 @@
     if ($('onbForgot')) $('onbForgot').onclick = doForgot;
     bindBypass();
   }
+  /* بيفتح شاشة الدخول/الإنشاء ويرجّع الإيميل في الخانة (بعد رسالة زي «الإيميل عنده حساب») */
+  function authFill(note, em) { showAuth(note); if (em && $('onbEmail')) { $('onbEmail').value = em; hintUp(); } }
   function doEmail() {
     var a = A(); if (!a) { setMsg('خدمة الحساب مش متاحة دلوقتي ⚠', true); return; }
     var email = normEmail($('onbEmail').value), pass = $('onbPass').value || ''; if ($('onbEmail').value !== email) $('onbEmail').value = email;
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setMsg('اكتب إيميل صحيح', true); return; }
     if (!pass) { setMsg('اكتب كلمة المرور', true); return; }
-    if (mode === 'register' && pass.length < 6) { setMsg('كلمة المرور لازم تكون 6 خانات على الأقل', true); return; }
-    busy(true); setMsg(mode === 'register' ? 'جاري إنشاء الحساب...' : 'جاري تسجيل الدخول...', false);
+    if (mode === 'register') {
+      /* إنشاء حساب: الأول نتأكد إن الإيميل بتاعه بكود 6 أرقام، والحساب بيتعمل بعد التأكيد (من الـ Worker) */
+      var pe = pwError(pass); if (pe) { setMsg(pe, true); return; }
+      rs.flow = 'signup'; rs.pass = pass; sendSignup(email); return;
+    }
+    busy(true); setMsg('جاري تسجيل الدخول...', false);
     ctx.fresh = true; LS.setItem(FRESH, String(Date.now()));
-    var p = mode === 'register' ? a.createUserWithEmailAndPassword(email, pass) : a.signInWithEmailAndPassword(email, pass);
-    p.then(function (cred) {
-      if (mode === 'register') { try { cred.user.sendEmailVerification().catch(function () { }); ctx.verifySent = true; } catch (e) { } }
-      /* onAuthStateChanged هو اللي بيكمّل التدفق */
-    }).catch(function (e) { busy(false); ctx.fresh = false; LS.removeItem(FRESH); setMsg(errMsg(e), true); });
+    a.signInWithEmailAndPassword(email, pass).catch(function (e) { busy(false); ctx.fresh = false; LS.removeItem(FRESH); setMsg(errMsg(e), true); });
+    /* onAuthStateChanged هو اللي بيكمّل التدفق */
   }
   function doGoogle() {
     var a = A(); if (!a) { setMsg('خدمة الحساب مش متاحة دلوقتي ⚠', true); return; }
@@ -388,18 +391,19 @@
       setMsg(errMsg(e), true);
     });
   }
-  /* --- نسيت كلمة المرور: كود 6 أرقام على الإيميل (Worker: sanjiz-auth) → تأكيد → كلمة مرور جديدة → دخول --- */
-  var RESET_API = 'https://sanjiz-auth.abdo-qpwogty1.workers.dev';
-  var rs = { email: '', token: '', until: 0 }, rsT = null;
-  /* رابط «افتح سأنجزها» من إيميل الكود: #rc=الكود&re=الإيميل، بنقراه مرة واحدة وبنمسحه من العنوان فورًا */
+  /* --- كود 6 أرقام على الإيميل (Worker: sanjiz-auth): نسيت كلمة المرور + تأكيد الإيميل عند إنشاء الحساب --- */
+  var RESET_API = 'https://sanjiz-auth.abdo-k99999.workers.dev';
+  var rs = { email: '', token: '', until: 0, flow: 'reset', pass: '' }, rsT = null;   /* flow: reset = نسيت كلمة المرور | signup = تأكيد إيميل حساب جديد */
+  /* رابط «افتح سأنجزها» من إيميل الكود: #rc=الكود&re=الإيميل (استرجاع) أو #sc=الكود&se=الإيميل (حساب جديد)، بنقراه مرة واحدة وبنمسحه من العنوان فورًا */
   var dl = null;
   (function () {
     try {
       var h = String(location.hash || '');
-      if (h.indexOf('rc=') < 0) return;
-      var m = h.match(/[#&]rc=(\d{6})(?![\d])/), e = h.match(/[&#]re=([^&]+)/);
+      var sg = /[#&]sc=\d{6}/.test(h);
+      if (!sg && h.indexOf('rc=') < 0) return;
+      var m = h.match(sg ? /[#&]sc=(\d{6})(?![\d])/ : /[#&]rc=(\d{6})(?![\d])/), e = h.match(sg ? /[&#]se=([^&]+)/ : /[&#]re=([^&]+)/);
       var em = e ? decodeURIComponent(e[1]) : '';
-      if (m && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) dl = { code: m[1], email: em.toLowerCase() };
+      if (m && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) dl = { code: m[1], email: em.toLowerCase(), flow: sg ? 'signup' : 'reset' };
       try { history.replaceState(null, '', location.pathname + location.search); } catch (x) { }
     } catch (x) { }
   })();
@@ -417,6 +421,7 @@
     if (e === 'too_many') return 'محاولات كتير، جرّب بعد شوية';
     if (e === 'weak_password') return 'كلمة المرور ضعيفة: 6 خانات على الأقل وفيها حرف ورقم ورمز';
     if (e === 'bad_token') return 'الجلسة انتهت، ابدأ من الأول';
+    if (e === 'exists') return 'الإيميل ده عنده حساب بالفعل، سجّل دخولك';
     return 'حصلت مشكلة، جرّب تاني';
   }
   function maskMail(e) { var i = e.indexOf('@'); return i < 1 ? e : e.charAt(0) + '***' + e.slice(i); }
@@ -429,13 +434,20 @@
   /* بيرجّع true لو فتح شاشة الكود من رابط الإيميل */
   function openFromLink() {
     var d = takeDeepLink(); if (!d) return false;
-    rs.email = d.email; rs.until = Date.now() + 10000; mode = 'login';
+    rs.email = d.email; rs.flow = d.flow || 'reset'; rs.pass = ''; rs.until = Date.now() + 10000;
+    mode = rs.flow === 'signup' ? 'register' : 'login';
     showCode('', d.code); return true;
   }
-  function doForgot() { showForgot($('onbEmail') ? $('onbEmail').value : '', ''); }
+  /* رجوع من شاشة الكود: لحساب جديد نرجع لنموذج الإنشاء، ولاسترجاع كلمة المرور لشاشة الإيميل */
+  function rsBack() {
+    rsStop();
+    if (rs.flow === 'signup') { var em = rs.email; rs.pass = ''; rs.token = ''; mode = 'register'; authFill('', em); }
+    else showForgot(rs.email, '');
+  }
+  function doForgot() { rs.flow = 'reset'; rs.pass = ''; showForgot($('onbEmail') ? $('onbEmail').value : '', ''); }
   /* الخطوة 1: الإيميل */
   function showForgot(prefill, note) {
-    openGate(); phase = 'reset'; rsStop();
+    openGate(); phase = 'reset'; rsStop(); rs.flow = 'reset'; rs.pass = '';
     paint(shell(backBtn('onbRBack') + '<div class="hero">' + logo(true) + '<h1>نسيت كلمة المرور؟</h1><p>اكتب إيميلك وهنبعتلك كود من 6 أرقام.</p></div>' +
       '<div class="fld"><input type="email" id="onbREmail" placeholder="الإيميل (لو جيميل اكتب اسمه بس)" autocomplete="email" inputmode="email" dir="ltr" style="text-align:left">' + MAIL + '</div>' +
       '<div id="onbMsg" class="msg" role="alert"></div>' +
@@ -452,14 +464,25 @@
     busy(true); setMsg('جاري إرسال الكود...', false);
     resetCall('/reset/start', { email: email }).then(function (j) {
       busy(false);
-      if (j.ok || j.error === 'wait') { rs.email = email; rs.until = Date.now() + (j.wait || 30) * 1000; showCode(j.ok ? '' : 'بعتنالك كود من شوية، استخدمه أو استنى وابعت كود جديد'); return; }
+      if (j.ok || j.error === 'wait') { rs.email = email; rs.flow = 'reset'; rs.until = Date.now() + (j.wait || 30) * 1000; showCode(j.ok ? '' : 'بعتنالك كود من شوية، استخدمه أو استنى وابعت كود جديد'); return; }
+      setMsg(resetErr(j), true);
+    }).catch(function () { busy(false); setMsg('مفيش اتصال، جرّب تاني', true); });
+  }
+  /* إنشاء حساب: بنبعت كود تأكيد للإيميل قبل ما الحساب يتعمل */
+  function sendSignup(email) {
+    busy(true); setMsg('جاري إرسال كود التأكيد...', false);
+    resetCall('/signup/start', { email: email }).then(function (j) {
+      busy(false);
+      if (j.ok || j.error === 'wait') { rs.email = email; rs.flow = 'signup'; rs.until = Date.now() + (j.wait || 30) * 1000; showCode(j.ok ? '' : 'بعتنالك كود من شوية، استخدمه أو استنى وابعت كود جديد'); return; }
+      if (j.error === 'exists') { rs.pass = ''; mode = 'login'; authFill(resetErr(j), email); return; }
       setMsg(resetErr(j), true);
     }).catch(function () { busy(false); setMsg('مفيش اتصال، جرّب تاني', true); });
   }
   /* الخطوة 2: كود الـ 6 أرقام + زرار تأكيد */
   function showCode(note, autoCode) {
     openGate(); phase = 'reset'; rsStop();
-    paint(shell(backBtn('onbRBack') + '<div class="hero">' + logo(true) + '<h1>اكتب الكود</h1><p>بعتنا كود من 6 أرقام على <b dir="ltr" style="unicode-bidi:isolate">' + esc(maskMail(rs.email)) + '</b></p></div>' +
+    var su = rs.flow === 'signup';
+    paint(shell(backBtn('onbRBack') + '<div class="hero">' + logo(true) + '<h1>' + (su ? 'أكّد إيميلك' : 'اكتب الكود') + '</h1><p>بعتنا كود من 6 أرقام على <b dir="ltr" style="unicode-bidi:isolate">' + esc(maskMail(rs.email)) + '</b></p></div>' +
       '<input type="text" id="onbRCode" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" dir="ltr" placeholder="000000" aria-label="كود التحقق" style="text-align:center;font-size:1.8rem;letter-spacing:.45em;font-weight:800">' +
       '<div id="onbMsg" class="msg" role="alert"></div>' +
       '<button type="button" class="sec" id="onbRPaste">لصق الكود</button>' +
@@ -467,8 +490,8 @@
       '<button type="button" class="lnk" id="onbRResend"></button>' +
       '<button type="button" class="lnk" id="onbRChange">غيّر الإيميل</button>'), 'ob-auth');
     if (note) setMsg(note, false);
-    $('onbRBack').onclick = function () { rsStop(); showForgot(rs.email, ''); };
-    $('onbRChange').onclick = function () { rsStop(); showForgot(rs.email, ''); };
+    $('onbRBack').onclick = rsBack;
+    $('onbRChange').onclick = rsBack;
     var inp = $('onbRCode'); inp.focus();
     inp.oninput = function () { var v = inp.value.replace(/\D/g, '').slice(0, 6); if (inp.value !== v) inp.value = v; };
     inp.onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); confirmCode(); } };
@@ -495,10 +518,11 @@
   }
   function resendReset() {
     busy(true); setMsg('جاري إرسال كود جديد...', false);
-    resetCall('/reset/start', { email: rs.email }).then(function (j) {
+    resetCall(rs.flow === 'signup' ? '/signup/start' : '/reset/start', { email: rs.email }).then(function (j) {
       busy(false);
       if (j.ok) { rs.until = Date.now() + (j.wait || 30) * 1000; var c = $('onbRCode'); if (c) { c.value = ''; c.focus(); } setMsg('بعتنالك كود جديد', false); return; }
       if (j.error === 'wait') rs.until = Date.now() + (j.wait || 30) * 1000;
+      if (j.error === 'exists') { rsStop(); rs.pass = ''; mode = 'login'; authFill(resetErr(j), rs.email); return; }
       setMsg(resetErr(j), true);
     }).catch(function () { busy(false); setMsg('مفيش اتصال، جرّب تاني', true); });
   }
@@ -506,20 +530,26 @@
     var code = ($('onbRCode').value || '').replace(/\D/g, '');
     if (code.length !== 6) { setMsg('اكتب الكود كامل (6 أرقام)', true); return; }
     busy(true); setMsg('جاري التأكد من الكود...', false);
-    resetCall('/reset/verify', { email: rs.email, code: code }).then(function (j) {
+    resetCall(rs.flow === 'signup' ? '/signup/verify' : '/reset/verify', { email: rs.email, code: code }).then(function (j) {
       busy(false);
-      if (j.ok && j.token) { rs.token = j.token; showNewPass(); return; }
+      if (j.ok && j.token) {
+        rs.token = j.token;
+        /* حساب جديد وكلمة المرور متسجّلة من النموذج: نكمّل إنشاء الحساب علطول. (لو فتح من رابط الإيميل بنطلب كلمة المرور) */
+        if (rs.flow === 'signup' && rs.pass) { doFinish(rs.pass); return; }
+        showNewPass(); return;
+      }
       setMsg(resetErr(j), true);
     }).catch(function () { busy(false); setMsg('مفيش اتصال، جرّب تاني', true); });
   }
-  /* الخطوة 3: كلمة المرور الجديدة + تأكيدها + دخول */
+  /* الخطوة 3: كلمة المرور (الجديدة / للحساب الجديد) + تأكيدها + دخول */
   function showNewPass() {
     openGate(); phase = 'reset'; rsStop();
-    paint(shell('<div class="hero">' + logo(true) + '<h1>كلمة مرور جديدة</h1><p>اختار كلمة مرور قوية (6 خانات على الأقل، فيها حرف ورقم ورمز).</p></div>' +
-      '<div class="pw fld"><input type="password" id="onbRP1" placeholder="كلمة المرور الجديدة" autocomplete="new-password" dir="ltr" style="text-align:left"><button type="button" class="eye" id="onbRE1" aria-label="إظهار كلمة المرور">' + EYE + '</button>' + LOCK + '</div>' +
+    var su = rs.flow === 'signup';
+    paint(shell('<div class="hero">' + logo(true) + '<h1>' + (su ? 'اختار كلمة مرور' : 'كلمة مرور جديدة') + '</h1><p>اختار كلمة مرور قوية (6 خانات على الأقل، فيها حرف ورقم ورمز).</p></div>' +
+      '<div class="pw fld"><input type="password" id="onbRP1" placeholder="' + (su ? 'كلمة المرور' : 'كلمة المرور الجديدة') + '" autocomplete="new-password" dir="ltr" style="text-align:left"><button type="button" class="eye" id="onbRE1" aria-label="إظهار كلمة المرور">' + EYE + '</button>' + LOCK + '</div>' +
       '<div class="pw fld"><input type="password" id="onbRP2" placeholder="أكّد كلمة المرور" autocomplete="new-password" dir="ltr" style="text-align:left"><button type="button" class="eye" id="onbRE2" aria-label="إظهار كلمة المرور">' + EYE + '</button>' + LOCK + '</div>' +
       '<div id="onbMsg" class="msg" role="alert"></div>' +
-      '<button type="button" class="pri" id="onbRGo">دخول</button>'), 'ob-auth');
+      '<button type="button" class="pri" id="onbRGo">' + (su ? 'إنشاء الحساب' : 'دخول') + '</button>'), 'ob-auth');
     eyeBind('onbRP1', 'onbRE1'); eyeBind('onbRP2', 'onbRE2');
     $('onbRP1').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); $('onbRP2').focus(); } };
     $('onbRP2').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); finishReset(); } };
@@ -530,19 +560,31 @@
     var p1 = $('onbRP1').value || '', p2 = $('onbRP2').value || '';
     var pe = pwError(p1); if (pe) { setMsg(pe, true); return; }
     if (p1 !== p2) { setMsg('كلمتين المرور مش متطابقين', true); return; }
-    busy(true); setMsg('جاري حفظ كلمة المرور...', false);
-    resetCall('/reset/finish', { email: rs.email, token: rs.token, password: p1 }).then(function (j) {
+    doFinish(p1);
+  }
+  /* الخطوة الأخيرة للاتنين: استرجاع (يغيّر كلمة المرور) أو حساب جديد (الـ Worker بينشئ الحساب والإيميل متأكد) ← بعدها دخول عادي */
+  function doFinish(p1) {
+    var su = rs.flow === 'signup';
+    rsStop(); busy(true); setMsg(su ? 'جاري إنشاء الحساب...' : 'جاري حفظ كلمة المرور...', false);
+    resetCall(su ? '/signup/finish' : '/reset/finish', { email: rs.email, token: rs.token, password: p1 }).then(function (j) {
       if (!j.ok) {
         busy(false);
-        if (j.error === 'bad_token') { rs.token = ''; showForgot(rs.email, resetErr(j)); return; }
+        if (j.error === 'bad_token') {
+          rs.token = '';
+          if (su) { var em0 = rs.email; rs.pass = ''; mode = 'register'; authFill(resetErr(j), em0); } else showForgot(rs.email, resetErr(j));
+          return;
+        }
+        if (j.error === 'exists') { rs.pass = ''; mode = 'login'; authFill(resetErr(j), rs.email); return; }
+        if (su && j.error === 'weak_password') { rs.pass = ''; showNewPass(); setMsg(resetErr(j), true); return; }
         setMsg(resetErr(j), true); return;
       }
-      rs.token = ''; setMsg('كلمة المرور اتغيّرت، جاري تسجيل الدخول...', false);
-      var a = A(); if (!a) { mode = 'login'; showAuth('كلمة المرور اتغيّرت، سجّل دخولك بيها'); return; }
+      var em = rs.email; rs.token = ''; rs.pass = '';
+      setMsg(su ? 'اتعمل الحساب، جاري تسجيل الدخول...' : 'كلمة المرور اتغيّرت، جاري تسجيل الدخول...', false);
+      var a = A(); if (!a) { mode = 'login'; authFill(su ? 'الحساب اتعمل، سجّل دخولك بيه' : 'كلمة المرور اتغيّرت، سجّل دخولك بيها', em); return; }
       ctx.fresh = true; LS.setItem(FRESH, String(Date.now()));
-      a.signInWithEmailAndPassword(rs.email, p1).catch(function () {
+      a.signInWithEmailAndPassword(em, p1).catch(function () {
         busy(false); ctx.fresh = false; LS.removeItem(FRESH);
-        mode = 'login'; showAuth('كلمة المرور اتغيّرت، سجّل دخولك بيها');
+        mode = 'login'; authFill(su ? 'الحساب اتعمل، سجّل دخولك بيه' : 'كلمة المرور اتغيّرت، سجّل دخولك بيها', em);
       });
       /* onAuthStateChanged هو اللي بيكمّل التدفق */
     }).catch(function () { busy(false); setMsg('مفيش اتصال، جرّب تاني', true); });
