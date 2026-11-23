@@ -388,12 +388,133 @@
       setMsg(errMsg(e), true);
     });
   }
-  function doForgot() {
-    var a = A(), email = normEmail($('onbEmail').value); if (email) $('onbEmail').value = email;
-    if (!email) { setMsg('اكتب إيميلك فوق الأول', true); $('onbEmail').focus(); return; }
-    a.sendPasswordResetEmail(email, { url: 'https://my-productivity-app-da499.firebaseapp.com', handleCodeInApp: false })
-      .then(function () { setMsg('بعتنالك رابط تغيير كلمة المرور على الإيميل. راجع Spam لو ما ظهرش.', false); })
-      .catch(function (e) { setMsg(errMsg(e), true); });
+  /* --- نسيت كلمة المرور: كود 6 أرقام على الإيميل (Worker: sanjiz-auth) → تأكيد → كلمة مرور جديدة → دخول --- */
+  var RESET_API = 'https://sanjiz-auth.abdo-k99999.workers.dev';
+  var rs = { email: '', token: '', until: 0 }, rsT = null;
+  function resetCall(path, body) {
+    return withTimeout(fetch(RESET_API + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) { j.status = r.status; return j; });
+    }), 20000);
+  }
+  function resetErr(j) {
+    var e = j && j.error;
+    if (e === 'bad_email') return 'اكتب إيميل صحيح';
+    if (e === 'bad_code') return 'الكود غلط أو انتهت صلاحيته';
+    if (e === 'wait') return 'استنى ' + (j.wait || 0) + ' ثانية وجرّب تاني';
+    if (e === 'too_many') return 'محاولات كتير، جرّب بعد شوية';
+    if (e === 'weak_password') return 'كلمة المرور ضعيفة: 6 خانات على الأقل وفيها حرف ورقم ورمز';
+    if (e === 'bad_token') return 'الجلسة انتهت، ابدأ من الأول';
+    return 'حصلت مشكلة، جرّب تاني';
+  }
+  function maskMail(e) { var i = e.indexOf('@'); return i < 1 ? e : e.charAt(0) + '***' + e.slice(i); }
+  function rsStop() { if (rsT) { clearInterval(rsT); rsT = null; } }
+  function eyeBind(inId, btnId) {
+    var b = $(btnId); if (!b) return;
+    b.onmousedown = function (e) { e.preventDefault(); };
+    b.onclick = function () { var p = $(inId), show = p.type === 'password'; p.type = show ? 'text' : 'password'; this.innerHTML = show ? EYE_OFF : EYE; this.setAttribute('aria-label', show ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'); };
+  }
+  function doForgot() { showForgot($('onbEmail') ? $('onbEmail').value : '', ''); }
+  /* الخطوة 1: الإيميل */
+  function showForgot(prefill, note) {
+    openGate(); phase = 'reset'; rsStop();
+    paint(shell(backBtn('onbRBack') + '<div class="hero">' + logo(true) + '<h1>نسيت كلمة المرور؟</h1><p>اكتب إيميلك وهنبعتلك كود من 6 أرقام.</p></div>' +
+      '<div class="fld"><input type="email" id="onbREmail" placeholder="الإيميل (لو جيميل اكتب اسمه بس)" autocomplete="email" inputmode="email" dir="ltr" style="text-align:left">' + MAIL + '</div>' +
+      '<div id="onbMsg" class="msg" role="alert"></div>' +
+      '<button type="button" class="pri" id="onbRGo">ابعت الكود</button>'), 'ob-auth');
+    if (prefill) $('onbREmail').value = normEmail(prefill);
+    if (note) setMsg(note, true);
+    $('onbRBack').onclick = function () { mode = 'login'; showAuth(); };
+    $('onbREmail').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); sendReset(); } };
+    $('onbRGo').onclick = sendReset;
+  }
+  function sendReset() {
+    var email = normEmail($('onbREmail').value); $('onbREmail').value = email;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setMsg('اكتب إيميل صحيح', true); return; }
+    busy(true); setMsg('جاري إرسال الكود...', false);
+    resetCall('/reset/start', { email: email }).then(function (j) {
+      busy(false);
+      if (j.ok || j.error === 'wait') { rs.email = email; rs.until = Date.now() + (j.wait || 30) * 1000; showCode(j.ok ? '' : 'بعتنالك كود من شوية، استخدمه أو استنى وابعت كود جديد'); return; }
+      setMsg(resetErr(j), true);
+    }).catch(function () { busy(false); setMsg('مفيش اتصال، جرّب تاني', true); });
+  }
+  /* الخطوة 2: كود الـ 6 أرقام + زرار تأكيد */
+  function showCode(note) {
+    openGate(); phase = 'reset'; rsStop();
+    paint(shell(backBtn('onbRBack') + '<div class="hero">' + logo(true) + '<h1>اكتب الكود</h1><p>بعتنا كود من 6 أرقام على <b dir="ltr" style="unicode-bidi:isolate">' + esc(maskMail(rs.email)) + '</b></p></div>' +
+      '<input type="text" id="onbRCode" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" dir="ltr" placeholder="000000" aria-label="كود التحقق" style="text-align:center;font-size:1.8rem;letter-spacing:.45em;font-weight:800">' +
+      '<div id="onbMsg" class="msg" role="alert"></div>' +
+      '<button type="button" class="pri" id="onbRGo">تأكيد</button>' +
+      '<button type="button" class="lnk" id="onbRResend"></button>' +
+      '<button type="button" class="lnk" id="onbRChange">غيّر الإيميل</button>'), 'ob-auth');
+    if (note) setMsg(note, false);
+    $('onbRBack').onclick = function () { rsStop(); showForgot(rs.email, ''); };
+    $('onbRChange').onclick = function () { rsStop(); showForgot(rs.email, ''); };
+    var inp = $('onbRCode'); inp.focus();
+    inp.oninput = function () { var v = inp.value.replace(/\D/g, '').slice(0, 6); if (inp.value !== v) inp.value = v; };
+    inp.onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); confirmCode(); } };
+    $('onbRGo').onclick = confirmCode;
+    $('onbRResend').onclick = resendReset;
+    function tick() {
+      var el = $('onbRResend'); if (!el || phase !== 'reset') { rsStop(); return; }
+      var left = Math.ceil((rs.until - Date.now()) / 1000);
+      if (left > 0) { el.disabled = true; el.textContent = 'ابعت كود جديد بعد ' + left + ' ث'; }
+      else { el.disabled = !!ctx.busy; el.textContent = 'ابعت كود جديد'; }
+    }
+    tick(); rsT = setInterval(tick, 1000);
+  }
+  function resendReset() {
+    busy(true); setMsg('جاري إرسال كود جديد...', false);
+    resetCall('/reset/start', { email: rs.email }).then(function (j) {
+      busy(false);
+      if (j.ok) { rs.until = Date.now() + (j.wait || 30) * 1000; var c = $('onbRCode'); if (c) { c.value = ''; c.focus(); } setMsg('بعتنالك كود جديد', false); return; }
+      if (j.error === 'wait') rs.until = Date.now() + (j.wait || 30) * 1000;
+      setMsg(resetErr(j), true);
+    }).catch(function () { busy(false); setMsg('مفيش اتصال، جرّب تاني', true); });
+  }
+  function confirmCode() {
+    var code = ($('onbRCode').value || '').replace(/\D/g, '');
+    if (code.length !== 6) { setMsg('اكتب الكود كامل (6 أرقام)', true); return; }
+    busy(true); setMsg('جاري التأكد من الكود...', false);
+    resetCall('/reset/verify', { email: rs.email, code: code }).then(function (j) {
+      busy(false);
+      if (j.ok && j.token) { rs.token = j.token; showNewPass(); return; }
+      setMsg(resetErr(j), true);
+    }).catch(function () { busy(false); setMsg('مفيش اتصال، جرّب تاني', true); });
+  }
+  /* الخطوة 3: كلمة المرور الجديدة + تأكيدها + دخول */
+  function showNewPass() {
+    openGate(); phase = 'reset'; rsStop();
+    paint(shell('<div class="hero">' + logo(true) + '<h1>كلمة مرور جديدة</h1><p>اختار كلمة مرور قوية (6 خانات على الأقل، فيها حرف ورقم ورمز).</p></div>' +
+      '<div class="pw fld"><input type="password" id="onbRP1" placeholder="كلمة المرور الجديدة" autocomplete="new-password" dir="ltr" style="text-align:left"><button type="button" class="eye" id="onbRE1" aria-label="إظهار كلمة المرور">' + EYE + '</button>' + LOCK + '</div>' +
+      '<div class="pw fld"><input type="password" id="onbRP2" placeholder="أكّد كلمة المرور" autocomplete="new-password" dir="ltr" style="text-align:left"><button type="button" class="eye" id="onbRE2" aria-label="إظهار كلمة المرور">' + EYE + '</button>' + LOCK + '</div>' +
+      '<div id="onbMsg" class="msg" role="alert"></div>' +
+      '<button type="button" class="pri" id="onbRGo">دخول</button>'), 'ob-auth');
+    eyeBind('onbRP1', 'onbRE1'); eyeBind('onbRP2', 'onbRE2');
+    $('onbRP1').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); $('onbRP2').focus(); } };
+    $('onbRP2').onkeydown = function (e) { if (e.key === 'Enter') { e.preventDefault(); finishReset(); } };
+    $('onbRGo').onclick = finishReset;
+    $('onbRP1').focus();
+  }
+  function finishReset() {
+    var p1 = $('onbRP1').value || '', p2 = $('onbRP2').value || '';
+    var pe = pwError(p1); if (pe) { setMsg(pe, true); return; }
+    if (p1 !== p2) { setMsg('كلمتين المرور مش متطابقين', true); return; }
+    busy(true); setMsg('جاري حفظ كلمة المرور...', false);
+    resetCall('/reset/finish', { email: rs.email, token: rs.token, password: p1 }).then(function (j) {
+      if (!j.ok) {
+        busy(false);
+        if (j.error === 'bad_token') { rs.token = ''; showForgot(rs.email, resetErr(j)); return; }
+        setMsg(resetErr(j), true); return;
+      }
+      rs.token = ''; setMsg('كلمة المرور اتغيّرت، جاري تسجيل الدخول...', false);
+      var a = A(); if (!a) { mode = 'login'; showAuth('كلمة المرور اتغيّرت، سجّل دخولك بيها'); return; }
+      ctx.fresh = true; LS.setItem(FRESH, String(Date.now()));
+      a.signInWithEmailAndPassword(rs.email, p1).catch(function () {
+        busy(false); ctx.fresh = false; LS.removeItem(FRESH);
+        mode = 'login'; showAuth('كلمة المرور اتغيّرت، سجّل دخولك بيها');
+      });
+      /* onAuthStateChanged هو اللي بيكمّل التدفق */
+    }).catch(function () { busy(false); setMsg('مفيش اتصال، جرّب تاني', true); });
   }
 
   /* --- بعد الدخول: بيانات الجهاز مقابل السحابة --- */
