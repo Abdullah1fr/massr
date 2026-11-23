@@ -21159,12 +21159,21 @@ function appendAIWebResultCard(item) {
     if (!messagesEl || !item?.url) return;
     const emptyState = document.getElementById('aiChatEmptyState');
     if (emptyState) emptyState.style.display = 'none';
+    let host = '', path = '';
+    try { const u = new URL(item.url); host = u.hostname.replace(/^www\./, ''); path = decodeURIComponent(u.pathname + u.search).replace(/^\//, ''); } catch (e) { host = String(item.url).slice(0, 40); }
+    if (path.length > 46) path = path.slice(0, 46) + '…';
     const a = document.createElement('a');
-    a.className = 'ai-web-result-card'; a.href = item.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
-    const title = document.createElement('div'); title.className = 'ai-web-result-title'; title.textContent = item.title || item.url;
-    const url = document.createElement('div'); url.className = 'ai-web-result-url'; url.textContent = item.url;
-    const hint = document.createElement('div'); hint.className = 'ai-web-result-hint'; hint.textContent = '🔗 فتح المصدر';
-    a.append(title, url, hint); appendToAIMessages(a); messagesEl.scrollTop = messagesEl.scrollHeight;
+    a.className = 'ai-web-result-card wr2'; a.href = item.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    const top = document.createElement('div'); top.className = 'wr2-top';
+    const ic = document.createElement('img'); ic.className = 'wr2-ic'; ic.alt = ''; ic.referrerPolicy = 'no-referrer';
+    ic.src = 'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(host) + '&sz=64'; ic.onerror = function () { ic.style.visibility = 'hidden'; };
+    const hs = document.createElement('span'); hs.className = 'wr2-host'; hs.textContent = host;
+    const go = document.createElement('span'); go.className = 'wr2-go'; go.textContent = 'فتح ↗';
+    top.append(ic, hs, go);
+    const title = document.createElement('div'); title.className = 'ai-web-result-title'; title.textContent = item.title || host;
+    a.append(top, title);
+    if (path) { const pe = document.createElement('div'); pe.className = 'wr2-path'; pe.textContent = path; a.append(pe); }
+    appendToAIMessages(a); messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
 // بيجيب قايمة السيرفرات الشغّالة دلوقتي (Piped / Invidious) من قوائمها الرسمية، ويخزّنها 10 دقايق
@@ -26459,7 +26468,7 @@ function aiVcMeasureBar() {
 function aiVcInchatOn(modal) {
     if (!modal) return;
     modal.classList.add('vc-inchat');
-    modal.classList.toggle('vc-mini', aiVcSavedMini);
+    modal.classList.remove('vc-mini');
     document.body.classList.add('ai-in-call');
     aiVcSyncBig();
     try { if (typeof switchTab === 'function') switchTab('ai-assistant'); } catch (e) {}
@@ -26488,16 +26497,24 @@ function aiVcInchatOff() {
 }
 function aiVcSetMini(on) {
     const modal = document.getElementById('aiVoiceCallModal');
-    if (!modal || !modal.classList.contains('vc-inchat')) return;
-    modal.classList.toggle('vc-mini', !!on);
+    if (!modal || !modal.classList.contains('vc-inchat') || !aiLiveCallActive) return;
     aiVcSavedMini = !!on;
+    if (on) {
+        if (aiLiveCallMinimized) return;
+        const bar = document.querySelector('.ai-chat-input-row'), msgs = document.getElementById('aiChatMessages');
+        const barTop = bar ? bar.getBoundingClientRect().top : window.innerHeight - 150;
+        const at = { x: window.innerWidth / 2, y: Math.max(170, (110 + barTop) / 2) }; // نص مساحة الشات بالظبط (بين الشريط العلوي وشريط الكتابة)
+        const c = document.getElementById('aiVoiceCallModalContent');
+        if (c) { c.style.transition = 'transform .22s ease, opacity .22s ease'; c.style.transform = 'translateY(70px) scale(.9)'; c.style.opacity = '0'; }
+        setTimeout(function () { minimizeAIVoiceCall(at); }, 200);
+    } else if (aiLiveCallMinimized) {
+        restoreAIVoiceCall();
+    }
     aiVcSyncBig();
-    aiVcMeasureBar();
 }
 function aiVcToggleMini() {
     if (Date.now() - aiVcDragEndAt < 350) return; // الضغطة الناتجة عن السحب مش تبديل
-    const modal = document.getElementById('aiVoiceCallModal');
-    if (modal) aiVcSetMini(!modal.classList.contains('vc-mini'));
+    aiVcSetMini(!aiLiveCallMinimized);
 }
 function aiVoiceCallBtnTap() { if (aiLiveCallActive) endAIVoiceCall(); else startAIVoiceCall(); }
 
@@ -26603,9 +26620,7 @@ function setupAIVoiceCallDragHandlers() {
         const v = dy / Math.max(1, performance.now() - st); // px/ms
         const mini = modal.classList.contains('vc-mini');
         const down = dy > 70 || (dy > 24 && v > 0.6), up = dy < -50 || (dy < -24 && v < -0.6);
-        if (!mini && down) aiVcSetMini(true);
-        else if (mini && up) aiVcSetMini(false);
-        else if (mini && (dy > 110 || (dy > 40 && v > 0.8))) minimizeAIVoiceCall(); // سحبة كمان لتحت: الأورب يبقى عايم
+        if (!mini && down) aiVcSetMini(true); // سحبة لتحت: الأورب يبقى دايرة عايمة في النص
     };
     content.addEventListener('pointerup', end);
     content.addEventListener('pointercancel', end);
@@ -36320,7 +36335,7 @@ Object.assign(A,{
   G=[['التاريخ','date'],['النوع','type'],['غير المقروءة','unread'],['الحالة','state'],['مجموعات مخصصة','custom'],null,['بدون','none']],SR=[['الاسم','name'],['تاريخ الإنشاء','new'],['آخر نشاط','act']];
   const nm=(a,k)=>(a.find(z=>z&&z[1]===F[k])||[''])[0];
   pop(b.left,b.bottom+6,[['النوع',so('type',T),nm(T,'type')],['الحالة',so('st',S),nm(S,'st')],['آخر نشاط',so('act',AC),nm(AC,'act')],null,['التجميع حسب',so('grp',G),nm(G,'grp')],['الترتيب حسب',so('srt',SR),nm(SR,'srt')]],0,{r:b.right,reserve:190})},
- open(id){view='chats';const x=M()[id]||{};x.proj?LS.setItem('app_ai_proj',x.proj):LS.removeItem('app_ai_proj');sM(id,{read:1});draw(1);page();loadAIConversation(id)},
+ open(id){view='chats';const x=M()[id]||{};if(x.proj&&!LS.getItem('app_ai_proj'))LS.setItem('app_ai_proj',x.proj);sM(id,{read:1});draw(1);page();loadAIConversation(id)},
  cm(e,id){e.stopPropagation();const b=e.currentTarget.getBoundingClientRect(),x=M()[id]||{},P=proj(),gs=[...new Set(Object.values(M()).map(z=>z.group).filter(Boolean))];
   const u=p=>{sM(id,p);draw(1)};
   pop(b.right,b.bottom+4,[[x.pin?'إلغاء التثبيت':'تثبيت',()=>u({pin:!x.pin})],['إعادة تسمية',()=>A.ren(id)],
@@ -38359,6 +38374,25 @@ body #aiVcFloat[data-st="connecting"] .fo,body #aiVcFloat[data-st="thinking"] .f
 #aiJumpLatest{position:fixed;left:50%;transform:translateX(-50%) translateY(10px);bottom:158px;z-index:949;width:40px;height:40px;border-radius:50%;border:1px solid var(--card-border);background:var(--card-bg);color:var(--text-primary);box-shadow:0 4px 16px rgba(0,0,0,.18);font-size:18px;line-height:1;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;display:flex;align-items:center;justify-content:center}
 #aiJumpLatest.on{opacity:1;pointer-events:auto;transform:translateX(-50%)}
 body.ai-vc-big #aiJumpLatest{display:none}
+@keyframes aiMsgIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.ai-msg,.ai-msg-user{animation:aiMsgIn .32s cubic-bezier(.2,.8,.2,1) both}
+@keyframes aiEditGlow{0%{box-shadow:0 0 0 0 rgba(20,184,166,.55)}100%{box-shadow:0 0 0 14px rgba(20,184,166,0)}}
+.ai-edit-flash{animation:aiEditGlow 1.1s ease-out 2}
+@keyframes aiBarIn{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:none}}
+#aiEditBar{display:flex;align-items:center;gap:10px;margin:0 12px 8px;padding:9px 12px;border-radius:14px;background:rgba(20,184,166,.12);border:1px solid rgba(20,184,166,.4);color:var(--text-primary);font-size:.78rem;line-height:1.5;animation:aiBarIn .3s cubic-bezier(.2,.8,.2,1) both}
+#aiEditBar .t{flex:1}#aiEditBar .x{cursor:pointer;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(127,127,127,.2)}
+a.wr2{display:block;text-decoration:none;color:var(--text-primary);border-radius:16px;padding:12px 14px;margin:8px 0;background:var(--card-bg);border:1px solid var(--card-border);box-shadow:var(--shadow-sm);transition:transform .15s,border-color .15s}
+a.wr2:active{transform:scale(.985)}
+.wr2-top{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.wr2-ic{width:18px;height:18px;border-radius:5px}
+.wr2-host{flex:1;font-size:.72rem;color:var(--text-secondary);direction:ltr;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wr2-go{font-size:.7rem;font-weight:800;color:var(--accent)}
+a.wr2 .ai-web-result-title{font-size:.86rem;font-weight:800;line-height:1.6}
+.wr2-path{margin-top:4px;font-size:.66rem;color:var(--text-secondary);direction:ltr;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#aiProjChip{position:fixed;top:62px;left:50%;transform:translate(-50%,-8px);z-index:948;display:flex;gap:8px;align-items:center;padding:6px 8px 6px 14px;border-radius:99px;background:var(--card-bg);border:1px solid var(--card-border);box-shadow:0 4px 16px rgba(0,0,0,.14);font-size:.74rem;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;max-width:86vw;white-space:nowrap;color:var(--text-primary)}
+#aiProjChip.on{opacity:1;pointer-events:auto;transform:translate(-50%,0)}
+#aiProjChip b{overflow:hidden;text-overflow:ellipsis;max-width:42vw}
+#aiProjChip .x{cursor:pointer;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(127,127,127,.18)}
 #aiVcFloatMenu button.pn.on{background:#5eead4;color:#042f2e}
 .vc-inchat.vc-mini .ai-vc-top{display:none}
 .vc-inchat.vc-mini .ai-voice-call-drag-handle{background:var(--card-border,rgba(127,127,127,.4));top:2px}
@@ -38373,7 +38407,7 @@ body.ai-in-call #aiMicBtn.vc-muted{background:#ef4444;color:#fff}
 body.ai-in-call #aiVoiceCallBtn{background:#ef4444;color:#fff}
 body.ai-in-call #aiChatInput::placeholder{opacity:.75}
 </style>
-<script src="universalsearch.js?v=7" onerror="window.__universalSearchFailed=1"></script>
+<script src="universalsearch.js?v=9" onerror="window.__universalSearchFailed=1"></script>
 <script src="filetools.js?v=1" onerror="window.__filetoolsFailed=1"></script>
 <script src="videotools.js?v=2" onerror="window.__videotoolsFailed=1"></script>
 <script src="mcptools.js?v=13"></script>
@@ -39678,7 +39712,7 @@ function filt(){
  else if(view==='proj')sheet([['مشاريعي',f(v=>pf=v,'own'),0,pf==='own'],['المؤرشفة',f(v=>pf=v,'arch'),0,pf==='arch']]);
  else sheet([['الكل',f(v=>af=v,'all'),0,af==='all'],['المثبّتة ⭐',f(v=>af=v,'star'),0,af==='star'],null,['كل الأنواع',f(v=>at=v,'all'),0,at==='all'],['صفحات HTML',f(v=>at=v,'html'),0,at==='html'],['نصوص',f(v=>at=v,'txt'),0,at==='txt']]);
 }
-async function openChat(id){const x=META()[id]||{};x.proj?LS.setItem('app_ai_proj',x.proj):LS.removeItem('app_ai_proj');setM(id,{read:1});closeAll();let pr;try{pr=loadAIConversation(id)}catch(e){}setIncog(false);try{await pr}catch(e){}refresh();topbar()}
+async function openChat(id){const x=META()[id]||{};if(x.proj&&!LS.getItem('app_ai_proj'))LS.setItem('app_ai_proj',x.proj);setM(id,{read:1});closeAll();let pr;try{pr=loadAIConversation(id)}catch(e){}setIncog(false);try{await pr}catch(e){}refresh();topbar()}
 function chatMenu(id){
  const x=META()[id]||{},c=getAIConversations().find(z=>z.id===id);if(!c)return;
  sheet([[x.pin?'إلغاء التثبيت':'تثبيت',()=>{setM(id,{pin:!x.pin});list()}],
@@ -40240,6 +40274,7 @@ if(typeof _end==='function'){window.endAIVoiceCall=function(){hideFloat();closeA
 
 /* سحب شاشة المكالمة لتحت من أي مكان (الكرة نفسها أو الخلفية) فتتحول لكرة عايمة */
 function attachPull(){
+ return; /* اتلغى: السحب بقى في setupAIVoiceCallDragHandlers (مسار واحد) */
  const c=$('aiVoiceCallModalContent');if(!c||c.__v7)return;c.__v7=1;
  let s=null;
  const ok=t=>!(t.closest&&t.closest('button,input,textarea,select,.ai-vc-msgs,.ai-vc-sheet-overlay,#aiVcAttSheet,#aiVcAttRow,.ai-vc-bottom,.ai-voice-call-drag-handle'));
@@ -40663,18 +40698,12 @@ function bind(){
   if(!s.moved&&Math.hypot(e.clientX-s.x,e.clientY-s.y)>6){s.moved=true;c.classList.add('ai-voice-call-dragging')}
   if(!s.moved)return;
   s.dy=Math.max(0,e.clientY-s.y);s.cx=e.clientX;s.cy=e.clientY;
-  const k=Math.min(1,s.dy/420);
-  c.style.transform='translateY('+s.dy+'px) scale('+(1-k*.18).toFixed(3)+')';c.style.opacity=String(1-k*.5);
-  e.preventDefault();
+   e.preventDefault(); /* الحركة والتصغير في setupAIVoiceCallDragHandlers */
  });
  window.addEventListener('mouseup',function(e){
   if(!s)return;const g=s;s=null;c.classList.remove('ai-voice-call-dragging');
-  if(g.moved){
-   if(g.dy>110)minimize({x:g.cx,y:g.cy});
-   else{c.style.transform='';c.style.opacity=''}
-   return;
-  }
-  if(isDesk())minimize({x:e.clientX,y:e.clientY}); // ضغطة على فاضي = تصغير (ديسكتوب)
+  if(g.moved)return;
+   if(isDesk()&&typeof aiVcSetMini==='function')aiVcSetMini(true); // ضغطة على فاضي = دايرة عايمة في النص (ديسكتوب)
  });
 }
 bind();setInterval(bind,900);
@@ -41606,6 +41635,63 @@ document.addEventListener('click', function (e) {
 }, true);
 var AIX_RULE = ' الشات بيعرض Markdown كامل، فاستخدمه بدل الكلام الطويل: جداول Markdown (سطر العناوين ثم سطر |---|---| ثم الصفوف) لأي قايمة أو مقارنة أو بيانات. كلمة "جدول" لوحدها معناها اعرضه في الشات نفسه، وماتحطش جدول في تطبيق جدول المهام إلا لو المستخدم قال صراحة "جدول المهام" أو "في التطبيق" أو "احفظه". لو طلب قايمة طويلة (زي أهم 300 كلمة) اكتبها كلها كاملة في جدول (أو أكتر من جدول مرقّم) من غير اختصار ولا "وهكذا". المعادلات بـ LaTeX: $x^2$ جوه السطر و $$...$$ في سطر لوحده، وحل المسائل خطوة بخطوة. الرسوم البيانية: كتلة ```chart فيها JSON بالشكل {"type":"bar|line|area|pie|donut|scatter","title":"..","labels":["..",".."],"series":[{"name":"..","data":[1,2]}]} (scatter بيستخدم data:[[x,y],..])، ولرسم دالة {"type":"function","title":"..","exprs":[{"expr":"x^2-4"}],"xmin":-5,"xmax":5}. المخططات الانسيابية والعلاقات بـ ```mermaid، والكود في ```لغة. كل ده بيتعرض في الشات نفسه من غير أداة، ومتشرحش للمستخدم صيغة الرسم ولا تكتب JSON الرسم خارج الكتلة. المنتجات والأسعار: لما المستخدم يطلب منتجات أو أسعار أو مقارنة (ملابس، موبايلات، أجهزة...) دوّر بأدوات الويب الأول (web_find ثم web_read للصفحات، وweb_images لو محتاج صور)، وبعدين اعرض النتيجة كلها في كارتات منظمة بكتلة ```products فيها JSON بالشكل ده: {"title":"أفضل الاختيارات والأسعار","items":[{"name":"..","price":559,"currency":"جنيه","meta":["خامة","مقاس"],"desc":"جملتين","image":"https://..","source":"اسم المتجر","url":"https://.."}]}. ماتعرضش الصور لوحدها فوق ولا الأسعار في قايمة منفصلة: كل منتج كارت واحد فيه اسمه وسعره وصورته ورابطه. ممنوع تألّف سعر أو صورة أو رابط: كل قيمة لازم تكون جاية من نتيجة أداة فعلًا، وأي حقل ما لقيتوش سيبه من غير ما تكتبه (الكارت من غير صورة أحسن من صورة مش بتاعته). image من روابط الصور في نتايج web_read أو web_images بس. لو السعر من صفحة ممكن تكون قديمة قول كده في جملة بعد الكتلة. حط الكتلة بعد جملة تمهيد قصيرة، ومن غير ما تشرح إنك بتستخدم كتلة.';
 AIX_RULE += (window.MASSR_CARD_RULES || '');
+/* ===== مشروع شغال + تعديل الرسالة + نشاط الأدوات الحي ===== */
+(function () {
+  var chip = null;
+  function projName() { try { var id = localStorage.getItem('app_ai_proj'); if (!id) return ''; var p = JSON.parse(localStorage.getItem('app_ai_projects') || '[]').find(function (z) { return String(z.id) === String(id); }); return p ? p.name : ''; } catch (e) { return ''; } }
+  function paintChip() {
+    var n = projName(), m = document.getElementById('aiChatMessages');
+    var vis = !!(n && m && m.offsetParent !== null && !document.body.classList.contains('ai-vc-big'));
+    if (!chip) {
+      chip = document.createElement('div'); chip.id = 'aiProjChip'; document.body.appendChild(chip);
+      chip.addEventListener('click', function (e) { if (e.target.closest('.x')) { try { aiShell.pick(0); } catch (x) { localStorage.removeItem('app_ai_proj'); } paintChip(); if (typeof showToast === 'function') showToast('اتوقف المشروع'); } });
+    }
+    if (vis && chip.getAttribute('data-n') !== n) { chip.innerHTML = '📁 مشروع شغال: <b></b> <span class="x" title="إيقاف المشروع">✕</span>'; chip.querySelector('b').textContent = n; chip.setAttribute('data-n', n); }
+    chip.classList.toggle('on', vis);
+  }
+  setInterval(paintChip, 1500);
+
+  // تعديل الرسالة: شريط ظاهر بحركة + وميض على خانة الكتابة
+  var _edit = window.editAIUserMessage;
+  if (typeof _edit === 'function') window.editAIUserMessage = function () {
+    var r = _edit.apply(this, arguments);
+    try {
+      var row = document.querySelector('.ai-chat-input-row'), old = document.getElementById('aiEditBar'); if (old) old.remove();
+      if (row && row.parentNode && typeof aiRequestInProgress !== 'undefined') {
+        var bar = document.createElement('div'); bar.id = 'aiEditBar';
+        bar.innerHTML = '<span>✏️</span><span class="t">بتعدّل رسالتك: عدّل واضغط إرسال. الرسايل اللي بعدها هتتبدّل بالرد الجديد.</span><span class="x" title="إخفاء">✕</span>';
+        bar.querySelector('.x').addEventListener('click', function () { bar.remove(); });
+        row.parentNode.insertBefore(bar, row);
+        row.classList.add('ai-edit-flash'); setTimeout(function () { row.classList.remove('ai-edit-flash'); }, 2400);
+        var m = document.getElementById('aiChatMessages');
+        if (m) { var mo = new MutationObserver(function (ms) { ms.forEach(function (x) { x.addedNodes.forEach(function (n) { if (n.classList && n.classList.contains('ai-msg-user')) { bar.remove(); mo.disconnect(); } }); }); }); mo.observe(m, { childList: true }); }
+      }
+    } catch (e) { }
+    return r;
+  };
+
+  // نشاط الأدوات الحي: بيتسجّل اللي بيتنفّذ فعلًا (مش بس طلب المساعد)
+  var _ex = window.executeAIFunctionCall;
+  var SKIP = /^(show_card|rename_chat|stop_speaking|voice_mic_mute|end_voice_call|start_voice_call|request_tools|get_current_datetime|calculate|undo_manage|copy_to_clipboard|text_stats|date_math|unit_convert|random_pick|project_switch)$/;
+  function guardShort(name, args, res) {
+    try {
+      if (!res || typeof res !== 'object' || res.status === 'error') return res;
+      args = args || {}; var len = 0, what = '';
+      if (name === 'file_write' && /\.(html?|md|txt)$/i.test(String(args.name || ''))) { len = String(args.content || '').length; what = 'الملف'; }
+      else if (name === 'html_to_pdf' && typeof args.html === 'string') { len = args.html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').length; what = 'الـ PDF'; }
+      else if (name === 'build_document') { len = JSON.stringify(args.sections || []).length; what = 'المستند'; }
+      if (what && len > 0 && len < 2500) return Object.assign({}, res, { warning_short_document: what + ' قصير جدًا (' + len + ' حرف). لو المستخدم طلب بحث أو تقرير كامل فده مش كفاية: استخدم deep_research لو لسه، واكتب المحتوى كامل ومفصّل (1500 كلمة على الأقل بعناوين وفقرات وجداول وصور ومصادر) وأعد إنشاء الملف، ولا تقول إنه خلص قبل كده.' });
+    } catch (e) { }
+    return res;
+  }
+  if (typeof _ex === 'function') window.executeAIFunctionCall = async function (name) {
+    var A = window.massrAct;
+    if (!A || SKIP.test(name)) { var r0 = await _ex.apply(this, arguments); return guardShort(name, arguments[1], r0); }
+    var h = null; try { h = A.toolStart(name, arguments[1]); } catch (e) { }
+    try { var res = await _ex.apply(this, arguments); try { A.toolEnd(h, res); } catch (e) { } return guardShort(name, arguments[1], res); }
+    catch (e) { try { A.toolEnd(h, { status: 'error', message: String((e && e.message) || e) }); } catch (x) { } throw e; }
+  };
+})();
 /* AIX-RICH-END */
 /* اسكت: بيوقّف صوت الرد الحالي فورًا والميكروفون فاضل شغال (غير الكتم اللي بيمنعه يسمعك) */
 function aiLiveHush() {
@@ -41635,7 +41721,9 @@ function aiLiveHush() {
   function checkJump() {
     var m = document.getElementById('aiChatMessages'); if (!m) return;
     var far = m.scrollHeight - m.scrollTop - m.clientHeight > 320 && m.offsetParent !== null;
-    ensureJump().classList.toggle('on', !!far);
+    var jbb = ensureJump(), row = document.querySelector('.ai-chat-input-row');
+    if (row) jbb.style.bottom = Math.round(window.innerHeight - row.getBoundingClientRect().top + 12) + 'px';
+    jbb.classList.toggle('on', !!far);
   }
   document.addEventListener('scroll', function (e) { if (e.target && e.target.id === 'aiChatMessages') checkJump(); }, true);
   // اختصارات: Esc يوقّف الكلام أو توليد الرد

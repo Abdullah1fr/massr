@@ -582,17 +582,22 @@
     const lists = [];   // {source, records}
     let pagesOut = [], googleSummary = '', inlineImages = null, imagesNote = '';
     const jobs = [];
+    const actEmit = o => { try { if (typeof window !== 'undefined' && window.massrAct) window.massrAct.step(o); } catch (e) { } };
+    let announced = false;
     const job = (id, label, timeout, fn) => {
       const t = Date.now();
+      if (!announced) { announced = true; actEmit({ icon: '🔎', text: 'بدور على «' + String(qMain).slice(0, 60) + '»', detail: 'في كذا مصدر بالتوازي' }); }
       jobs.push((async () => {
         try {
           const out = await withTimeout(fn(), timeout);
           const recs = (out && out.records) || [];
           lists.push({ source: id, records: recs });
+          actEmit({ icon: recs.length ? '✅' : '⚪', text: label + (recs.length ? ' — ' + recs.length + ' نتيجة' : ' — مفيش نتايج'), url: recs[0] && recs[0].url, detail: recs[0] && recs[0].title ? String(recs[0].title).slice(0, 90) : '' });
           if (out && out.pages) pagesOut = pagesOut.concat(out.pages);
           sources.push({ source: id, label, ok: recs.length > 0 || !!(out && out.ok), count: recs.length, ms: ms(t), error: recs.length || (out && out.ok) ? undefined : ((out && out.error) || 'مفيش نتايج') });
         } catch (e) {
           sources.push({ source: id, label, ok: false, count: 0, ms: ms(t), error: String((e && e.message) || e).slice(0, 160) });
+          actEmit({ icon: '⚠️', text: label + ' — ماردّش', state: 'err' });
         }
       })());
     };
@@ -775,6 +780,12 @@
     if (results.some(r => r.from && r.from.some(f => ['openlibrary', 'gutenberg', 'internetarchive', 'github', 'npm', 'wikipedia', 'openalex', 'crossref', 'openverse', 'commons', 'itunes', 'gdelt'].includes(f))))
       notes.push('روابط المصادر المباشرة (Open Library/GitHub/…) ممكن web_read يرفضها لو الوركر شغّال؛ استخدم البيانات اللي في النتيجة نفسها.');
 
+    try {
+      const top = results.filter(r => r && r.url).slice(0, 8);
+      if (top.length) actEmit({ kind: 'sources', list: top.map(r => ({ title: r.title, url: r.url })) });
+      const ims = results.map(r => (r.meta && (r.meta.thumb || r.meta.image)) || (r.type === 'image' ? r.url : '')).filter(Boolean).slice(0, 8);
+      if (ims.length) actEmit({ kind: 'images', imgs: ims });
+    } catch (e) { }
     const out = {
       status: 'ok', query: raw, search_query: qMain, detected_types: cls.types, primary: cls.primary, region: region || undefined, fresh: fresh || undefined,
       result_count: results.length, by_type: byType, results,
@@ -969,10 +980,48 @@
             : 'طلب mode=full: ده النص الكامل (مش ملخص) في full.parts مرتّب. اعتمد عليه واعرضه أو لخّصه حسب طلب المستخدم، واذكر المصدر (full.url). ') + more + ' ';
         }
       });
+    W.reg('deep_research', '📚 بحث معمّق (مادة تقرير كامل)',
+      'للطلبات اللي فيها "بحث كامل" أو "تقرير" أو "حطه في PDF/ملف" عن موضوع: بتبحث في كذا جانب من الموضوع بالتوازي وتقرا نصوص كاملة من أكتر من مصدر وتجيب صور وروابط، وبترجّعلك مادة غنية تكتب منها تقرير طويل ومفصّل (مش ملخص سطرين). استخدمها قبل ما تكتب أي بحث أو ملف.',
+      { topic: d(S, 'موضوع البحث.'), aspects: d(SA, 'اختياري: لحد 7 جوانب تغطيها (تعريف، أسباب، تأثيرات، إحصائيات، دراسات، حلول...). لو فاضي بتتحدد تلقائي.'), images: d({ type: 'boolean' }, 'true لو عايز صور للتقرير (افتراضي true).') },
+      ['topic'],
+      async a => {
+        const topic = W.norm(a.topic); if (topic.length < 2) return W.er('اكتب موضوع البحث.');
+        const aspects = (Array.isArray(a.aspects) && a.aspects.length ? a.aspects.map(x => W.norm(x)).filter(Boolean) : ['', 'تعريف وأساسيات', 'الأسباب والآلية', 'التأثيرات والنتائج', 'إحصائيات وأرقام', 'دراسات علمية', 'الحلول والوقاية']).slice(0, 7);
+        const tools = {}; ['web_research', 'web_find', 'web_scholar', 'web_images'].forEach(n => { if (APP_ACTIONS[n] && APP_ACTIONS[n].handler) tools[n] = APP_ACTIONS[n]; });
+        const deps = { tools, grounded: W.groundedSearch, fetch: window.fetch ? window.fetch.bind(window) : undefined };
+        const sections = [], sources = [], seen = new Set();
+        W.act('📚 بحث معمّق: ' + topic.slice(0, 50));
+        await Promise.all(aspects.map(async asp => {
+          const q = (topic + ' ' + asp).trim();
+          try {
+            W.act('🔎 ' + q.slice(0, 60));
+            const r = await M.run(q, { query: q, types: /دراس|علم|paper|study/i.test(asp) ? ['academic'] : undefined, depth: 'deep', max_results: 8 }, deps);
+            if (!r || r.status !== 'ok') return;
+            (r.results || []).filter(x => x && x.url && !/^(image|video|audio)$/.test(x.type)).slice(0, 6).forEach(x => { if (!seen.has(x.url)) { seen.add(x.url); sources.push({ title: x.title, url: x.url }); } });
+            for (const uu of readCandidates(r, 3)) {
+              if (seen.has('R:' + uu)) continue; seen.add('R:' + uu);
+              const f = await readFull(uu, 2);
+              if (f.ok) { sections.push({ aspect: asp || 'نظرة عامة', source: f.url, title: f.title, text: f.parts.map(p => p.text).join('\n').slice(0, 5500) }); break; }
+            }
+          } catch (e) { }
+        }));
+        let images = [];
+        if (a.images !== false) {
+          try {
+            const ri = await M.run(topic, { query: topic, types: ['image'], max_results: 10 }, deps);
+            images = ((ri && ri.results) || []).map(x => ({ title: x.title, url: (x.meta && (x.meta.image || x.meta.thumb)) || (x.type === 'image' ? x.url : ''), page: x.meta && x.meta.page || '' })).filter(x => /^https:\/\//.test(x.url)).slice(0, 8);
+          } catch (e) { }
+        }
+        if (!sections.length && !sources.length) return W.er('مقدرتش أجمع مادة كفاية عن الموضوع. جرّب صياغة تانية أو قول للمستخدم بصراحة.');
+        W.taint();
+        return W.ok({ topic, sections_count: sections.length, sections, sources: sources.slice(0, 25), images,
+          message: 'دي مادة حقيقية من ' + sections.length + ' جانب/مصدر. اكتب منها تقرير طويل ومفصّل (1500 كلمة على الأقل): مقدمة، عنوان لكل جانب، فقرات مشروحة، أرقام وجداول، صور من images (روابط https بس)، خلاصة، وقايمة المصادر بروابطها من sources. ماتألفش معلومة مش في المادة، ولو جانب ناقص قول كده. بعدين اعمل الملف/PDF بالمحتوى كامل.' + W.UNTRUSTED });
+      });
+    const RESEARCH_RULES = '\n\nبحث كامل أو تقرير أو PDF: لما المستخدم يطلب "بحث كامل" أو "تقرير" أو "حطه في PDF/ملف"، استخدم deep_research الأول (بيجيب مادة من عدة مصادر وصور)، واكتب منها تقرير طويل ومفصّل (1500 كلمة على الأقل: مقدمة، عناوين، فقرات، جداول وأرقام، صور من نتايج الأداة، خلاصة، مصادر بروابطها)، وبعدين اعمل الملف أو الـ PDF بالمحتوى كامل. ممنوع تسلّم ملف قصير أو ملخص سطرين على إنه البحث الكامل، ولو المصادر مش كفاية قول كده بصراحة.';
     const RULES = '\n\nMASSR Universal Search (قواعد، بتحل محل أي قاعدة قديمة بتتعارض معاها): لأي طلب بحث أو استكشاف بلغة طبيعية (معلومة، مقال، خبر، كتاب، رواية، PDF، بحث علمي، صور، فيديو، أغنية/أنشودة، منتج وسعر، مستودع GitHub، مكتبة...) ابدأ بـ massr_universal_search واحدة، ومتطلبش من المستخدم يختار محرك أو نوع بحث. ابعت في types تلميح نوع الطلب لو واضح، وفي queries صياغة إنجليزي لو الموضوع عالمي. الأداة بتدوّر في الويب دايمًا وبتضيف المصادر المتخصصة وبتقولك مين فشل. بعدها: اقرا pages واعتمد على اللي اتقرا فعلًا، وافتح أهم رابط بـ web_read لو محتاج تفاصيل، وماتألفش أي رابط أو سعر أو رابط تحميل. الكتب والملفات: فرّق بين صفحة الكتاب وملف PDF المباشر (direct_file)، واعرض كرابط تحميل مجاني بس اللي rights بتاعه ملك عام/مصدر مفتوح/منصة رسمية، ولو مفيش قول إن مفيش مصدر قانوني ظاهر بدل ما تدلّ على مواقع قرصنة. الأغاني والأناشيد: مصادر رسمية فقط. لو الطلب مجرد "شغّل أنشودة/أغنية كذا" فاستخدم youtube_search مباشرة. الاستثناءات: طلبات التقارير الشاملة بملف تفضل زي ما هي (web_research عميق + أدوات الملفات)، وgemini احتياطي أخير جوه الأداة نفسها.';
     const MODE_RULES = '\n\nباراميتر mode في massr_universal_search (قواعد): الافتراضي summary للأسئلة العادية. اطلب mode=full لما المستخدم يقول بحث كامل أو عايز النص كله أو الورقة أو المقال كامل. mode=pdf لما يطلب ترجمة أو تحويل ما تلاقيه لـ PDF. mode=product لما يسأل عن منتج أو سعر أو مواصفات. mode=download_link لما يطلب رابط تحميل (كتاب أو ملف أو بحث): الأداة بتعرض كارت بزرار تحميل للمصادر القانونية بس. لو عندك رابط محدد من نتيجة سابقة وعايز نصه الكامل ابعت url مع mode=full أو pdf. للنتايج والأرقام الحية (ماتش، ترتيب دوري، سعر دولار أو ذهب، طقس) ابعت types=live واعتمد على google_summary مع ذكر المصدر والتوقيت. لو المستخدم سمّى منصة أو موقع (فيسبوك، انستجرام، تيك توك، ريديت، 365Scores، في الجول، يلا كورة، GitHub، يوتيوب...) الأداة بتبحث جواه تلقائيًا، وماتوعدش بمحتوى محتاج تسجيل دخول. للمكتبات: github وnpm وcdnjs (رابط CDN جاهز). تحميل الفيديو والأغاني والأناشيد: المسموح روابط المشاهدة/الاستماع الرسمية وملفات الرخص المفتوحة (Internet Archive/Openverse) في كارت mode=download_link بس، وماتدلّش على أدوات تنزيل يوتيوب ولا مواقع قرصنة. لو رد الأداة فيه full.more كمّل القراءة بـ web_read بالصفحة اللي في how، وماتخلّصش الشغل على نص ناقص.';
     const _b = window.buildAISystemInstructionText;
-    if (typeof _b === 'function') window.buildAISystemInstructionText = function () { return _b.apply(this, arguments) + RULES + MODE_RULES; };
+    if (typeof _b === 'function') window.buildAISystemInstructionText = function () { return _b.apply(this, arguments) + RULES + MODE_RULES + RESEARCH_RULES; };
   } catch (e) { try { console.warn('massr universal search register failed', e); } catch (_) { } }
 })();
 
@@ -1055,7 +1104,7 @@
 .mc-row{display:flex;justify-content:space-between;gap:10px;padding:8px 14px;font-size:.76rem;border-top:1px solid var(--card-border)}
 .mc-row span{color:var(--text-secondary)}.mc-row b{font-weight:800;text-align:left}
 .mc-ihead{display:flex;align-items:center;gap:10px;padding:13px 14px 10px}
-.mc-ihead .e{font-size:1.8rem;line-height:1}.mc-ihead .t{font-size:.9rem;font-weight:800}.mc-ihead .u{font-size:.68rem;color:var(--text-secondary)}
+.mc-ihead .e{font-size:1.35rem;line-height:1}.mc-ihead .t{font-size:.9rem;font-weight:800}.mc-ihead .u{font-size:.68rem;color:var(--text-secondary)}
 .mc-flow{display:flex;flex-direction:column;gap:6px;padding:4px 12px 14px}
 .mc-frow{display:grid;gap:8px}
 .mc-cell{border-radius:14px;padding:12px 10px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:3px;min-width:0}
@@ -1087,6 +1136,58 @@
 .mc-ev .w{font-size:.68rem;font-weight:800;color:var(--accent)}.mc-ev .t{font-size:.86rem;font-weight:800}.mc-ev .x{font-size:.76rem;color:var(--text-secondary);line-height:1.65}
 .mct-ui{background:transparent;border:0;box-shadow:none;overflow:visible;max-width:100%}
 .mc-ui{display:block;width:100%;border:0;background:transparent;color-scheme:normal}
+.mct-activity,.mct-quiz.mc{}
+.mc-act{border:0}
+.mc-act-h{list-style:none;display:flex;align-items:center;gap:9px;padding:10px 13px;cursor:pointer;font-size:.78rem;font-weight:800;background:var(--input-bg)}
+.mc-act-h::-webkit-details-marker{display:none}
+.mc-act-t{flex:1}
+.mc-act-ch{opacity:.6;transition:transform .2s}
+details.mc-act[open] .mc-act-ch{transform:rotate(180deg)}
+.mc-act-list{display:flex;flex-direction:column;padding:4px 0 6px}
+.mc-act-row{display:flex;align-items:center;gap:10px;padding:8px 13px;text-decoration:none;color:var(--text-primary);animation:mcStep .3s ease both}
+@keyframes mcStep{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:none}}
+.mc-act-ic{flex:0 0 22px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:.95rem}
+.mc-act-ic img{width:20px;height:20px;border-radius:5px}
+.mc-act-ic .mc-ph{width:22px;height:22px;font-size:.95rem;background:transparent}
+.mc-act-b{flex:1;min-width:0;display:flex;flex-direction:column}
+.mc-act-x{font-size:.76rem;font-weight:700;line-height:1.5}
+.mc-act-b small{font-size:.66rem;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mc-act-mk{flex:0 0 18px;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.68rem;font-weight:900;color:#22c55e}
+.mc-act-mk.err{color:#ef4444}
+.mc-act-mk.run{border:2px solid rgba(127,127,127,.3);border-top-color:var(--accent);animation:mcSpin .8s linear infinite}
+@keyframes mcSpin{to{transform:rotate(360deg)}}
+.mc-act-srcs{display:flex;flex-wrap:wrap;gap:6px;padding:6px 13px;animation:mcStep .3s ease both}
+.mc-act-src{display:flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;background:var(--input-bg);border:1px solid var(--card-border);text-decoration:none;color:var(--text-primary);font-size:.66rem;direction:ltr}
+.mc-act-src img{width:14px;height:14px;border-radius:3px}
+.mc-act-imgs{display:flex;gap:6px;padding:6px 13px;overflow-x:auto;animation:mcStep .3s ease both}
+.mc-act-imgs .mc-tile{flex:0 0 64px;width:64px;height:64px;aspect-ratio:auto;border-radius:10px}
+.mc-q{padding:12px 14px;border-top:1px solid var(--card-border)}
+.mc-qt{font-size:.86rem;font-weight:800;line-height:1.6;margin-bottom:8px}
+.mc-qimg{border-radius:12px;overflow:hidden;margin-bottom:8px;background:var(--input-bg)}
+.mc-qimg img{width:100%;max-height:200px;object-fit:cover;display:block}
+.mc-opts{display:flex;flex-direction:column;gap:7px}
+.mc-opt{display:flex;align-items:center;gap:10px;text-align:right;font:inherit;font-size:.8rem;color:var(--text-primary);background:var(--input-bg);border:1.5px solid var(--card-border);border-radius:12px;padding:9px 11px;cursor:pointer;transition:border-color .15s,background .15s,transform .1s}
+.mc-opt i{font-style:normal;flex:0 0 24px;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:800;background:var(--card-border)}
+.mc-opt span{flex:1;line-height:1.5}
+.mc-opt:active{transform:scale(.98)}
+.mc-opt.on{border-color:var(--accent);background:rgba(20,184,166,.12)}
+.mc-opt.on i{background:var(--accent);color:#fff}
+.mct-quiz[data-done] .mc-opt{cursor:default}
+.mc-opt.ok{border-color:#22c55e;background:rgba(34,197,94,.14)}.mc-opt.ok i{background:#22c55e;color:#fff}
+.mc-opt.bad{border-color:#ef4444;background:rgba(239,68,68,.12)}.mc-opt.bad i{background:#ef4444;color:#fff}
+.mc-qe{display:none;margin-top:8px;font-size:.74rem;line-height:1.7;color:var(--text-secondary);padding:8px 10px;border-radius:10px;background:var(--input-bg)}
+.mc-qe.show{display:block;animation:mcStep .3s ease both}
+.mc-qfoot{padding:12px 14px;border-top:1px solid var(--card-border);display:flex;align-items:center;gap:10px}
+.mc-qsend{font:inherit;font-weight:800;font-size:.8rem;padding:10px 18px;border-radius:12px;border:0;background:var(--accent);color:#fff;cursor:pointer}
+.mc-qsend:disabled{opacity:.4;cursor:not-allowed}
+.mc-qres{display:none;font-weight:900;font-size:.9rem}.mc-qres.show{display:block}
+.mc-gal{display:flex;gap:6px;padding:8px 10px;overflow-x:auto;border-bottom:1px solid var(--card-border)}
+.mc-gal .mc-tile{flex:0 0 56px;width:56px;height:56px;aspect-ratio:auto;border-radius:10px}
+.mc-offers{display:flex;flex-direction:column;border-top:1px solid var(--card-border);margin:4px -14px 0}
+.mc-offer{display:flex;align-items:center;gap:10px;padding:9px 14px;text-decoration:none;color:var(--text-primary);border-bottom:1px solid var(--card-border)}
+.mc-offer:last-child{border-bottom:0}
+.mc-offer img{width:20px;height:20px;border-radius:5px;flex:0 0 20px}
+.mc-offer b{flex:1;font-size:.78rem}.mc-offer em{font-style:normal;font-weight:900;font-size:.82rem}.mc-offer span{font-size:.7rem;color:var(--accent);font-weight:800}
 .mct-chips,.mct-sources{background:transparent;border:0;box-shadow:none;max-width:100%}
 .mc-chips2{display:flex;flex-wrap:wrap;gap:8px;margin:.2em 0}
 .mc-chip{font:inherit;font-size:.78rem;font-weight:700;color:var(--text-primary);background:var(--card-bg);border:1px solid var(--card-border);border-radius:99px;padding:7px 14px;cursor:pointer;transition:background .15s,transform .15s}
@@ -1121,11 +1222,21 @@
         const u = i.getAttribute('data-mc-u');
         if (!i.getAttribute('data-mc-s') && u && !/images\.weserv\.nl/.test(i.src)) { i.setAttribute('data-mc-s', '1'); i.src = 'https://images.weserv.nl/?url=' + encodeURIComponent(u) + '&w=800&output=webp&q=85'; return; }
         const fb = i.getAttribute('data-mc-fb') || 'hide';
-        if (fb.indexOf('ini:') === 0) i.replaceWith(iniEl(fb.slice(4)));
+        if (fb.indexOf('flag:') === 0) { const fe = el('div', 'mc-ini', flagEmoji(fb.slice(5))); fe.style.background = 'var(--input-bg)'; fe.style.fontSize = '1.7rem'; i.replaceWith(fe); }
+        else if (fb.indexOf('ini:') === 0) i.replaceWith(iniEl(fb.slice(4)));
         else if (fb.indexOf('ph:') === 0) i.replaceWith(ph(fb.slice(3)));
         else { const t = i.closest('.mc-tile,.mc-limg'); (t || i).style.display = 'none'; }
       } catch (e) { }
     }, true);
+
+    // ---------------- أسماء المنتخبات ← كود الدولة (عشان العلم يظهر حتى لو المدرب نسي الكود) ----------------
+    const CC = {};
+    ('مصر eg|السعودية sa|المغرب ma|الجزائر dz|تونس tn|ليبيا ly|السودان sd|الأردن jo|فلسطين ps|لبنان lb|سوريا sy|العراق iq|الكويت kw|قطر qa|الإمارات ae|البحرين bh|عمان om|اليمن ye|موريتانيا mr|الصومال so|جيبوتي dj|جزر القمر km|نيجيريا ng|السنغال sn|الكاميرون cm|غانا gh|كوت ديفوار ci|ساحل العاج ci|مالي ml|بوركينا فاسو bf|جنوب أفريقيا za|جنوب افريقيا za|الكونغو الديمقراطية cd|الكونغو cg|أنجولا ao|زامبيا zm|زيمبابوي zw|أوغندا ug|كينيا ke|تنزانيا tz|إثيوبيا et|الجابون ga|غينيا gn|الرأس الأخضر cv|بنين bj|توجو tg|موزمبيق mz|ناميبيا na|بوتسوانا bw|مدغشقر mg|ملاوي mw|رواندا rw|ليبيريا lr|سيراليون sl|غامبيا gm|النيجر ne|تشاد td|إريتريا er|البرازيل br|الأرجنتين ar|أوروغواي uy|أوروجواي uy|كولومبيا co|تشيلي cl|بيرو pe|الإكوادور ec|باراغواي py|فنزويلا ve|بوليفيا bo|المكسيك mx|الولايات المتحدة us|أمريكا us|كندا ca|كوستاريكا cr|بنما pa|هندوراس hn|جامايكا jm|هايتي ht|كوبا cu|إنجلترا gb-eng|انجلترا gb-eng|اسكتلندا gb-sct|ويلز gb-wls|أيرلندا الشمالية gb-nir|أيرلندا ie|فرنسا fr|ألمانيا de|المانيا de|إسبانيا es|اسبانيا es|إيطاليا it|ايطاليا it|البرتغال pt|هولندا nl|بلجيكا be|سويسرا ch|النمسا at|كرواتيا hr|صربيا rs|اليونان gr|تركيا tr|بولندا pl|التشيك cz|سلوفاكيا sk|سلوفينيا si|المجر hu|رومانيا ro|بلغاريا bg|أوكرانيا ua|روسيا ru|السويد se|النرويج no|الدنمارك dk|فنلندا fi|أيسلندا is|ألبانيا al|البوسنة ba|مقدونيا الشمالية mk|الجبل الأسود me|جورجيا ge|أرمينيا am|أذربيجان az|كازاخستان kz|أوزبكستان uz|إيران ir|اليابان jp|كوريا الجنوبية kr|كوريا الشمالية kp|الصين cn|الهند in|باكستان pk|بنغلاديش bd|إندونيسيا id|ماليزيا my|تايلاند th|فيتنام vn|الفلبين ph|سنغافورة sg|أستراليا au|نيوزيلندا nz|أفغانستان af|egypt eg|morocco ma|algeria dz|tunisia tn|saudi arabia sa|nigeria ng|senegal sn|cameroon cm|ghana gh|ivory coast ci|south africa za|brazil br|argentina ar|france fr|germany de|spain es|italy it|portugal pt|netherlands nl|belgium be|england gb-eng|scotland gb-sct|wales gb-wls|croatia hr|usa us|united states us|mexico mx|canada ca|japan jp|south korea kr|australia au|iran ir|turkey tr|jordan jo|qatar qa|uruguay uy|colombia co|poland pl|switzerland ch|denmark dk|sweden se|norway no|ukraine ua|russia ru')
+      .split('|').forEach(p => { const i = p.lastIndexOf(' '); CC[p.slice(0, i).trim()] = p.slice(i + 1).trim(); });
+    const normCountry = t => String(t || '').toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/^(منتخب|national team of|team)\s+/, '').replace(/\s+/g, ' ').trim();
+    const CCN = {}; Object.keys(CC).forEach(k => { CCN[normCountry(k)] = CC[k]; });
+    const autoCode = name => CCN[normCountry(name)] || '';
+    const flagEmoji = iso => /^[a-z]{2}$/.test(iso) ? String.fromCodePoint.apply(null, iso.split('').map(ch => 0x1F1E6 + ch.charCodeAt(0) - 97)) : '';
 
     // ---------------- علم/شعار الفريق ----------------
     function toIso(c) {
@@ -1138,7 +1249,7 @@
     function teamBadge(name, code, logo) {
       const lg = httpUrl(logo), iso = toIso(code);
       const url = lg || (iso ? 'https://flagcdn.com/w160/' + iso + '.png' : '');
-      return url ? img(url, name, 'mc-flag', 'ini:' + name) : iniEl(name);
+      return url ? img(url, name, 'mc-flag', (!lg && flagEmoji(iso)) ? 'flag:' + iso : 'ini:' + name) : iniEl(name);
     }
 
     // ---------------- مساعدين ----------------
@@ -1183,6 +1294,89 @@
       } catch (e) { }
     });
 
+    document.addEventListener('click', ev => {
+      try {
+        const o = ev.target && ev.target.closest && ev.target.closest('.mc-opt'), sb = ev.target && ev.target.closest && ev.target.closest('.mc-qsend');
+        if (!o && !sb) return;
+        const card = (o || sb).closest('.mct-quiz'); if (!card || card.hasAttribute('data-done')) return;
+        if (o) {
+          const q = o.closest('.mc-q');
+          if (q.getAttribute('data-multi') === '1') o.classList.toggle('on'); else { q.querySelectorAll('.mc-opt.on').forEach(b => b.classList.remove('on')); o.classList.add('on'); }
+          card.querySelector('.mc-qsend').disabled = !Array.prototype.every.call(card.querySelectorAll('.mc-q'), qq => qq.querySelector('.mc-opt.on'));
+          return;
+        }
+        let ok = 0, tot = 0; const lines = [];
+        card.querySelectorAll('.mc-q').forEach((q, qi) => {
+          const opts = Array.prototype.slice.call(q.querySelectorAll('.mc-opt'));
+          const sel = opts.map((b, k) => b.classList.contains('on') ? k : -1).filter(k => k >= 0);
+          let ans = null; try { ans = q.getAttribute('data-ans') ? JSON.parse(q.getAttribute('data-ans')) : null; } catch (e) { }
+          const set = ans == null ? null : (Array.isArray(ans) ? ans : [ans]);
+          let good = false;
+          if (set) {
+            tot++; good = set.length === sel.length && set.every(k => sel.indexOf(k) >= 0); if (good) ok++;
+            opts.forEach((b, k) => { if (set.indexOf(k) >= 0) b.classList.add('ok'); else if (sel.indexOf(k) >= 0) b.classList.add('bad'); });
+            q.classList.add(good ? 'good' : 'wrong');
+          }
+          const e = q.querySelector('.mc-qe'); if (e) e.classList.add('show');
+          const txt = q.querySelector('.mc-qt').textContent.replace(/^\d+\.\s*/, '').slice(0, 90);
+          lines.push((qi + 1) + ') ' + txt + ' ← ' + (sel.map(k => opts[k].querySelector('span').textContent).join('، ') || '—') + (set ? (good ? ' ✅' : ' ❌') : ''));
+        });
+        card.setAttribute('data-done', '1'); card.querySelector('.mc-qsend').style.display = 'none';
+        const res = card.querySelector('.mc-qres'); res.textContent = tot ? ('النتيجة: ' + ok + ' من ' + tot + (ok === tot ? ' 🎉' : '')) : 'اتبعتت إجاباتك'; res.classList.add('show');
+        const inp = document.getElementById('aiChatInput'), title = card.getAttribute('data-title') || '';
+        if (inp && typeof sendAIChatMessage === 'function') {
+          inp.value = 'إجاباتي في الاختبار' + (title ? ' «' + title + '»' : '') + ':\n' + lines.join('\n') + (tot ? '\n(التصحيح التلقائي: ' + ok + ' من ' + tot + ')' : '') + '\nصحّحلي وقولي الصح والغلط واشرح أخطائي.';
+          sendAIChatMessage();
+        }
+      } catch (e) { }
+    });
+
+    // ---------------- النشاط الحي ----------------
+    const ACT = { card: null, list: null, head: null, d: null, steps: [], inflight: 0, idle: 0 };
+    function actEnsure() {
+      if (ACT.card && ACT.card.isConnected) return true;
+      const m = document.getElementById('aiChatMessages'); if (!m || typeof appendToAIMessages !== 'function') return false;
+      const es = document.getElementById('aiChatEmptyState'); if (es) es.style.display = 'none';
+      ACT.steps = []; const c = build('activity', { title: 'بيشتغل...', steps: [], live: true });
+      ACT.card = c; ACT.list = c.querySelector('.mc-act-list'); ACT.head = c.querySelector('.mc-act-t'); ACT.d = c.querySelector('details');
+      appendToAIMessages(c); m.scrollTop = m.scrollHeight; return true;
+    }
+    function actBump() {
+      if (ACT.head) ACT.head.textContent = 'بيشتغل... (' + ACT.steps.length + ' خطوة)';
+      const m = document.getElementById('aiChatMessages'); if (m && m.scrollHeight - m.scrollTop - m.clientHeight < 260) m.scrollTop = m.scrollHeight;
+      clearTimeout(ACT.idle); ACT.idle = setTimeout(actFinish, 2600);
+    }
+    function actFinish() {
+      if (ACT.inflight > 0) { ACT.idle = setTimeout(actFinish, 1500); return; }
+      if (!ACT.card || !ACT.steps.length) return;
+      ACT.steps.forEach(s => { if (s.state === 'run') s.state = 'ok'; });
+      if (ACT.head) ACT.head.textContent = '✓ اتنفّذ ' + ACT.steps.length + ' خطوة';
+      const mk = ACT.card.querySelector('.mc-act-h .mc-act-mk'); if (mk) { mk.className = 'mc-act-mk'; mk.textContent = '✓'; }
+      if (ACT.d) ACT.d.removeAttribute('open');
+      try { if (typeof aiRecordCard === 'function' && !(typeof aiReplayingUI !== 'undefined' && aiReplayingUI)) aiRecordCard('card', { t: 'activity', x: { title: '✓ اتنفّذ ' + ACT.steps.length + ' خطوة', steps: ACT.steps.map(s => Object.assign({}, s)) } }); } catch (e) { }
+      ACT.card = null;
+    }
+    const argDetail = a => { a = a || {}; for (const k of ['query', 'q', 'search_query', 'url', 'title', 'name', 'path', 'text', 'prompt', 'file', 'filename']) if (typeof a[k] === 'string' && a[k].trim()) return str(a[k], 80); return ''; };
+    const resSummary = r => { if (!r) return ''; if (r.status === 'error') return str(r.message || r.error || 'فشل', 120); const n = r.result_count != null ? r.result_count : (Array.isArray(r.results) ? r.results.length : (Array.isArray(r.pages) ? r.pages.length : null)); return n != null ? n + ' نتيجة' : ''; };
+    window.massrAct = {
+      step(o) {
+        if (!actEnsure()) return null;
+        const s = normStep(o); if (!(s.kind === 'sources' ? s.list.length : s.kind === 'images' ? s.imgs.length : s.text)) return null;
+        ACT.steps.push(s); const row = stepRow(s); ACT.list.append(row); actBump(); return { s, row, card: ACT.card };
+      },
+      toolStart(name, args) {
+        const EXTRA = { massr_universal_search: '🔎 بحث شامل في المصادر', web_find: '🔎 بحث في الويب', web_read: '📖 بقرا صفحة', web_images: '🖼️ بدور على صور', web_scholar: '🎓 بحث علمي' };
+        const lbl = (typeof AI_FN_STATUS_LABELS !== 'undefined' && AI_FN_STATUS_LABELS[name]) || EXTRA[name] || ('⚙️ ' + name);
+        const h = this.step({ icon: '⚡', text: lbl, detail: argDetail(args), state: 'run' }); if (h) ACT.inflight++; return h;
+      },
+      toolEnd(h, res) {
+        if (!h) return; ACT.inflight = Math.max(0, ACT.inflight - 1);
+        const err = res && res.status === 'error'; h.s.state = err ? 'err' : 'ok';
+        const sm = resSummary(res); if (sm) h.s.detail = sm;
+        const nr = stepRow(h.s); if (h.row && h.row.isConnected) h.row.replaceWith(nr); h.row = nr; actBump();
+      }
+    };
+
     // ---------------- بلوك ui الحر: إطار معزول (من غير شبكة، ومن غير وصول لبيانات التطبيق) ----------------
     const uiH = {};
     const uiHash = s => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
@@ -1216,8 +1410,51 @@
       } catch (e) { }
     });
 
+    const favicon = u => 'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(host(u)) + '&sz=64';
+    function stepRow(s) {
+      if (s.kind === 'sources') {
+        const w = el('div', 'mc-act-srcs');
+        s.list.forEach(i => { const a = Object.assign(el('a', 'mc-act-src'), { href: i.url, target: '_blank', rel: 'noopener noreferrer' }); a.title = i.title || host(i.url); a.append(img(favicon(i.url), '', '', 'hide'), el('span', '', host(i.url))); w.append(a); });
+        return w;
+      }
+      if (s.kind === 'images') {
+        const w = el('div', 'mc-act-imgs');
+        s.imgs.forEach(u => { const t = el('button', 'mc-tile'); t.type = 'button'; t.setAttribute('data-full', u); t.append(img(u, '', '', 'hide')); w.append(t); });
+        return w;
+      }
+      const r = s.url ? Object.assign(el('a', 'mc-act-row'), { href: s.url, target: '_blank', rel: 'noopener noreferrer' }) : el('div', 'mc-act-row');
+      const ic = el('span', 'mc-act-ic');
+      if (s.url) ic.append(img(favicon(s.url), '', '', 'ph:' + (s.icon || '🌐'))); else ic.textContent = s.icon || '•';
+      const b = el('span', 'mc-act-b'); b.append(el('span', 'mc-act-x', s.text)); if (s.detail) b.append(el('small', '', s.detail));
+      r.append(ic, b, el('span', 'mc-act-mk' + (s.state === 'run' ? ' run' : s.state === 'err' ? ' err' : ''), s.state === 'run' ? '' : (s.state === 'err' ? '✗' : '✓')));
+      return r;
+    }
+
     // ---------------- بناء الكروت ----------------
     const BUILD = {
+      activity(c, x) {
+        const d = el('details', 'mc-act'); if (x.live) d.setAttribute('open', '');
+        const sm = el('summary', 'mc-act-h');
+        sm.append(el('span', 'mc-act-mk' + (x.live ? ' run' : ''), x.live ? '' : '✓'), el('span', 'mc-act-t', x.title || ('اتنفّذ ' + x.steps.length + ' خطوة')), el('span', 'mc-act-ch', '⌄'));
+        d.append(sm);
+        const list = el('div', 'mc-act-list'); x.steps.forEach(s => list.append(stepRow(s))); d.append(list); c.append(d);
+      },
+      quiz(c, x) {
+        const LET = ['أ', 'ب', 'ج', 'د', 'هـ', 'و'];
+        const t = el('div', 'mc-top'); t.append(el('b', '', '🧠 ' + (x.title || 'اختبار')), el('span', 'mc-badge', x.questions.length + ' سؤال')); c.append(t);
+        c.setAttribute('data-title', x.title || '');
+        x.questions.forEach((q, qi) => {
+          const qb = el('div', 'mc-q'); qb.setAttribute('data-ans', q.answer == null ? '' : JSON.stringify(q.answer)); qb.setAttribute('data-multi', q.multi ? '1' : '0');
+          qb.append(el('div', 'mc-qt', (qi + 1) + '. ' + q.q));
+          if (q.image) { const w = el('div', 'mc-qimg'); w.append(img(q.image, '', '', 'hide')); qb.append(w); }
+          const ol = el('div', 'mc-opts');
+          q.options.forEach((o, k) => { const b = el('button', 'mc-opt'); b.type = 'button'; b.setAttribute('data-k', String(k)); b.append(el('i', '', LET[k] || String(k + 1)), el('span', '', o)); ol.append(b); });
+          qb.append(ol);
+          if (q.explain) qb.append(el('div', 'mc-qe', '💡 ' + q.explain));
+          c.append(qb);
+        });
+        const f = el('div', 'mc-qfoot'); const sb = el('button', 'mc-qsend', 'إرسال الإجابات'); sb.type = 'button'; sb.disabled = true; f.append(sb, el('div', 'mc-qres')); c.append(f);
+      },
       match(c, x) {
         const st = x.status;
         const top = el('div', 'mc-top');
@@ -1238,6 +1475,11 @@
       },
       product(c, x) {
         if (x.image) { const w = el('div', 'mc-pimg'); w.append(img(x.image, x.name, '', 'ph:🛍️')); c.append(w); }
+        if (x.images && x.images.length > 1) {
+          const g = el('div', 'mc-gal');
+          x.images.forEach(u => { const t = el('button', 'mc-tile'); t.type = 'button'; t.setAttribute('data-full', u); t.append(img(u, x.name, '', 'hide')); g.append(t); });
+          c.append(g);
+        }
         const b = el('div', 'mc-body');
         if (x.brand) b.append(el('div', 'mc-brand', x.brand));
         b.append(el('div', 'mc-name', x.name));
@@ -1250,6 +1492,11 @@
         if (x.availability) b.append(el('div', 'mc-brand', x.availability));
         if (x.description) b.append(el('div', 'mc-desc', x.description));
         if (x.specs.length) { const ch = el('div', 'mc-chips'); x.specs.forEach(sp => ch.append(el('span', '', sp))); b.append(ch); }
+        if (x.offers && x.offers.length) {
+          const of = el('div', 'mc-offers');
+          x.offers.forEach(o => { const a = Object.assign(el('a', 'mc-offer'), { href: o.url, target: '_blank', rel: 'noopener noreferrer' }); a.append(img(favicon(o.url), '', '', 'hide'), el('b', '', o.store || host(o.url)), el('em', '', o.price || ''), el('span', '', 'فتح ↗')); of.append(a); });
+          b.append(of);
+        }
         const u = httpUrl(x.url);
         if (u) b.append(Object.assign(el('a', 'mc-btn', '🔗 فتح المنتج'), { href: u, target: '_blank', rel: 'noopener noreferrer' }));
         c.append(b);
@@ -1387,11 +1634,13 @@
       if (type === 'match') {
         x.home = str(a.home, 40); x.away = str(a.away, 40);
         if (!x.home || !x.away) return null;
-        x.home_code = str(a.home_code, 12); x.away_code = str(a.away_code, 12);
+        x.home_code = str(a.home_code, 12) || autoCode(x.home); x.away_code = str(a.away_code, 12) || autoCode(x.away);
         x.home_logo = httpUrl(a.home_logo); x.away_logo = httpUrl(a.away_logo);
         x.home_score = str(a.home_score, 4); x.away_score = str(a.away_score, 4);
         const s = String(a.status || '').toLowerCase();
         x.status = /live|لايف|جارية|مباشر/.test(s) ? 'live' : /half|استراحة/.test(s) ? 'halftime' : /final|finish|ended|full|انتهت|انتهى|نهاية/.test(s) ? 'finished' : /upcoming|scheduled|not|قريب|لم تبدأ/.test(s) ? 'upcoming' : ((x.home_score !== '' && x.away_score !== '') ? 'finished' : 'upcoming');
+        if ((x.home_score === '') !== (x.away_score === '')) { if (x.home_score === '') x.home_score = '0'; else x.away_score = '0'; }
+        if (x.status !== 'upcoming' && x.home_score === '' && x.away_score === '') return null;
         x.minute = str(a.minute, 8); x.competition = str(a.competition, 50); x.kickoff = str(a.kickoff, 40); x.venue = str(a.venue, 50); x.scorers = str(a.scorers, 160);
       } else if (type === 'product') {
         x.name = str(a.name, 140); if (!x.name) return null;
@@ -1399,6 +1648,8 @@
         x.rating = str(a.rating, 5); x.reviews = str(a.reviews, 12); x.availability = str(a.availability, 40); x.description = str(a.description, 300);
         x.image = httpUrl(a.image); x.url = httpUrl(a.url);
         x.specs = arr(a.specs).map(v => str(v, 40)).filter(Boolean).slice(0, 6);
+        x.images = arr(a.images).map(i => httpUrl(typeof i === 'string' ? i : (i && i.url))).filter(Boolean).slice(0, 6);
+        x.offers = arr(a.offers).map(o => ({ store: str(o && (o.store || o.name), 40), price: str(o && o.price, 30), url: httpUrl(o && o.url) })).filter(o => o.url).slice(0, 6);
       } else if (type === 'images') {
         x.title = str(a.title, 60);
         x.images = arr(a.images).map(i => ({ url: httpUrl(i && i.url), caption: str(i && i.caption, 60) })).filter(i => i.url).slice(0, 9);
@@ -1410,6 +1661,7 @@
         x.title = str(a.title, 80); if (!x.title) return null;
         x.emoji = emo(a.emoji); x.subtitle = str(a.subtitle, 80); x.note = str(a.note, 200);
         x.rows = arr(a.rows).map(r => ({ label: str(r && r.label, 40), value: str(r && r.value, 60) })).filter(r => r.label && r.value).slice(0, 10);
+        if (!x.rows.length && !x.note) return null; // كارت عنوان بس ملوش لازمة
       } else if (type === 'flow') {
         x.title = str(a.title, 80);
         x.steps = arr(a.steps).slice(0, 14).map(s => ({ title: str(s && s.title, 60), sub: str(s && s.sub, 100), icon: emo(s && s.icon), color: col(s && s.color), row: s && s.row != null ? str(s.row, 6) : '' })).filter(s => s.title);
@@ -1430,6 +1682,24 @@
         x.title = str(a.title, 80);
         x.events = arr(a.events).slice(0, 10).map(e => ({ when: str(e && e.when, 30), title: str(e && e.title, 80), text: str(e && e.text, 200) })).filter(e => e.title);
         if (!x.events.length) return null;
+      } else if (type === 'quiz') {
+        const normAns = (v, opts) => {
+          if (v == null || v === '') return null;
+          const one = z => { if (typeof z === 'number' && z >= 0 && z < opts.length) return z; if (typeof z === 'string') { const n = parseInt(z, 10); if (!isNaN(n) && String(n) === z.trim() && n >= 0 && n < opts.length) return n; const i = opts.indexOf(z.trim()); if (i >= 0) return i; } return -1; };
+          if (Array.isArray(v)) { const r = v.map(one).filter(k => k >= 0); return r.length ? r : null; }
+          const k = one(v); return k >= 0 ? k : null;
+        };
+        x.title = str(a.title, 80);
+        x.questions = arr(a.questions).slice(0, 15).map(q => {
+          const options = arr(q && (q.options || q.choices)).map(o => str(o, 160)).filter(Boolean).slice(0, 6);
+          const answer = normAns(q && (q.answer != null ? q.answer : q.correct), options);
+          return { q: str(q && (q.q || q.question), 320), options, answer, multi: Array.isArray(answer) && answer.length > 1, explain: str(q && (q.explain || q.explanation), 420), image: httpUrl(q && q.image) };
+        }).filter(q => q.q && q.options.length >= 2);
+        if (!x.questions.length) return null;
+      } else if (type === 'activity') {
+        x.title = str(a.title, 80);
+        x.steps = arr(a.steps).slice(0, 60).map(normStep).filter(s => s && (s.kind === 'sources' ? s.list.length : s.kind === 'images' ? s.imgs.length : s.text));
+        if (!x.steps.length) return null;
       } else if (type === 'chips') {
         const list = Array.isArray(a) ? a : arr(a.chips || a.items);
         x.chips = list.map(v => str(typeof v === 'string' ? v : (v && (v.text || v.title)), 60)).filter(Boolean).slice(0, 4);
@@ -1445,6 +1715,11 @@
       return x;
     }
 
+    function normStep(o) {
+      o = o || {};
+      return { icon: emo(o.icon), text: str(o.text, 160), detail: str(o.detail, 200), url: httpUrl(o.url), kind: o.kind === 'sources' || o.kind === 'images' ? o.kind : 'step', state: o.state === 'run' ? 'run' : o.state === 'err' ? 'err' : 'ok',
+        list: arr(o.list).map(i => ({ title: str(i && i.title, 80), url: httpUrl(i && i.url) })).filter(i => i.url).slice(0, 8), imgs: arr(o.imgs).map(httpUrl).filter(Boolean).slice(0, 8) };
+    }
     function build(type, x) { injectCss(); const c = el('div', 'mc mct-' + type); BUILD[type](c, x); return c; }
 
     function renderCard(type, x, replay) {
@@ -1461,7 +1736,7 @@
     window.aiExtraReplay.card = function (dd) { if (dd && dd.t && dd.x) renderCard(dd.t, dd.x, true); };
 
     // بلوكات الشات: ```flow ... ``` وغيرها (aixBlock بينادي على fence)
-    const FENCES = { match: 'match', info: 'info', flow: 'flow', diagram: 'flow', items: 'items', callout: 'callout', stats: 'stats', timeline: 'timeline', gallery: 'images', chips: 'chips', suggest: 'chips', sources: 'sources', ui: 'ui' };
+    const FENCES = { match: 'match', info: 'info', flow: 'flow', diagram: 'flow', items: 'items', callout: 'callout', stats: 'stats', timeline: 'timeline', gallery: 'images', quiz: 'quiz', shop: 'product', chips: 'chips', suggest: 'chips', sources: 'sources', ui: 'ui' };
     window.MASSR_CARDS = {
       has: l => Object.prototype.hasOwnProperty.call(FENCES, l),
       fence(lang, code) {
@@ -1475,13 +1750,13 @@
 
     // ---------------- الأداة (للمكالمة الصوتية أو عرض كارت من غير نص) ----------------
     const W = window.__massrWT;
-    const JSON_TYPES = ['flow', 'items', 'callout', 'stats', 'timeline'];
+    const JSON_TYPES = ['flow', 'items', 'callout', 'stats', 'timeline', 'quiz'];
     if (W && typeof APP_ACTIONS !== 'undefined') {
       const OBJ = props => ({ type: 'array', items: { type: 'object', properties: props } });
       W.reg('show_card', '🃏 كارت في الشات',
         'بتعرض كارت شيك في الشات بدل سرد النص (مفيدة خصوصًا وإنت بتتكلم صوت): match نتيجة/مباراة بأعلام الفرق، product منتج بصورته وسعره، images معرض صور، lib مكتبة جافاسكربت برابط CDN، info معلومة منظمة (سعر عملة، طقس، ترتيب)، flow مخطط خطوات بأسهم وألوان، items قايمة بصور ولينكات، callout تنبيه أو نصيحة، stats أرقام كبيرة، timeline خط زمني، ui تصميم حر بـ HTML. الكارت لقطة وقت الطلب ومش بيتحدّث لوحده. استخدمها بعد ما تجيب بيانات حقيقية، وماتألفش أي رقم أو سعر أو رابط صورة: الحقل اللي مش معاك سيبه فاضي.',
         {
-          type: { type: 'string', enum: ['match', 'product', 'images', 'lib', 'info', 'flow', 'items', 'callout', 'stats', 'timeline', 'ui'], description: 'نوع الكارت.' },
+          type: { type: 'string', enum: ['match', 'product', 'images', 'lib', 'info', 'flow', 'items', 'callout', 'stats', 'timeline', 'quiz', 'ui'], description: 'نوع الكارت.' },
           data: d(S, 'للأنواع flow وitems وcallout وstats وtimeline: JSON كنص بنفس صيغة بلوك الشات بالظبط (مثلًا {"steps":[{"title":"..","color":"green"}]}). لنوع ui: كود HTML فقط.'),
           home: d(S, 'match: اسم الفريق الأول.'), away: d(S, 'match: اسم الفريق التاني.'),
           home_code: d(S, 'match: كود دولة الفريق الأول بحروف صغيرة ISO زي eg أو sa أو gb-eng (للمنتخبات). للأندية سيبه فاضي.'), away_code: d(S, 'match: كود دولة الفريق التاني.'),
@@ -1495,6 +1770,7 @@
           description: d(S, 'product أو lib: وصف مختصر.'), image: d(S, 'product: رابط صورة المنتج من نتايج حقيقية (https).'),
           url: d(S, 'product: رابط المنتج، lib: الصفحة الرسمية.'), specs: d({ type: 'array', items: S }, 'product: لحد 6 مواصفات قصيرة.'),
           images: d(OBJ({ url: S, caption: S }), 'images: لحد 9 صور {url,caption} من نتايج حقيقية.'), title: d(S, 'images أو info: العنوان.'),
+          offers: d(OBJ({ store: S, price: S, url: S }), 'product: أماكن الشراء {store,price,url} من نتايج حقيقية (لحد 6).'),
           version: d(S, 'lib: الإصدار.'), cdn_url: d(S, 'lib: رابط CDN المباشر.'),
           emoji: d(S, 'info: إيموجي واحد للعنوان.'), subtitle: d(S, 'info: عنوان فرعي.'),
           rows: d(OBJ({ label: S, value: S }), 'info: صفوف {label,value}.'), note: d(S, 'info: ملاحظة تحت الصفوف.'),
@@ -1510,7 +1786,10 @@
             src = Object.assign({}, a, j);
           }
           const x = normalize(type, src);
-          if (!x) return W.er('بيانات الكارت ناقصة أو مش بالصيغة المطلوبة لنوع ' + type + '.');
+          if (!x) {
+            const HINT = { match: 'كارت المباراة لازم فيه home وaway، ولو المباراة خلصت أو لايف لازم home_score وaway_score الاتنين (رقم أو 0). لو مش لاقي النتيجة ابحث تاني أو قول للمستخدم إنك مش لاقيها وماتعرضش كارت.', info: 'كارت info لازم فيه rows (صفوف label/value) أو note؛ ماتعملش كارت عنوان بس. لو عايز تنبيه استخدم callout، ولو مفيش بيانات اكتب الرد كنص.' };
+            return W.er(HINT[type] || ('بيانات الكارت ناقصة أو مش بالصيغة المطلوبة لنوع ' + type + '.'));
+          }
           if (!renderCard(type, x)) return W.er('مقدرتش أعرض الكارت دلوقتي.');
           return W.ok({ shown: type, message: 'اتعرض كارت (' + type + ') للمستخدم. ماتكرّرش بياناته كنص؛ علّق بجملة قصيرة بس. لو المستخدم سأل بعدين عن تحديث (الدقيقة، النتيجة، السعر) ابحث تاني واعرض كارت جديد.' });
         });
@@ -1526,10 +1805,13 @@
       '```callout تنبيه أو نصيحة: {"kind":"info|tip|warn|success|error","title":"..","text":".."}. ' +
       '```stats أرقام كبيرة: {"title":"..","stats":[{"icon":"📈","label":"..","value":"..","delta":"+12%"}]}. ' +
       '```timeline خط زمني: {"title":"..","events":[{"when":"..","title":"..","text":".."}]}. ' +
+      'مهم للكروت: ماتعملش كارت فاضي (info لازم rows أو note، وmatch لازم النتيجة الاتنين رقم أو 0 لو المباراة خلصت أو لايف، ولو مش لاقي النتيجة اكتب كده نصًا). ' +
       '```match نتيجة مباراة: {"home":"مصر","away":"الأردن","home_code":"eg","away_code":"jo","home_score":"2","away_score":"1","status":"live|halftime|finished|upcoming","minute":"67","competition":"..","kickoff":"..","scorers":"..","source":"..","source_url":"https://.."} (home_code للمنتخبات بس بكود الدولة ISO صغير، وللأندية سيبه فاضي). ' +
       '```info معلومة منظمة (سعر عملة، طقس، ترتيب): {"emoji":"💵","title":"..","subtitle":"..","rows":[{"label":"..","value":".."}],"note":"..","source":".."}. ' +
       '```gallery معرض صور: {"title":"..","images":[{"url":"https://..","caption":".."}]}. ' +
       '```ui تصميم حر بـ HTML وCSS (وJS خفيف لو محتاج تفاعل) جوه إطار معزول: اكتب الكود بس من غير html/body. فيه متغيرات الألوان var(--fg) var(--muted) var(--card) var(--border) var(--accent) var(--soft) وكلاسات جاهزة: card وrow وcol وgrid2 وgrid3 وpill وbtn وmuted وh وbig، وألوان g وb وa وr وp مع tint (مثال: class="pill tint g"). الاتجاه RTL تلقائي. ممنوع fetch أو أي اتصال نت أو وحدات vh أو ملفات خارجية، والصور https بس، وخلّي التصميم أنيق وبسيط ومتجاوب مع الموبايل. استخدمه لما الكتل الجاهزة مش كفاية (لوحة، بطاقة تعريف، مقارنة مصممة، شرح بصري، أداة تفاعلية صغيرة). ' +
+      '```quiz اختبار تفاعلي (سؤال أو أكتر في كارت واحد، أو كارت لكل موضوع حسب طلب المستخدم): {"title":"..","questions":[{"q":"نص السؤال","options":["..","..","..",".."],"answer":1,"explain":"شرح الإجابة الصح","image":"https://.."}]} (answer رقم الخيار الصح ابتداءً من 0، أو مصفوفة أرقام لو أكتر من إجابة صح، وimage اختياري من نتايج حقيقية). المستخدم بيختار ويدوس إرسال، والتطبيق بيصحّح فورًا ويبعتلك اختياراته، فعلّق على أخطائه واشرح. ' +
+      '```shop كارت منتج كامل: {"name":"..","brand":"..","price":"..","currency":"جنيه","old_price":"..","rating":"4.5","reviews":"120","availability":"..","description":"..","image":"https://..","images":["https://..",".."],"specs":["..",".."],"url":"https://..","offers":[{"store":"..","price":"..","url":"https://.."}]} من نتايج الأدوات الفعلية بس، والحقل اللي ملقتوش سيبه، وoffers هي المواقع اللي بيتباع فيها بسعرها ورابطها. ' +
       '```chips اقتراحات متابعة قصيرة في آخر الرد لما تفيد (مش في كل رد): ["سؤال تاني قريب",".."] (2 لـ 3 بس، كل واحد أقل من 8 كلمات ومن نفس سياق الكلام). ```sources مصادر الرد بعد أي بحث ويب: [{"title":"..","url":"https://.."}] من نتايج الأدوات الفعلية بس. ' +
       'قواعد الكتل دي: JSON صحيح (تنصيص مزدوج ومن غير فواصل زيادة)، ماتشرحش صيغة الكتلة ولا تكتب نفس البيانات تاني كنص، حط جملة تمهيد قصيرة قبلها وجملة بعدها، ماتألفش أرقام ولا روابط ولا صور (البيانات الحقيقية من أدوات الويب بس، والحقل اللي ملقتوش سيبه)، واستخدمها لما بتفيد القارئ فعلًا (خطوات، مقارنة، أرقام، نتيجة، مصادر) مش في كل رد. الكارت لقطة وقت السؤال مش بيتحدّث: لو سأل تاني عن تحديث ابحث تاني واعرض كتلة جديدة.';
   } catch (e) { try { console.warn('massr cards register failed', e); } catch (_) { } }
@@ -1552,6 +1834,18 @@
         const want = (a && a.mute === undefined) ? !aiLiveMicMuted : (a.mute === true || a.mute === 'true');
         if (want !== aiLiveMicMuted) { try { toggleAIVoiceCallMute(); } catch (e) { return W.er('مقدرتش أغيّر حالة الميكروفون.'); } }
         return W.ok({ muted: !!aiLiveMicMuted, message: aiLiveMicMuted ? 'الميكروفون اتكتم. المستخدم يفتحه من الدايرة أو من زر الميكروفون.' : 'الميكروفون اتفتح.' });
+      });
+    W.reg('project_switch', '📁 تشغيل/إيقاف مشروع',
+      'بتشغّل مشروع من مشاريع المستخدم أو بتوقّفه. المشروع الشغال بيفضل شغال في كل المحادثات الجديدة لحد ما المستخدم يوقفه. استخدمها لما يقول "شغّل مشروع كذا" أو "وقف المشروع" أو "غيّر المشروع لـ كذا". project = اسم المشروع، أو "none" للإيقاف.',
+      { project: { type: 'string', description: 'اسم المشروع، أو none لإيقاف المشروع الشغال.' } }, ['project'],
+      async a => {
+        const r = String((a && a.project) || '').trim();
+        if (/^(none|لا شيء|بدون|وقف|ايقاف|إيقاف|stop|off)$/i.test(r)) { try { aiShell.pick(0); } catch (e) { localStorage.removeItem('app_ai_proj'); } return W.ok({ active: null, message: 'اتوقف المشروع الشغال.' }); }
+        let list = []; try { list = JSON.parse(localStorage.getItem('app_ai_projects') || '[]'); } catch (e) { }
+        const lc = r.toLowerCase(), p = list.find(z => String(z.id) === r) || list.find(z => (z.name || '').toLowerCase() === lc) || list.find(z => (z.name || '').toLowerCase().includes(lc));
+        if (!p) return W.er('مفيش مشروع بالاسم ده. المشاريع الموجودة: ' + (list.map(z => z.name).join('، ') || 'مفيش'));
+        try { aiShell.pick(p.id); } catch (e) { localStorage.setItem('app_ai_proj', p.id); }
+        return W.ok({ active: p.name, message: 'اشتغل مشروع «' + p.name + '» وهيفضل شغال لحد ما المستخدم يوقفه.' });
       });
     W.reg('stop_speaking', '⏹ وقف الكلام',
       'بتوقّف كلامك فورًا أثناء المكالمة الصوتية والميكروفون فاضل شغال. استخدمها فورًا لما المستخدم يقول "اسكت" أو "كفاية" أو "بس" أو "وقف" أو "خلاص". بعدها ماتردّش بأي كلام (ولا حتى تأكيد) لحد ما يكلمك هو.',
@@ -1583,7 +1877,8 @@
     ['buildAILiveSystemInstructionText', 'buildAISystemInstructionText'].forEach(nm => {
       const f = window[nm];
       if (typeof f === 'function' && !f.__massrCmds) {
-        const g = function () { return f.apply(this, arguments) + CMDS; }; g.__massrCmds = true; window[nm] = g;
+        const projNote = () => { try { const id = localStorage.getItem('app_ai_proj'); if (!id) return ''; const p = JSON.parse(localStorage.getItem('app_ai_projects') || '[]').find(z => String(z.id) === String(id)); if (!p) return ''; return '\n\nالمشروع الشغال دلوقتي «' + p.name + '» وبيفضل شغال بين كل المحادثات لحد ما المستخدم يوقفه. لو سألك ليه بتتصرف بأسلوب أو طريقة معينة، اشرح بصراحة إن ده بسبب المشروع ده (تعليماته معاك)، واعرض عليه توقفه أو تبدّل لمشروع تاني بأداة project_switch.'; } catch (e) { return ''; } };
+        const g = function () { return f.apply(this, arguments) + CMDS + projNote(); }; g.__massrCmds = true; window[nm] = g;
       }
     });
     // الكروت كمان تتعرض في المكالمة: نفس قاعدة الصوت بتتضاف للجلسة الصوتية
