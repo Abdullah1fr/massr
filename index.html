@@ -2,6 +2,7 @@
 <html lang="ar" dir="rtl">
 
 <head>
+<meta name="app-build" content="2026112401">
 <script>/* كشف نوع الجهاز مرة واحدة: APK=تليفون دايمًا، ويندوز/ماك/لينكس=كمبيوتر مهما صغّرت النافذة، غير كده تليفون. ?device=desktop|mobile للتجربة */
 (function(){var d=document.documentElement,u=navigator.userAgent||'',q=(location.search.match(/[?&]device=(desktop|mobile)/)||[])[1];
 var apk=!!(window.Capacitor&&Capacitor.isNativePlatform&&Capacitor.isNativePlatform())||/;\s*wv\)/.test(u)||(document.referrer||'').indexOf('android-app://')===0;
@@ -6019,7 +6020,7 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
                         <button type="button" class="ai-thinking-btn" id="aiThinkingBtn" title="مستوى التفكير" onclick="toggleAIThinkingPreference()">🧠 تفكير: تلقائي</button>
                         <div class="ai-chat-input-spacer"></div>
                         <button type="button" class="ai-icon-btn" id="aiMicBtn" title="تكلم بدل الكتابة" onclick="toggleAIVoiceInput()">🎙️</button>
-                        <button type="button" class="ai-icon-btn ai-voice-call-btn" id="aiVoiceCallBtn" title="اتكلم مع المساعد (مكالمة صوتية حقيقية)" onclick="startAIVoiceCall()">
+                        <button type="button" class="ai-icon-btn ai-voice-call-btn" id="aiVoiceCallBtn" title="اتكلم مع المساعد (مكالمة صوتية حقيقية)" onclick="aiVoiceCallBtnTap()">
                             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20">
                                 <rect x="3" y="10" width="2.4" height="4" rx="1.2" fill="currentColor"/>
                                 <rect x="7.4" y="6" width="2.4" height="12" rx="1.2" fill="currentColor"/>
@@ -6083,9 +6084,10 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
                     </div>
                 </div>
                 <div class="ai-vc-stage">
-                    <div class="ai-voice-call-orb-wrap" id="aiVcOrbWrap"><div class="ai-voice-call-orb" id="aiVoiceCallOrb"></div></div>
+                    <div class="ai-voice-call-orb-wrap" id="aiVcOrbWrap"><span class="vc-rip r1"></span><span class="vc-rip r2"></span><span class="vc-rip r3"></span><div class="ai-voice-call-orb" id="aiVoiceCallOrb"><i class="vb b1"></i><i class="vb b2"></i><i class="vb b3"></i></div></div>
                     <div class="ai-voice-call-status" id="aiVoiceCallStatus">بيتصل...</div>
                     <div class="ai-voice-call-hint" id="aiVoiceCallHint">لحظة واحدة وهيبدأ يسمعك</div>
+                    <button type="button" class="vc-hush" id="aiVcHush" onclick="aiLiveHush()">⏹ اسكت</button>
                 </div>
                 <div class="ai-vc-bottom">
                     <button type="button" class="ai-vc-end" onclick="endAIVoiceCall()" title="إنهاء المكالمة">
@@ -8066,6 +8068,8 @@ let categories = JSON.parse(localStorage.getItem('app_categories')) || ['📚 د
     let aiLiveInputTranscriptBuf = '';  // بافر كلام المستخدم (transcript) للدور الحالي
     let aiLiveOutputTranscriptBuf = ''; // بافر رد المساعد (transcript) للدور الحالي
     let aiLiveInputFlushed = false;     // هل اتضاف كلام المستخدم للشات في الدور ده لسه؟
+    let aiLiveLiveUserBubble = null;    // فقاعة كلام المستخدم الحية (بتتكتب أثناء الكلام)
+    let aiLiveLiveBotBubble = null;     // فقاعة رد المدرب الحية (بتتكتب أثناء الكلام)
     let aiLiveCallActive = false;       // فيه مكالمة شغالة دلوقتي (بيتفرق عن idle عشان الإغلاق المتزامن)
 
     // -------- حارس التجمّد (stall watchdog): بيكتشف لو المستخدم اتكلم ومحدش ردّ عليه --------
@@ -20284,9 +20288,16 @@ async function archiveCurrentAIChatIfNeeded(historySnapshot = aiChatHistory) {
     const list = getAIConversations();
     const idx = list.findIndex(c => c.id === convId);
     const oldTitle = idx >= 0 ? list[idx].title : '';
+    const prev = idx >= 0 ? list[idx] : null;
+    let nTitle, nSrc, nN;
+    if (window.__aiCustomTitle) { nTitle = window.__aiCustomTitle; nSrc = 'user'; window.__aiCustomTitle = null; }
+    else if (prev && (prev.titleSrc === 'user' || prev.titleSrc === 'ai')) { nTitle = prev.title; nSrc = prev.titleSrc; nN = prev.titleN; }
+    else { nTitle = (oldTitle && oldTitle !== 'محادثة بدون عنوان') ? oldTitle : deriveAIConversationTitle(historySnapshot); nSrc = 'first'; }
     const entry = {
         id: convId,
-        title: (oldTitle && oldTitle !== 'محادثة بدون عنوان') ? oldTitle : deriveAIConversationTitle(historySnapshot),
+        title: nTitle,
+        titleSrc: nSrc,
+        titleN: nN,
         savedAt: new Date().toISOString(),
         sig,
         history: sanitized
@@ -20294,7 +20305,42 @@ async function archiveCurrentAIChatIfNeeded(historySnapshot = aiChatHistory) {
     if (idx >= 0) list.splice(idx, 1);
     list.unshift(entry);
     saveAIConversationsList(list.slice(0, 30));
+    void aiRetitleConv(convId, historySnapshot, false);
     return convId;
+}
+
+// عنوان المحادثة بيتكتب من محتواها كله (مش أول رسالة): ذكاء اصطناعي بيلخّص الموضوع في 2-6 كلمات.
+// عنوان كتبه المستخدم (أو طلب تغييره صوت/كتابة) عمره ما بيتلمس.
+async function aiRetitleConv(convId, history, force) {
+    window.__aiRetitling = window.__aiRetitling || {};
+    try {
+        if (convId == null || window.__aiRetitling[convId]) return;
+        const c0 = getAIConversations().find(z => z.id === convId);
+        if (!c0 || c0.titleSrc === 'user') return;
+        const n = (history || []).length;
+        if (n < 2) return;
+        if (c0.titleSrc === 'ai') { if (n - (c0.titleN || 0) < (force ? 2 : 8)) return; }
+        else if (n < 4 && !force) return;
+        const lines = [];
+        history.slice(-20).forEach(t => {
+            const tx = ((t && t.parts) || []).map(p => (p && p.text) || '').join(' ').replace(/\s+/g, ' ').trim();
+            if (tx) lines.push((t.role === 'user' ? 'المستخدم: ' : 'المساعد: ') + tx.slice(0, 220));
+        });
+        if (!lines.length) return;
+        window.__aiRetitling[convId] = 1;
+        const prompt = 'دي محادثة بين مستخدم ومساعد. اكتب عنوانًا قصيرًا (من 2 إلى 6 كلمات) بالعربي يعبّر عن الموضوع الأساسي اللي اتكلموا فيه في المحادثة كلها، مش عن أول رسالة بس. رجّع العنوان فقط، من غير تنصيص ولا ترقيم ولا شرح.\n\n' + lines.join('\n');
+        const r = await aiGeminiGrounded(prompt, { grounded: false, timeoutMs: 12000 });
+        if (!r || !r.ok || !r.text) return;
+        let t = r.text.split('\n')[0].replace(/["“”«»'`*#]/g, '').replace(/^[-\d.\s]+/, '').trim();
+        if (t.length < 2) return;
+        if (t.length > 45) t = t.slice(0, 45).trim() + '…';
+        const list = getAIConversations(), c = list.find(z => z.id === convId);
+        if (!c || c.titleSrc === 'user') return;
+        c.title = t; c.titleSrc = 'ai'; c.titleN = n;
+        saveAIConversationsList(list);
+        if (convId === aiActiveConvId) { const tt = document.getElementById('amTT'); if (tt) tt.textContent = t; }
+        try { if (typeof renderAIConversationsList === 'function') renderAIConversationsList(); } catch (e) {}
+    } catch (e) { } finally { try { delete window.__aiRetitling[convId]; } catch (e) {} }
 }
 
 // يبدأ محادثة جديدة فورًا: لا ننتظر حفظ المحادثة القديمة ولا نسمح لطلب قديم
@@ -20317,8 +20363,10 @@ async function startFreshAIChat() {
 
     // الحفظ في الخلفية فقط. لو فيه صور بحث/صور كبيرة، الزر يفضل سريع ولا ينتظرها.
     if (oldHistory.length > 0) {
-        void archiveCurrentAIChatIfNeeded(oldHistory).catch(() => {});
-    }
+        const pArc = archiveCurrentAIChatIfNeeded(oldHistory);
+        const cArc = window.__aiLastArchivedId;
+        pArc.then(() => aiRetitleConv(cArc, oldHistory, true)).catch(() => {});
+    } else { window.__aiCustomTitle = null; }
     setAIActiveConv(null);
 
     const messagesEl = document.getElementById('aiChatMessages');
@@ -21125,12 +21173,21 @@ function appendAIWebResultCard(item) {
     if (!messagesEl || !item?.url) return;
     const emptyState = document.getElementById('aiChatEmptyState');
     if (emptyState) emptyState.style.display = 'none';
+    let host = '', path = '';
+    try { const u = new URL(item.url); host = u.hostname.replace(/^www\./, ''); path = decodeURIComponent(u.pathname + u.search).replace(/^\//, ''); } catch (e) { host = String(item.url).slice(0, 40); }
+    if (path.length > 46) path = path.slice(0, 46) + '…';
     const a = document.createElement('a');
-    a.className = 'ai-web-result-card'; a.href = item.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
-    const title = document.createElement('div'); title.className = 'ai-web-result-title'; title.textContent = item.title || item.url;
-    const url = document.createElement('div'); url.className = 'ai-web-result-url'; url.textContent = item.url;
-    const hint = document.createElement('div'); hint.className = 'ai-web-result-hint'; hint.textContent = '🔗 فتح المصدر';
-    a.append(title, url, hint); appendToAIMessages(a); messagesEl.scrollTop = messagesEl.scrollHeight;
+    a.className = 'ai-web-result-card wr2'; a.href = item.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    const top = document.createElement('div'); top.className = 'wr2-top';
+    const ic = document.createElement('img'); ic.className = 'wr2-ic'; ic.alt = ''; ic.referrerPolicy = 'no-referrer';
+    ic.src = 'https://www.google.com/s2/favicons?domain=' + encodeURIComponent(host) + '&sz=64'; ic.onerror = function () { ic.style.visibility = 'hidden'; };
+    const hs = document.createElement('span'); hs.className = 'wr2-host'; hs.textContent = host;
+    const go = document.createElement('span'); go.className = 'wr2-go'; go.textContent = 'فتح ↗';
+    top.append(ic, hs, go);
+    const title = document.createElement('div'); title.className = 'ai-web-result-title'; title.textContent = item.title || host;
+    a.append(top, title);
+    if (path) { const pe = document.createElement('div'); pe.className = 'wr2-path'; pe.textContent = path; a.append(pe); }
+    appendToAIMessages(a); messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
 // بيجيب قايمة السيرفرات الشغّالة دلوقتي (Piped / Invidious) من قوائمها الرسمية، ويخزّنها 10 دقايق
@@ -21854,11 +21911,23 @@ const APP_ACTIONS = {
                     appendAIBubble('action', `⚠️ البحث فشل: ${(yt.diag || []).join(' — ') || 'مفيش نتايج'}`);
                     return { status: 'error', message: `معرفتش ألاقي ملف صوتي مطابق لـ "${query}".${aiSearchFailText(yt.diag)} ما عرضتش أي لينك. قول للمستخدم السبب بصراحة وبجملة واحدة، ومتعتذرش كتير.` };
                 }
-                appendAIBubble('action', `🌐 بدوّر على معلومات لـ "${query}"...`);
-                const ps = await aiSearchPages(query, limit);
-                if (!ps.results.length && !ps.summary) return { status: 'error', message: `معرفتش أجيب نتائج ويب لـ "${query}".${aiSearchFailText(ps.diag)} جرّب تاني بعد شوية أو غيّر صيغة البحث.` };
-                ps.results.forEach(appendAIWebResultCard);
-                return { status: 'ok', message: `لقيت ${ps.results.length} مصدر وعرضتهم كروابط داخل الشات.${ps.summary ? ' استخدم الملخص في ردك واذكر إن المصدر بحث جوجل.' : ''}`, summary: ps.summary || '', results: ps.results };
+                // البحث القديم (Gemini + وسطاء جوجل) اتلغى: أي بحث عن صفحات ومعلومات بيروح للبحث الشامل (universalsearch.js) على طول
+                const uni = (typeof APP_ACTIONS !== 'undefined') ? APP_ACTIONS.massr_universal_search : null;
+                if (!uni || typeof uni.handler !== 'function') {
+                    const dg = 'ملف البحث: ' + (window.__universalSearchFailed ? 'ماتحمّلش' : 'اتحمّل') + ' | ويب تولز: ' + (window.__webtoolsFailed ? 'ماتحمّلش' : 'اتحمّل') + ' | المحرك: ' + (window.MASSR_SEARCH ? 'موجود' : 'مش موجود') + ' | الجسر: ' + (window.__massrWT ? 'موجود' : 'مش موجود');
+                    appendAIBubble('action', '⚠️ أداة البحث الشامل مش متسجلة. ' + dg);
+                    return { status: 'error', message: 'أداة البحث الشامل مش متسجلة (' + dg + '). قول للمستخدم الحالة دي بالظبط.' };
+                }
+                let ur;
+                try { ur = await uni.handler({ query, max_results: limit }); }
+                catch (e) { ur = { status: 'error', message: 'البحث الشامل وقع بخطأ: ' + ((e && e.message) || e) }; }
+                // لو فشل: السبب يظهر للمستخدم نفسه في الشات (مش بس للمساعد)، وبعده المساعد يشرحه بجملة
+                if (!ur || ur.status !== 'ok') {
+                    const why = String((ur && ur.message) || 'السبب مش واضح').slice(0, 600);
+                    appendAIBubble('action', `⚠️ البحث فشل: ${why}`);
+                    return { status: 'error', message: why + ' قول للمستخدم السبب ده بصراحة وبجملة واحدة، ومتعتذرش كتير.' };
+                }
+                return ur;
             } catch (e) {
                 return { status: 'error', message: 'حصل خطأ غير متوقع أثناء البحث: ' + ((e && e.message) || e) + '. جرّب تاني بعد شوية.' };
             }
@@ -25078,7 +25147,7 @@ function aiMicFrame() {
 function toggleAIVoiceInput() {
     if (aiMic.active) { aiMicConfirm(); return; }
     if (aiMic.fixing) return;
-    if (aiLiveCallActive) { showToast('المكالمة الصوتية شغالة، اقفلها الأول 📞'); return; }
+    if (aiLiveCallActive) { toggleAIVoiceCallMute(); return; }
     aiMicLoadPrefs();
     aiMic.tried = [];
     const engine = aiMicPickEngine();
@@ -25649,6 +25718,14 @@ function aiFastImageSearchQuery(text) {
 
 // -------- إرسال الرسالة ونداء Gemini API --------
 async function sendAIChatMessage() {
+    if (aiLiveCallActive) {
+        const ci = document.getElementById('aiChatInput'), vi = document.getElementById('aiVcTextInput');
+        const t = aiBidiStrip((ci && ci.value) || '').trim();
+        if (!t || !vi) return;
+        vi.value = t; sendAIVoiceCallText();
+        if (!vi.value) { ci.value = ''; if (typeof updateAIChatInputRowState === 'function') updateAIChatInputRowState(); }
+        return;
+    }
     if (aiRequestInProgress) return;
     const input = document.getElementById('aiChatInput');
     const text = aiBidiStrip(input?.value || '').trim();
@@ -26390,18 +26467,85 @@ function startAIVoiceCall() {
     proceed();
 }
 
+// ===== الخطوة 3: مكالمة جوه الشات =====
+let aiVcBarRO = null, aiVcOrigCallIcon = null, aiVcSavedMini = false, aiVcDragEndAt = 0;
+function aiVcSyncBig() {
+    const m = document.getElementById('aiVoiceCallModal');
+    document.body.classList.toggle('ai-vc-big', !!(m && aiLiveCallActive && m.style.display !== 'none' && m.classList.contains('vc-inchat') && !m.classList.contains('vc-mini')));
+}
+function aiVcMeasureBar() {
+    const bar = document.getElementById('aiChatBottomBar'), modal = document.getElementById('aiVoiceCallModal');
+    if (!bar || !modal) return;
+    const h = bar.offsetHeight || 0;
+    if (h > 40) modal.style.setProperty('--vc-bar-h', (h + 6) + 'px');
+}
+function aiVcInchatOn(modal) {
+    if (!modal) return;
+    modal.classList.add('vc-inchat');
+    modal.classList.remove('vc-mini');
+    document.body.classList.add('ai-in-call');
+    aiVcSyncBig();
+    try { if (typeof switchTab === 'function') switchTab('ai-assistant'); } catch (e) {}
+    aiVcMeasureBar();
+    const bar = document.getElementById('aiChatBottomBar');
+    if (bar && window.ResizeObserver && !aiVcBarRO) { aiVcBarRO = new ResizeObserver(aiVcMeasureBar); aiVcBarRO.observe(bar); }
+    const cb = document.getElementById('aiVoiceCallBtn');
+    if (cb) {
+        if (aiVcOrigCallIcon == null) aiVcOrigCallIcon = cb.innerHTML;
+        cb.innerHTML = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>';
+        cb.title = 'إنهاء المكالمة';
+    }
+    const mic = document.getElementById('aiMicBtn'); if (mic) mic.title = 'كتم / تشغيل الميكروفون';
+    const inp = document.getElementById('aiChatInput'); if (inp) { inp.dataset.ph = inp.placeholder; inp.placeholder = 'اكتب للمساعد وإنت في المكالمة'; }
+    const handle = document.getElementById('aiVoiceCallDragHandle');
+    if (handle && !handle._vcTap) { handle._vcTap = 1; handle.addEventListener('click', aiVcToggleMini); }
+}
+function aiVcInchatOff() {
+    const modal = document.getElementById('aiVoiceCallModal');
+    if (modal) modal.classList.remove('vc-inchat', 'vc-mini');
+    document.body.classList.remove('ai-in-call', 'ai-vc-big');
+    const cb = document.getElementById('aiVoiceCallBtn');
+    if (cb && aiVcOrigCallIcon != null) { cb.innerHTML = aiVcOrigCallIcon; cb.title = 'اتكلم مع المساعد (مكالمة صوتية حقيقية)'; }
+    const mic = document.getElementById('aiMicBtn'); if (mic) { mic.classList.remove('vc-muted'); mic.textContent = '🎙️'; mic.title = 'تكلم بدل الكتابة'; }
+    const inp = document.getElementById('aiChatInput'); if (inp && inp.dataset.ph) { inp.placeholder = inp.dataset.ph; delete inp.dataset.ph; }
+}
+function aiVcSetMini(on) {
+    const modal = document.getElementById('aiVoiceCallModal');
+    if (!modal || !modal.classList.contains('vc-inchat') || !aiLiveCallActive) return;
+    aiVcSavedMini = !!on;
+    if (on) {
+        if (aiLiveCallMinimized) return;
+        const bar = document.querySelector('.ai-chat-input-row'), msgs = document.getElementById('aiChatMessages');
+        const barTop = bar ? bar.getBoundingClientRect().top : window.innerHeight - 150;
+        const at = { x: window.innerWidth / 2, y: Math.max(170, (110 + barTop) / 2) }; // نص مساحة الشات بالظبط (بين الشريط العلوي وشريط الكتابة)
+        const c = document.getElementById('aiVoiceCallModalContent');
+        if (c) { c.style.transition = 'transform .22s ease, opacity .22s ease'; c.style.transform = 'translateY(70px) scale(.9)'; c.style.opacity = '0'; }
+        setTimeout(function () { minimizeAIVoiceCall(at); }, 200);
+    } else if (aiLiveCallMinimized) {
+        restoreAIVoiceCall();
+    }
+    aiVcSyncBig();
+}
+function aiVcToggleMini() {
+    if (Date.now() - aiVcDragEndAt < 350) return; // الضغطة الناتجة عن السحب مش تبديل
+    aiVcSetMini(!aiLiveCallMinimized);
+}
+function aiVoiceCallBtnTap() { if (aiLiveCallActive) endAIVoiceCall(); else startAIVoiceCall(); }
+
 function openAIVoiceCallModal(opts) {
     aiLiveCallActive = true;
+    aiVcSavedMini = false; // كل مكالمة جديدة تبدأ بالأورب الكبير
     aiLiveInputTranscriptBuf = '';
     aiLiveOutputTranscriptBuf = '';
     aiLiveInputFlushed = false;
+    aiLiveLiveUserBubble = null; aiLiveLiveBotBubble = null;
     aiLiveNextPlayTime = 0;
     aiLiveActiveSources = [];
     aiLiveGateState = { until: 0, ema: 0, frames: 0, onset: 0, wasPlaying: false };
     try { ensureAILivePlaybackContext(); } catch (e) {}
 
     const modal = document.getElementById('aiVoiceCallModal');
-    if (modal) modal.style.display = 'flex';
+    if (modal) { modal.style.display = 'flex'; aiVcInchatOn(modal); }
     aiLiveMicMuted = false; aiLiveMicLevel = 0; aiLiveAnalyser = null;
     aiLiveUiUserText = ''; aiLiveUiBotText = ''; aiLiveUiTurnDone = false;
     renderAIVcUI(); renderAIVcMuteBtn(); renderAIVcVoiceList();
@@ -26439,8 +26583,10 @@ function restoreAIVoiceCall() {
     aiLiveCallMinimized = false;
     const minibar = document.getElementById('aiVoiceCallMinibar');
     if (minibar) minibar.style.display = 'none';
+    try { if (typeof switchTab === 'function') switchTab('ai-assistant'); } catch (e) {}
     const modal = document.getElementById('aiVoiceCallModal');
     if (modal) modal.style.display = 'flex';
+    aiVcMeasureBar();
 }
 
 function updateAIVoiceCallMinibarDuration() {
@@ -26458,43 +26604,40 @@ let aiVoiceCallDragHandlersAttached = false;
 function setupAIVoiceCallDragHandlers() {
     if (aiVoiceCallDragHandlersAttached) return;
     aiVoiceCallDragHandlersAttached = true;
-    const handle = document.getElementById('aiVoiceCallDragHandle');
     const content = document.getElementById('aiVoiceCallModalContent');
-    if (!handle || !content) return;
-
-    const DRAG_CLOSE_THRESHOLD = 90; // بكسل — لو سحب أكتر من كده وسايب، بتتصغّر
-
-    const onDragStart = (clientY) => {
-        aiLiveDragStartY = clientY;
-        aiLiveDragCurrentY = 0;
-        content.classList.add('ai-voice-call-dragging');
-    };
-    const onDragMove = (clientY) => {
-        if (aiLiveDragStartY === null) return;
-        const delta = clientY - aiLiveDragStartY;
-        aiLiveDragCurrentY = Math.max(0, delta); // بنمنع السحب لفوق، بس لتحت
-        content.style.transform = 'translateY(' + aiLiveDragCurrentY + 'px)';
-    };
-    const onDragEnd = () => {
-        if (aiLiveDragStartY === null) return;
-        content.classList.remove('ai-voice-call-dragging');
-        if (aiLiveDragCurrentY > DRAG_CLOSE_THRESHOLD) {
-            minimizeAIVoiceCall();
-        } else {
-            content.style.transform = ''; // يرجع مكانه لو السحب مكنش كفاية
+    const modal = document.getElementById('aiVoiceCallModal');
+    if (!content || !modal) return;
+    let pid = null, sy = 0, st = 0, dy = 0, drag = false;
+    content.addEventListener('pointerdown', (e) => {
+        if (!aiLiveCallActive || !modal.classList.contains('vc-inchat')) return;
+        if (e.target.closest('button,input,textarea,a,select,[class*="sheet"]')) return;
+        pid = e.pointerId; sy = e.clientY; st = performance.now(); dy = 0; drag = false;
+    });
+    content.addEventListener('pointermove', (e) => {
+        if (e.pointerId !== pid) return;
+        dy = e.clientY - sy;
+        if (!drag && Math.abs(dy) > 8) { drag = true; try { content.setPointerCapture(pid); } catch (x) {} content.classList.add('ai-voice-call-dragging'); }
+        if (drag) {
+            const mini = modal.classList.contains('vc-mini');
+            content.style.transform = 'translateY(' + Math.max(mini ? -60 : -20, Math.min(160, dy * 0.7)) + 'px)';
         }
-        aiLiveDragStartY = null;
-        aiLiveDragCurrentY = 0;
+    });
+    const end = (e) => {
+        if (e.pointerId !== pid) return;
+        pid = null;
+        if (!drag) return;
+        drag = false;
+        content.classList.remove('ai-voice-call-dragging');
+        content.style.transform = '';
+        aiVcDragEndAt = Date.now();
+        if (e.type === 'pointercancel') return;
+        const v = dy / Math.max(1, performance.now() - st); // px/ms
+        const mini = modal.classList.contains('vc-mini');
+        const down = dy > 70 || (dy > 24 && v > 0.6), up = dy < -50 || (dy < -24 && v < -0.6);
+        if (!mini && down) aiVcSetMini(true); // سحبة لتحت: الأورب يبقى دايرة عايمة في النص
     };
-
-    handle.addEventListener('touchstart', (e) => onDragStart(e.touches[0].clientY), { passive: true });
-    handle.addEventListener('touchmove', (e) => { onDragMove(e.touches[0].clientY); e.preventDefault(); }, { passive: false });
-    handle.addEventListener('touchend', onDragEnd);
-    handle.addEventListener('touchcancel', onDragEnd);
-
-    handle.addEventListener('mousedown', (e) => { onDragStart(e.clientY); e.preventDefault(); });
-    window.addEventListener('mousemove', (e) => { if (aiLiveDragStartY !== null) onDragMove(e.clientY); });
-    window.addEventListener('mouseup', () => { if (aiLiveDragStartY !== null) onDragEnd(); });
+    content.addEventListener('pointerup', end);
+    content.addEventListener('pointercancel', end);
 }
 
 
@@ -26594,6 +26737,8 @@ function renderAIVcMuteBtn() {
             ? '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 11.5 5.3M19 11a7 7 0 0 1-.6 2.8M12 18v3"/><line x1="4" y1="4" x2="20" y2="20"/></svg>'
             : '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
     }
+    const barMic = document.getElementById('aiMicBtn');
+    if (barMic && aiLiveCallActive) { barMic.classList.toggle('vc-muted', aiLiveMicMuted); barMic.textContent = aiLiveMicMuted ? '🔇' : '🎙️'; }
     const mini = document.getElementById('aiVcMiniMute');
     if (mini) { mini.classList.toggle('muted', aiLiveMicMuted); mini.textContent = aiLiveMicMuted ? '🔇' : '🎙️'; }
 }
@@ -26886,6 +27031,7 @@ function handleAILiveServerMessage(msg) {
 
     if (content.inputTranscription && typeof content.inputTranscription.text === 'string') {
         aiLiveInputTranscriptBuf += content.inputTranscription.text;
+        aiLiveLiveWrite('user', aiLiveInputTranscriptBuf);
         aiLiveUiOnInput(content.inputTranscription.text);
     }
 
@@ -26896,6 +27042,7 @@ function handleAILiveServerMessage(msg) {
             flushAILiveInputTranscript();
         }
         aiLiveOutputTranscriptBuf += content.outputTranscription.text;
+        aiLiveLiveWrite('bot', aiLiveOutputTranscriptBuf);
         setAIVoiceCallState('speaking', 'بيرد عليك 🗣️', '');
         aiLiveUiOnOutput(content.outputTranscription.text);
     }
@@ -26966,10 +27113,55 @@ function reconnectAILiveSession(reasonText) {
 
 // بيضيف كلام المستخدم المتراكم (transcript) كفقاعة عادية في الشات ولتاريخ المحادثة،
 // بنفس دوال العرض المستخدمة في الشات الكتابي — عشان تاريخ المكالمة يبان زي أي رسالة عادية
+// فقاعة حية: أول chunk من الدور بيفتح فقاعة في الشات، وكل chunk بعده بيحدّثها وهو لسه بيتكلم.
+// حارس: لو الشات اتصفّر أثناء المكالمة (الفقاعة القديمة اتشالت من الصفحة) ما نكتبش عليها ونفتح فقاعة جديدة.
+function aiLiveLiveWrite(kind, buf) {
+    const text = String(buf || '').replace(/^\s+/, '');
+    if (!text) return;
+    let b = kind === 'user' ? aiLiveLiveUserBubble : aiLiveLiveBotBubble;
+    if (b && !b.isConnected) b = null;
+    if (!b) {
+        b = appendAIBubble(kind === 'user' ? 'user' : 'bot', text);
+        if (kind === 'user') aiLiveLiveUserBubble = b; else aiLiveLiveBotBubble = b;
+        return;
+    }
+    b._rawText = text;
+    if (kind === 'user') {
+        b.innerHTML = linkifyAI(escapeHtmlAI(text));
+        const m = document.getElementById('aiChatMessages'); if (m) m.scrollTop = m.scrollHeight;
+    } else if (typeof aixStream === 'function') {
+        aixStream(b, text);
+    } else {
+        b.innerHTML = linkifyAI(escapeHtmlAI(text));
+    }
+}
+
+// بيقفل الفقاعة الحية (لو فيه) ويكتب النص النهائي فيها بدل ما يعمل فقاعة جديدة (عشان ما تتكررش).
+// بيرجّع true لو فيه فقاعة حية اتقفلت أو اتشالت (يعني مفيش داعي نضيف فقاعة تاني).
+function aiLiveLiveClose(kind, text) {
+    let b = kind === 'user' ? aiLiveLiveUserBubble : aiLiveLiveBotBubble;
+    if (kind === 'user') aiLiveLiveUserBubble = null; else aiLiveLiveBotBubble = null;
+    if (!b) return { handled: false, keep: false };
+    if (!b.isConnected) return { handled: true, keep: false }; // الشات اتصفّر: ما نضيفش للتاريخ الجديد
+    if (text) {
+        if (kind === 'user') { b._rawText = text; b.innerHTML = linkifyAI(escapeHtmlAI(text)); }
+        else if (typeof aixFinal === 'function') aixFinal(b, text);
+        else { b._rawText = text; b.innerHTML = linkifyAI(escapeHtmlAI(text)); }
+    }
+    return { handled: true, keep: !!text };
+}
+
+// بيقفل كلام المستخدم المتراكم (transcript) في الشات ولتاريخ المحادثة — الفقاعة الحية هي نفسها
+// الفقاعة النهائية، فبنحدّثها بس بدل ما نعمل واحدة جديدة
 function flushAILiveInputTranscript() {
     const text = aiLiveInputTranscriptBuf.trim();
     aiLiveInputTranscriptBuf = '';
     aiLiveInputFlushed = true;
+    const r = aiLiveLiveClose('user', text);
+    if (r.handled) {
+        if (r.keep) aiChatHistory.push({ role: 'user', parts: [{ text }] });
+        return;
+    }
     if (!text) return;
     appendAIBubble('user', text);
     aiChatHistory.push({ role: 'user', parts: [{ text }] });
@@ -26979,6 +27171,11 @@ function flushAILiveOutputTranscript() {
     const text = aiLiveOutputTranscriptBuf.trim();
     aiLiveOutputTranscriptBuf = '';
     aiLiveInputFlushed = false; // استعداد لدور جديد
+    const r = aiLiveLiveClose('bot', text);
+    if (r.handled) {
+        if (r.keep) aiChatHistory.push({ role: 'model', parts: [{ text }] });
+        return;
+    }
     if (!text) return;
     appendAIBubble('bot', text);
     aiChatHistory.push({ role: 'model', parts: [{ text }] });
@@ -27146,6 +27343,7 @@ function base64ToInt16ArrayAILive(base64) {
 
 // -------- تشغيل صوت رد المساعد (PCM 24kHz راجع من جوجل) بشكل متصل من غير فجوات --------
 function playAILiveAudioChunk(base64) {
+    if (window.__aiLiveHush) return; // المستخدم قال اسكت: نرمي صوت الرد الحالي
     const ctx = ensureAILivePlaybackContext();
     let pcm16;
     try { pcm16 = base64ToInt16ArrayAILive(base64); } catch (e) { return; }
@@ -27207,6 +27405,7 @@ function endAIVoiceCall() {
     const content = document.getElementById('aiVoiceCallModalContent');
     if (content) { content.style.transform = ''; content.classList.remove('ai-voice-call-dragging'); }
     aiLiveCallMinimized = false;
+    aiVcInchatOff();
     aiLiveMicMuted = false; aiLiveAnalyser = null;
     closeAIVcVoiceSheet();
     const minibar = document.getElementById('aiVoiceCallMinibar');
@@ -36150,7 +36349,7 @@ Object.assign(A,{
   G=[['التاريخ','date'],['النوع','type'],['غير المقروءة','unread'],['الحالة','state'],['مجموعات مخصصة','custom'],null,['بدون','none']],SR=[['الاسم','name'],['تاريخ الإنشاء','new'],['آخر نشاط','act']];
   const nm=(a,k)=>(a.find(z=>z&&z[1]===F[k])||[''])[0];
   pop(b.left,b.bottom+6,[['النوع',so('type',T),nm(T,'type')],['الحالة',so('st',S),nm(S,'st')],['آخر نشاط',so('act',AC),nm(AC,'act')],null,['التجميع حسب',so('grp',G),nm(G,'grp')],['الترتيب حسب',so('srt',SR),nm(SR,'srt')]],0,{r:b.right,reserve:190})},
- open(id){view='chats';const x=M()[id]||{};x.proj?LS.setItem('app_ai_proj',x.proj):LS.removeItem('app_ai_proj');sM(id,{read:1});draw(1);page();loadAIConversation(id)},
+ open(id){view='chats';const x=M()[id]||{};if(x.proj&&!LS.getItem('app_ai_proj'))LS.setItem('app_ai_proj',x.proj);sM(id,{read:1});draw(1);page();loadAIConversation(id)},
  cm(e,id){e.stopPropagation();const b=e.currentTarget.getBoundingClientRect(),x=M()[id]||{},P=proj(),gs=[...new Set(Object.values(M()).map(z=>z.group).filter(Boolean))];
   const u=p=>{sM(id,p);draw(1)};
   pop(b.right,b.bottom+4,[[x.pin?'إلغاء التثبيت':'تثبيت',()=>u({pin:!x.pin})],['إعادة تسمية',()=>A.ren(id)],
@@ -37982,7 +38181,7 @@ try{
 // =====================================================================
 const AA=APP_ACTIONS,DECL=AI_TOOLS_DECLARATION[0].functionDeclarations,LB=AI_FN_STATUS_LABELS;
 const G={
- core:['close_project','navigate_to','get_current_datetime','web_search','web_find','web_research','web_scholar','web_read','web_images','web_show_images','web_lib','sandbox_run','files_list','file_read','file_write','create_artifact','build_document','calculate','memory_manage','chats_manage','undo_manage','request_tools'],
+ core:['close_project','navigate_to','get_current_datetime','massr_universal_search','show_card','web_search','web_find','web_research','web_scholar','web_read','web_images','web_show_images','web_lib','sandbox_run','files_list','file_read','file_write','create_artifact','build_document','calculate','memory_manage','chats_manage','undo_manage','request_tools'],
  tasks:['create_task','complete_task','delete_task','list_tasks','search_tasks','update_task','postpone_task','restore_postponed_task','add_subtask','toggle_subtask','bulk_tasks','tasks_overview','get_productivity_summary','plan_schedule','export_report','add_category','delete_category','update_category'],
  timer:['start_timer','pause_timer','reset_timer','set_timer_duration','get_timer_status','start_custom_duration_session','set_pomo_mode','attach_task_to_timer','toggle_focus_mode','set_daily_focus_goal','control_focus_audio','create_alarm','list_alarms','delete_alarm','link_alarm_to_task','refresh_smart_compass'],
  notes:['create_note','list_notes','search_notes','open_note','edit_note','delete_note','read_note_part','note_outline','search_in_note','patch_note','insert_in_note','save_last_image_to_note','manage_note_image'],
@@ -38010,7 +38209,7 @@ const GK={
  system:/(مكالمة|كلمني|صوتي|محادثات|محادثة|الحافظة|clipboard)/i
 };
 // أدوات قراءة فقط (آمنة تتنفذ مع بعض) / أدوات بتنتج ملف أو مخرج جديد (بتتنفذ مع بعض لو أسماء مخرجاتها مختلفة)
-const READ=new Set(['web_search','web_find','web_research','web_scholar','web_read','web_images','web_lib','youtube_search','files_list','file_read','file_read_lines','file_grep','pdf_read','analyze_pdf_shape','list_tasks','list_notes','list_alarms','list_task_tables','list_artifacts','search_tasks','search_notes','get_timer_status','get_current_datetime','get_productivity_summary','tasks_overview','calculate','text_stats','date_math','unit_convert','regex_extract','diff_texts','read_note_part','note_outline','search_in_note','read_artifact_part','color_palette','contrast_check']);
+const READ=new Set(['massr_universal_search','show_card','web_search','web_find','web_research','web_scholar','web_read','web_images','web_lib','youtube_search','files_list','file_read','file_read_lines','file_grep','pdf_read','analyze_pdf_shape','list_tasks','list_notes','list_alarms','list_task_tables','list_artifacts','search_tasks','search_notes','get_timer_status','get_current_datetime','get_productivity_summary','tasks_overview','calculate','text_stats','date_math','unit_convert','regex_extract','diff_texts','read_note_part','note_outline','search_in_note','read_artifact_part','color_palette','contrast_check']);
 const PROD=new Set(['docx_create','xlsx_tool','pptx_create','draw_svg','make_chart','file_write','create_artifact','build_document']);
 const S={groups:new Set(['core']),all:false,sticky:{},fail:{}};
 const mapped=new Set(Object.values(G).flat());
@@ -38110,12 +38309,124 @@ window.registerAppTile = function (o) {
 };
 </script>
 <script>window.__socialErrs=[];window.addEventListener('error',function(e){try{if(e&&e.filename&&/social\.js/.test(e.filename))window.__socialErrs.push((e.message||'خطأ')+(e.lineno?' @'+e.lineno:''))}catch(x){}},true);</script>
-<script src="webtools.js?v=7" onerror="window.__webtoolsFailed=1"></script>
+<script src="webtools.js?v=8" onerror="window.__webtoolsFailed=1"></script>
+<style id="aiInchatCss">
+/* الخطوة 3: المكالمة جوه الشات — المودال بقى طبقة فوق الشات وشريط الكتابة فوقها وشغال */
+.modal.ai-voice-call-modal.vc-inchat{inset:0 0 auto 0;height:calc(100% - var(--vc-bar-h,130px));z-index:940;background:transparent;backdrop-filter:none;padding:0;pointer-events:none;transition:height .32s cubic-bezier(.2,.8,.2,1)}
+.modal.ai-voice-call-modal.vc-inchat .modal-content{pointer-events:auto;height:100%;background:#000;border-radius:0 0 26px 26px;padding:6px 16px 10px;transition:background .3s ease,border-radius .3s ease}
+.vc-inchat .ai-vc-bottom,.vc-inchat .ai-vc-msgs,.vc-inchat .ai-vc-actions{display:none!important}
+.vc-inchat .ai-voice-call-drag-handle{cursor:pointer;width:54px;height:6px;background:rgba(255,255,255,.3)}
+.vc-inchat .ai-voice-call-drag-handle::after{content:"";position:absolute;inset:-14px -20px}
+.vc-inchat .ai-vc-top{min-height:44px;margin-top:10px}
+.vc-inchat .ai-vc-round{width:42px;height:42px}
+.modal.ai-voice-call-modal.vc-inchat.vc-mini{height:150px;top:auto;bottom:var(--vc-bar-h,130px)}
+.modal.ai-voice-call-modal.vc-inchat.vc-mini .modal-content{background:transparent;border-radius:0}
+
+/* ===== الخطوة 4 (v2): أورب "النواة" الزجاجي + شريط متناسق + كرة عايمة ===== */
+@keyframes vcB1{0%,100%{transform:translate(-18%,-14%) scale(1)}50%{transform:translate(22%,16%) scale(1.25)}}
+@keyframes vcB2{0%,100%{transform:translate(26%,22%) scale(1.1)}50%{transform:translate(-20%,-12%) scale(.85)}}
+@keyframes vcB3{0%,100%{transform:translate(20%,-24%) scale(.9)}50%{transform:translate(-24%,20%) scale(1.2)}}
+@keyframes vcRip{0%{transform:scale(1);opacity:.6}100%{transform:scale(1.75);opacity:0}}
+@keyframes vcCore{0%,100%{opacity:.8;transform:scale(1)}50%{opacity:1;transform:scale(1.1)}}
+.vb{position:absolute;left:8%;top:8%;width:84%;height:84%;border-radius:50%;will-change:transform}
+.vb.b1{background:radial-gradient(circle,rgba(20,184,166,.95) 0%,rgba(20,184,166,0) 66%);animation:vcB1 9s ease-in-out infinite}
+.vb.b2{background:radial-gradient(circle,rgba(56,189,248,.9) 0%,rgba(56,189,248,0) 62%);animation:vcB2 11s ease-in-out infinite}
+.vb.b3{background:radial-gradient(circle,rgba(167,243,208,.85) 0%,rgba(167,243,208,0) 56%);width:60%;height:60%;left:20%;top:20%;animation:vcB3 13s ease-in-out infinite}
+.modal.ai-voice-call-modal .ai-voice-call-orb-wrap{position:relative;overflow:visible}
+.modal.ai-voice-call-modal[data-call-state] .ai-voice-call-orb,body #aiVcFloat .fo{overflow:hidden;animation:none;background:radial-gradient(circle at 50% 40%,#0d5560 0%,#062f38 55%,#021a21 100%);box-shadow:0 0 0 1px rgba(255,255,255,.12),0 26px 80px rgba(20,184,166,.32),inset 0 -22px 44px rgba(0,0,0,.5)}
+.modal.ai-voice-call-modal[data-call-state] .ai-voice-call-orb{position:relative}
+.modal.ai-voice-call-modal[data-call-state] .ai-voice-call-orb::before,body #aiVcFloat .fo::before{content:"";position:absolute;inset:0;border-radius:50%;z-index:2;pointer-events:none;background:radial-gradient(60% 38% at 34% 20%,rgba(255,255,255,.42),rgba(255,255,255,0) 72%),radial-gradient(circle at 50% 56%,rgba(225,255,250,.75) 0,rgba(165,243,252,.28) 12%,rgba(165,243,252,0) 32%);animation:vcCore 3.4s ease-in-out infinite;filter:none;transform:none}
+.modal.ai-voice-call-modal[data-call-state] .ai-voice-call-orb::after,body #aiVcFloat .fo::after{content:"";position:absolute;inset:0;border-radius:50%;z-index:3;pointer-events:none;background:radial-gradient(circle,rgba(0,0,0,0) 56%,rgba(0,0,0,.55) 100%);box-shadow:inset 0 0 0 1px rgba(255,255,255,.14)}
+.modal.ai-voice-call-modal .vc-rip{position:absolute;inset:0;border-radius:50%;border:1.5px solid rgba(94,234,212,.6);box-shadow:0 0 26px rgba(20,184,166,.3);opacity:0;pointer-events:none}
+.modal.ai-voice-call-modal[data-call-state="speaking"] .vc-rip{animation:vcRip 2.6s ease-out infinite}
+.modal.ai-voice-call-modal[data-call-state="connecting"] .vc-rip{animation:vcRip 1.5s ease-out infinite}
+.modal.ai-voice-call-modal[data-call-state="thinking"] .vc-rip.r1{animation:vcRip 3s ease-out infinite}
+.modal.ai-voice-call-modal[data-call-state="listening"] .vc-rip.r1{animation:vcRip 5.2s ease-out infinite;border-color:rgba(125,211,252,.5)}
+.modal.ai-voice-call-modal .vc-rip.r2{animation-delay:.85s!important}
+.modal.ai-voice-call-modal .vc-rip.r3{animation-delay:1.7s!important}
+.modal.ai-voice-call-modal[data-call-state="speaking"] .vb.b1{animation-duration:4.2s}
+.modal.ai-voice-call-modal[data-call-state="speaking"] .vb.b2{animation-duration:5s}
+.modal.ai-voice-call-modal[data-call-state="speaking"] .vb.b3{animation-duration:5.6s}
+.modal.ai-voice-call-modal[data-call-state="thinking"] .vb{animation-duration:3s}
+.modal.ai-voice-call-modal[data-call-state="idle"] .ai-voice-call-orb{filter:grayscale(.9) brightness(.6)}
+.modal.ai-voice-call-modal[data-call-state] .ai-voice-call-status{margin-top:54px;letter-spacing:.2px}
+.modal.ai-voice-call-modal[data-has-text="1"] .ai-voice-call-status{margin-top:18px}
+.modal.ai-voice-call-modal.vc-inchat .modal-content{touch-action:none}
+/* الأورب الكبير: خلفية سودا متصلة بالشريط، والشريط بيتحول لزجاج غامق */
+body.ai-vc-big .modal.ai-voice-call-modal.vc-inchat{height:100%}
+body.ai-vc-big .modal.ai-voice-call-modal.vc-inchat .modal-content{border-radius:0;background:radial-gradient(120% 70% at 50% 40%,#06262e 0%,#020d11 58%,#000 100%);padding-bottom:calc(var(--vc-bar-h,130px) + 4px)}
+body.ai-vc-big .ai-chat-input-row{background:rgba(255,255,255,.08)!important;border-color:rgba(255,255,255,.13)!important;box-shadow:none!important;-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px)}
+body.ai-vc-big #aiChatInput{color:#fff!important;background:transparent!important}
+body.ai-vc-big #aiChatInput::placeholder{color:rgba(255,255,255,.55)!important;opacity:1}
+body.ai-vc-big .ai-chat-input-row .ai-icon-btn{background:rgba(255,255,255,.11)!important;color:#fff!important;box-shadow:none!important}
+body.ai-vc-big #aiMicBtn.vc-muted,body.ai-vc-big #aiVoiceCallBtn{background:#ef4444!important}
+body.ai-vc-big .ai-chat-footer-note,body.ai-vc-big #aiRequestCounter{color:rgba(255,255,255,.42)!important}
+.ai-chat-input-row,#aiChatInput,.ai-chat-input-row .ai-icon-btn{transition:background .3s,color .3s,border-color .3s}
+/* الكرة العايمة */
+body #aiVcFloat .fo{box-shadow:0 10px 28px rgba(20,184,166,.45),0 0 0 1.5px rgba(255,255,255,.22),inset 0 -10px 20px rgba(0,0,0,.45)}
+body #aiVcFloat .fo .vb{filter:blur(9px)}
+body #aiVcFloat[data-st="speaking"] .fo .vb.b1{animation-duration:4s}
+body #aiVcFloat[data-st="connecting"] .fo,body #aiVcFloat[data-st="thinking"] .fo{animation:vfBlink 1.1s ease-in-out infinite}
+#aiVcFloat::before{border-color:rgba(94,234,212,.6)}
+#aiVcFloat{transition:transform .32s cubic-bezier(.2,.8,.2,1)}
+#aiVcFloat .fo{transition:opacity .25s ease,transform .32s cubic-bezier(.2,.8,.2,1)}
+#aiVcFloat .ar{display:flex;position:absolute;top:calc(50% - 22px);height:44px;width:22px;align-items:center;justify-content:center;color:rgba(255,255,255,.78);font-size:19px;line-height:1;background:rgba(18,28,30,.55);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.16);box-shadow:0 2px 10px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:opacity .25s ease}
+#aiVcFloat[data-side="l"] .ar{right:0;border-radius:0 14px 14px 0;border-left:0}
+#aiVcFloat[data-side="r"] .ar{left:0;border-radius:14px 0 0 14px;border-right:0}
+#aiVcFloat[data-side="l"] .ar::before{content:"\203A"}
+#aiVcFloat[data-side="r"] .ar::before{content:"\2039"}
+#aiVcFloat.tucked .fo{opacity:0;transform:scale(.45)}
+#aiVcFloat.tucked::before{opacity:0;animation:none}
+#aiVcFloat .ar{direction:ltr}
+#aiVcFloat.tucked .ar{opacity:.72}
+#aiVcFloat.tucked[data-side="l"]{transform:translateX(-46px)}
+#aiVcFloat.tucked[data-side="r"]{transform:translateX(46px)}
+#aiVcFloatMenu button.pn,#aiVcFloatMenu button.hu{font-size:16px}
+.vc-hush{display:none;align-items:center;gap:6px;margin-top:16px;padding:9px 22px;border-radius:99px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.1);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);color:#fff;font:inherit;font-weight:800;font-size:.85rem;cursor:pointer}
+.modal.ai-voice-call-modal[data-call-state="speaking"] .vc-hush{display:inline-flex}
+.modal.ai-voice-call-modal.vc-mini .vc-hush{display:none}
+#aiJumpLatest{position:fixed;left:50%;transform:translateX(-50%) translateY(10px);bottom:158px;z-index:949;width:40px;height:40px;border-radius:50%;border:1px solid var(--card-border);background:var(--card-bg);color:var(--text-primary);box-shadow:0 4px 16px rgba(0,0,0,.18);font-size:18px;line-height:1;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;display:flex;align-items:center;justify-content:center}
+#aiJumpLatest.on{opacity:1;pointer-events:auto;transform:translateX(-50%)}
+body.ai-vc-big #aiJumpLatest{display:none}
+@keyframes aiMsgIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.ai-msg,.ai-msg-user{animation:aiMsgIn .32s cubic-bezier(.2,.8,.2,1) both}
+@keyframes aiEditGlow{0%{box-shadow:0 0 0 0 rgba(20,184,166,.55)}100%{box-shadow:0 0 0 14px rgba(20,184,166,0)}}
+.ai-edit-flash{animation:aiEditGlow 1.1s ease-out 2}
+@keyframes aiBarIn{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:none}}
+#aiEditBar{display:flex;align-items:center;gap:10px;margin:0 12px 8px;padding:9px 12px;border-radius:14px;background:rgba(20,184,166,.12);border:1px solid rgba(20,184,166,.4);color:var(--text-primary);font-size:.78rem;line-height:1.5;animation:aiBarIn .3s cubic-bezier(.2,.8,.2,1) both}
+#aiEditBar .t{flex:1}#aiEditBar .x{cursor:pointer;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(127,127,127,.2)}
+a.wr2{display:block;text-decoration:none;color:var(--text-primary);border-radius:16px;padding:12px 14px;margin:8px 0;background:var(--card-bg);border:1px solid var(--card-border);box-shadow:var(--shadow-sm);transition:transform .15s,border-color .15s}
+a.wr2:active{transform:scale(.985)}
+.wr2-top{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.wr2-ic{width:18px;height:18px;border-radius:5px}
+.wr2-host{flex:1;font-size:.72rem;color:var(--text-secondary);direction:ltr;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wr2-go{font-size:.7rem;font-weight:800;color:var(--accent)}
+a.wr2 .ai-web-result-title{font-size:.86rem;font-weight:800;line-height:1.6}
+.wr2-path{margin-top:4px;font-size:.66rem;color:var(--text-secondary);direction:ltr;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#aiProjChip{position:fixed;top:62px;left:50%;transform:translate(-50%,-8px);z-index:948;display:flex;gap:8px;align-items:center;padding:6px 8px 6px 14px;border-radius:99px;background:var(--card-bg);border:1px solid var(--card-border);box-shadow:0 4px 16px rgba(0,0,0,.14);font-size:.74rem;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;max-width:86vw;white-space:nowrap;color:var(--text-primary)}
+#aiProjChip.on{opacity:1;pointer-events:auto;transform:translate(-50%,0)}
+#aiProjChip b{overflow:hidden;text-overflow:ellipsis;max-width:42vw}
+#aiProjChip .x{cursor:pointer;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(127,127,127,.18)}
+#aiVcFloatMenu button.pn.on{background:#5eead4;color:#042f2e}
+.vc-inchat.vc-mini .ai-vc-top{display:none}
+.vc-inchat.vc-mini .ai-voice-call-drag-handle{background:var(--card-border,rgba(127,127,127,.4));top:2px}
+.vc-inchat.vc-mini .ai-vc-stage{flex:1;justify-content:center}
+.modal.ai-voice-call-modal.vc-inchat.vc-mini .ai-voice-call-orb-wrap{width:78px;height:78px}
+.modal.ai-voice-call-modal.vc-inchat.vc-mini .ai-voice-call-status{color:var(--text-primary);margin:8px 0 0;font-size:.8rem}
+.modal.ai-voice-call-modal.vc-inchat.vc-mini .ai-voice-call-hint{display:none}
+/* شريط الكتابة أثناء المكالمة */
+body.ai-in-call #aiThinkingBtn{display:none}
+body.ai-in-call #aiMicBtn{background:var(--input-bg)}
+body.ai-in-call #aiMicBtn.vc-muted{background:#ef4444;color:#fff}
+body.ai-in-call #aiVoiceCallBtn{background:#ef4444;color:#fff}
+body.ai-in-call #aiChatInput::placeholder{opacity:.75}
+</style>
+<script src="universalsearch.js?v=9" onerror="window.__universalSearchFailed=1"></script>
 <script src="filetools.js?v=1" onerror="window.__filetoolsFailed=1"></script>
 <script src="videotools.js?v=2" onerror="window.__videotoolsFailed=1"></script>
 <script src="mcptools.js?v=13"></script>
 <script src="aisteps.js?v=1" onerror="window.__aistepsFailed=1"></script>
-<script src="onboarding.js?v=17" onerror="window.__onbLoadFailed=1;window.__onbCoverOff&&window.__onbCoverOff()"></script>
+<script src="onboarding.js?v=18" onerror="window.__onbLoadFailed=1;window.__onbCoverOff&&window.__onbCoverOff()"></script>
 <script src="social.js?v=23" onerror="window.__socialLoadFailed=1"></script>
 <script src="appctl.js?v=1" onerror="window.__appctlFailed=1"></script>
 <script id="socialGuardScript">
@@ -39415,7 +39726,7 @@ function filt(){
  else if(view==='proj')sheet([['مشاريعي',f(v=>pf=v,'own'),0,pf==='own'],['المؤرشفة',f(v=>pf=v,'arch'),0,pf==='arch']]);
  else sheet([['الكل',f(v=>af=v,'all'),0,af==='all'],['المثبّتة ⭐',f(v=>af=v,'star'),0,af==='star'],null,['كل الأنواع',f(v=>at=v,'all'),0,at==='all'],['صفحات HTML',f(v=>at=v,'html'),0,at==='html'],['نصوص',f(v=>at=v,'txt'),0,at==='txt']]);
 }
-async function openChat(id){const x=META()[id]||{};x.proj?LS.setItem('app_ai_proj',x.proj):LS.removeItem('app_ai_proj');setM(id,{read:1});closeAll();let pr;try{pr=loadAIConversation(id)}catch(e){}setIncog(false);try{await pr}catch(e){}refresh();topbar()}
+async function openChat(id){const x=META()[id]||{};if(x.proj&&!LS.getItem('app_ai_proj'))LS.setItem('app_ai_proj',x.proj);setM(id,{read:1});closeAll();let pr;try{pr=loadAIConversation(id)}catch(e){}setIncog(false);try{await pr}catch(e){}refresh();topbar()}
 function chatMenu(id){
  const x=META()[id]||{},c=getAIConversations().find(z=>z.id===id);if(!c)return;
  sheet([[x.pin?'إلغاء التثبيت':'تثبيت',()=>{setM(id,{pin:!x.pin});list()}],
@@ -39821,7 +40132,7 @@ function wrapArtifacts(){
 }
 
 /* ---------- 3) الكرة العائمة ---------- */
-let fl=null,flm=null,flRaf=0,menuT=0;
+let fl=null,flm=null,flRaf=0,menuT=0,tuckT=0,tapT=0,lastTap=0;
 const FSZ=68;
 function vw(){return (window.visualViewport&&window.visualViewport.width)||window.innerWidth}
 function vh(){return (window.visualViewport&&window.visualViewport.height)||window.innerHeight}
@@ -39839,11 +40150,13 @@ function defaultPos(){
 function ensureFloat(){
  if(fl)return;
  fl=document.createElement('div');fl.id='aiVcFloat';fl.setAttribute('role','button');fl.setAttribute('aria-label','المكالمة الصوتية');
- fl.innerHTML='<div class="fo"></div><div class="mu">'+IC('<line x1="4" y1="4" x2="20" y2="20"/><rect x="9" y="3" width="6" height="11" rx="3"/>',13)+'</div>';
+ fl.innerHTML='<div class="fo"><i class="vb b1"></i><i class="vb b2"></i><i class="vb b3"></i></div><div class="ar"></div><div class="mu">'+IC('<line x1="4" y1="4" x2="20" y2="20"/><rect x="9" y="3" width="6" height="11" rx="3"/>',13)+'</div>';
  flm=document.createElement('div');flm.id='aiVcFloatMenu';
  flm.innerHTML='<button type="button" class="end" aria-label="إنهاء المكالمة">'+IC('<path d="M6 6l12 12M18 6L6 18"/>',20)+'</button>'
   +'<button type="button" class="mt" aria-label="كتم الميكروفون">'+IC('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',20)+'</button>'
   +'<span class="tm"></span>'
+  +'<button type="button" class="hu" aria-label="اسكت">⏹</button>'
+  +'<button type="button" class="pn" aria-label="تثبيت الدايرة (من غير تركين تلقائي)">📌</button>'
   +'<button type="button" class="ex" aria-label="تكبير">'+IC('<path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/>',20)+'</button>';
  document.body.append(fl,flm);
  let sx=0,sy=0,ox=0,oy=0,moved=false,pid=null;
@@ -39854,13 +40167,18 @@ function ensureFloat(){
  fl.addEventListener('pointermove',e=>{
   if(e.pointerId!==pid)return;
   const dx=e.clientX-sx,dy=e.clientY-sy;
-  if(!moved&&Math.hypot(dx,dy)>6){moved=true;fl.classList.add('dragging')}
+  if(!moved&&Math.hypot(dx,dy)>6){moved=true;fl.classList.add('dragging');untuck()}
   if(moved)placeFloat(ox+dx,oy+dy,false);
  });
  const up=e=>{
   if(e.pointerId!==pid)return;pid=null;fl.classList.remove('dragging');
   if(e.type==='pointercancel'){return}
-  if(moved){const r=fl.getBoundingClientRect();snapEdge(r.left,r.top)}else toggleMenu();
+  if(moved){const r=fl.getBoundingClientRect();snapEdge(r.left,r.top)}
+  else{
+   const now=Date.now();
+   if(now-lastTap<320){clearTimeout(tapT);lastTap=0;closeMenu();untuck();try{switchTab('ai-assistant')}catch(x){}restoreAIVoiceCall()}
+   else{lastTap=now;clearTimeout(tapT);tapT=setTimeout(()=>{lastTap=0;if(fl.classList.contains('tucked')){const l=fl.dataset.side==='l',rt=fl.getBoundingClientRect();try{navigator.vibrate&&navigator.vibrate(12)}catch(x){}placeFloat(l?12:vw()-FSZ-12,rt.top,true);untuck();scheduleTuck(5000)}else toggleMenu()},320)}
+  }
  };
  fl.addEventListener('pointerup',up);fl.addEventListener('pointercancel',up);
  fl.addEventListener('touchstart',e=>e.preventDefault(),{passive:false});
@@ -39871,6 +40189,8 @@ function ensureFloat(){
   const b=e.target.closest('button');if(!b)return;
   if(b.classList.contains('end')){closeMenu();endAIVoiceCall()}
   else if(b.classList.contains('mt')){toggleAIVoiceCallMute();paintMenu()}
+  else if(b.classList.contains('hu')){aiLiveHush();closeMenu()}
+  else if(b.classList.contains('pn')){try{LS.setItem('app_ai_vc_pin',LS.getItem('app_ai_vc_pin')==='1'?'0':'1')}catch(x){}untuck();paintMenu()}
   else if(b.classList.contains('ex')){closeMenu();restoreAIVoiceCall()}
   clearTimeout(menuT);menuT=setTimeout(closeMenu,4500);
  });
@@ -39879,11 +40199,20 @@ function ensureFloat(){
   if(window.visualViewport)window.visualViewport.addEventListener('resize',()=>{if(fl.classList.contains('on')){const r=fl.getBoundingClientRect();placeFloat(r.left,r.top,false);dodge(false)}});
   document.addEventListener('focusin',()=>setTimeout(()=>dodge(false),320));
 }
+function untuck(){clearTimeout(tuckT);if(fl)fl.classList.remove('tucked')}
+function scheduleTuck(ms){
+ clearTimeout(tuckT);
+ try{if(LS.getItem('app_ai_vc_pin')==='1')return}catch(x){}
+ tuckT=setTimeout(()=>{
+  if(!fl||!fl.classList.contains('on')||fl.classList.contains('dragging')||(flm&&flm.classList.contains('on')))return;
+  const r=fl.getBoundingClientRect(),left=(r.left+FSZ/2)<vw()/2;fl.dataset.side=left?'l':'r';fl.style.transition='left .22s ease,top .22s ease,transform .32s cubic-bezier(.2,.8,.2,1)';placeFloat(left?0:vw()-FSZ,r.top,true);fl.classList.add('tucked');setTimeout(()=>{if(fl)fl.style.transition=''},400);
+ },ms||2500);
+}
 function snapEdge(x,y){
  const left=(x+FSZ/2)<vw()/2,nx=left?8:vw()-FSZ-8;
  fl.style.transition='left .22s ease,top .22s ease';
  placeFloat(nx,y,true);dodge(true);
- setTimeout(()=>{if(fl)fl.style.transition=''},260);
+ setTimeout(()=>{if(fl)fl.style.transition=''},260);scheduleTuck(2200);
 }
 /* تفادي حقل الكتابة اللي عليه التركيز (وقت ظهور الكيبورد) */
 function dodge(save){
@@ -39899,6 +40228,7 @@ function dodge(save){
 function paintMenu(){
  if(!flm)return;
  const mt=flm.querySelector('.mt');if(mt)mt.classList.toggle('on',!!aiLiveMicMuted);
+ const pn=flm.querySelector('.pn');if(pn){let v='0';try{v=LS.getItem('app_ai_vc_pin')}catch(x){}pn.classList.toggle('on',v==='1')}
  const src=$('aiVoiceCallDuration'),tm=flm.querySelector('.tm');if(tm&&src)tm.textContent=src.textContent||'';
 }
 function toggleMenu(){
@@ -39910,7 +40240,7 @@ function toggleMenu(){
  flm.style.left=x+'px';flm.style.top=y+'px';
  clearTimeout(menuT);menuT=setTimeout(closeMenu,4500);
 }
-function closeMenu(){if(flm)flm.classList.remove('on');clearTimeout(menuT)}
+function closeMenu(){if(flm)flm.classList.remove('on');clearTimeout(menuT);if(fl&&fl.classList.contains('on')&&!fl.classList.contains('dragging'))scheduleTuck(2500)}
 function flLoop(){
  if(!fl||!fl.classList.contains('on')){flRaf=0;return}
  try{
@@ -39925,10 +40255,10 @@ function showFloat(at){
  const d=at&&typeof at.x==='number'?{x:at.x-FSZ/2,y:at.y-FSZ/2}:defaultPos();
  fl.classList.remove('on');void fl.offsetWidth;
  placeFloat(d.x,d.y,!!at);
- fl.classList.add('on');
+ fl.classList.add('on');untuck();scheduleTuck(3500);
  if(!flRaf)flRaf=requestAnimationFrame(flLoop);
 }
-function hideFloat(){if(fl)fl.classList.remove('on');closeMenu()}
+function hideFloat(){clearTimeout(tuckT);clearTimeout(tapT);if(fl)fl.classList.remove('on','tucked');closeMenu()}
 
 /* بيقفل أي مشروع/مخرج شغّال (الـ iframe بيتمسح، فالسكربتات والصوت والمؤقتات بتقف فعلًا) */
 window.aiCloseProjects=function(){let n=0;try{['amView','fsView'].forEach(id=>{const v=document.getElementById(id);if(!v)return;if(v.querySelector('iframe'))n++;v.classList.remove('on');v.innerHTML='';v._a=null})}catch(e){}return n};
@@ -39940,6 +40270,7 @@ window.minimizeAIVoiceCall=function(at){
  if(c){c.style.transform='';c.style.opacity='';c.classList.remove('ai-voice-call-dragging')}
  const mb=$('aiVoiceCallMinibar');if(mb)mb.style.display='none';
  closeAttSheet();
+ document.body.classList.remove('ai-vc-big');
  showFloat(at&&typeof at==='object'&&typeof at.x==='number'?at:null);
 };
 window.restoreAIVoiceCall=function(){
@@ -39947,6 +40278,7 @@ window.restoreAIVoiceCall=function(){
  aiLiveCallMinimized=false;hideFloat();
  const mb=$('aiVoiceCallMinibar');if(mb)mb.style.display='none';
  const modal=$('aiVoiceCallModal');if(modal)modal.style.display='flex';
+ try{aiVcSyncBig()}catch(e){}
  const c=$('aiVoiceCallModalContent');
  if(c){c.style.transition='none';c.style.transform='translateY(60px) scale(.94)';c.style.opacity='0';
   requestAnimationFrame(()=>requestAnimationFrame(()=>{c.style.transition='';c.style.transform='';c.style.opacity=''}))}
@@ -39956,6 +40288,7 @@ if(typeof _end==='function'){window.endAIVoiceCall=function(){hideFloat();closeA
 
 /* سحب شاشة المكالمة لتحت من أي مكان (الكرة نفسها أو الخلفية) فتتحول لكرة عايمة */
 function attachPull(){
+ return; /* اتلغى: السحب بقى في setupAIVoiceCallDragHandlers (مسار واحد) */
  const c=$('aiVoiceCallModalContent');if(!c||c.__v7)return;c.__v7=1;
  let s=null;
  const ok=t=>!(t.closest&&t.closest('button,input,textarea,select,.ai-vc-msgs,.ai-vc-sheet-overlay,#aiVcAttSheet,#aiVcAttRow,.ai-vc-bottom,.ai-voice-call-drag-handle'));
@@ -40379,18 +40712,12 @@ function bind(){
   if(!s.moved&&Math.hypot(e.clientX-s.x,e.clientY-s.y)>6){s.moved=true;c.classList.add('ai-voice-call-dragging')}
   if(!s.moved)return;
   s.dy=Math.max(0,e.clientY-s.y);s.cx=e.clientX;s.cy=e.clientY;
-  const k=Math.min(1,s.dy/420);
-  c.style.transform='translateY('+s.dy+'px) scale('+(1-k*.18).toFixed(3)+')';c.style.opacity=String(1-k*.5);
-  e.preventDefault();
+ e.preventDefault(); /* الحركة والتصغير في setupAIVoiceCallDragHandlers */
  });
  window.addEventListener('mouseup',function(e){
   if(!s)return;const g=s;s=null;c.classList.remove('ai-voice-call-dragging');
-  if(g.moved){
-   if(g.dy>110)minimize({x:g.cx,y:g.cy});
-   else{c.style.transform='';c.style.opacity=''}
-   return;
-  }
-  if(isDesk())minimize({x:e.clientX,y:e.clientY}); // ضغطة على فاضي = تصغير (ديسكتوب)
+  if(g.moved)return;
+   if(isDesk()&&typeof aiVcSetMini==='function')aiVcSetMini(true); // ضغطة على فاضي = دايرة عايمة في النص (ديسكتوب)
  });
 }
 bind();setInterval(bind,900);
@@ -41083,6 +41410,7 @@ function aixBlock(lang, code) {
     if (lang === 'products' || lang === 'cards' || lang === 'product') return aixProducts(JSON.parse(code));
     if (lang === 'mermaid') return '<figure class="aix-mermaid aix-nobar" data-src="' + encodeURIComponent(code) + '"><pre class="aix-msrc">' + aixEsc(code) + '</pre></figure>';
     if (lang === 'svg') return aixSvg(code);
+    if (window.MASSR_CARDS && window.MASSR_CARDS.has(lang)) return window.MASSR_CARDS.fence(lang, code);
     if (lang === 'math' || lang === 'latex' || lang === 'tex') return aixMath(code, true);
   } catch (e) { return aixCode(lang, code) + '<div class="aix-note">⚠️ مقدرتش أرسم الكتلة دي، اتعرضت كنص.</div>'; }
   return aixCode(lang, code);
@@ -41320,7 +41648,122 @@ document.addEventListener('click', function (e) {
   }
 }, true);
 var AIX_RULE = ' الشات بيعرض Markdown كامل، فاستخدمه بدل الكلام الطويل: جداول Markdown (سطر العناوين ثم سطر |---|---| ثم الصفوف) لأي قايمة أو مقارنة أو بيانات. كلمة "جدول" لوحدها معناها اعرضه في الشات نفسه، وماتحطش جدول في تطبيق جدول المهام إلا لو المستخدم قال صراحة "جدول المهام" أو "في التطبيق" أو "احفظه". لو طلب قايمة طويلة (زي أهم 300 كلمة) اكتبها كلها كاملة في جدول (أو أكتر من جدول مرقّم) من غير اختصار ولا "وهكذا". المعادلات بـ LaTeX: $x^2$ جوه السطر و $$...$$ في سطر لوحده، وحل المسائل خطوة بخطوة. الرسوم البيانية: كتلة ```chart فيها JSON بالشكل {"type":"bar|line|area|pie|donut|scatter","title":"..","labels":["..",".."],"series":[{"name":"..","data":[1,2]}]} (scatter بيستخدم data:[[x,y],..])، ولرسم دالة {"type":"function","title":"..","exprs":[{"expr":"x^2-4"}],"xmin":-5,"xmax":5}. المخططات الانسيابية والعلاقات بـ ```mermaid، والكود في ```لغة. كل ده بيتعرض في الشات نفسه من غير أداة، ومتشرحش للمستخدم صيغة الرسم ولا تكتب JSON الرسم خارج الكتلة. المنتجات والأسعار: لما المستخدم يطلب منتجات أو أسعار أو مقارنة (ملابس، موبايلات، أجهزة...) دوّر بأدوات الويب الأول (web_find ثم web_read للصفحات، وweb_images لو محتاج صور)، وبعدين اعرض النتيجة كلها في كارتات منظمة بكتلة ```products فيها JSON بالشكل ده: {"title":"أفضل الاختيارات والأسعار","items":[{"name":"..","price":559,"currency":"جنيه","meta":["خامة","مقاس"],"desc":"جملتين","image":"https://..","source":"اسم المتجر","url":"https://.."}]}. ماتعرضش الصور لوحدها فوق ولا الأسعار في قايمة منفصلة: كل منتج كارت واحد فيه اسمه وسعره وصورته ورابطه. ممنوع تألّف سعر أو صورة أو رابط: كل قيمة لازم تكون جاية من نتيجة أداة فعلًا، وأي حقل ما لقيتوش سيبه من غير ما تكتبه (الكارت من غير صورة أحسن من صورة مش بتاعته). image من روابط الصور في نتايج web_read أو web_images بس. لو السعر من صفحة ممكن تكون قديمة قول كده في جملة بعد الكتلة. حط الكتلة بعد جملة تمهيد قصيرة، ومن غير ما تشرح إنك بتستخدم كتلة.';
+AIX_RULE += (window.MASSR_CARD_RULES || '');
+/* ===== مشروع شغال + تعديل الرسالة + نشاط الأدوات الحي ===== */
+(function () {
+  var chip = null;
+  function projName() { try { var id = localStorage.getItem('app_ai_proj'); if (!id) return ''; var p = JSON.parse(localStorage.getItem('app_ai_projects') || '[]').find(function (z) { return String(z.id) === String(id); }); return p ? p.name : ''; } catch (e) { return ''; } }
+  function paintChip() {
+    var n = projName(), m = document.getElementById('aiChatMessages');
+    var vis = !!(n && m && m.offsetParent !== null && !document.body.classList.contains('ai-vc-big'));
+    if (!chip) {
+      chip = document.createElement('div'); chip.id = 'aiProjChip'; document.body.appendChild(chip);
+      chip.addEventListener('click', function (e) { if (e.target.closest('.x')) { try { aiShell.pick(0); } catch (x) { localStorage.removeItem('app_ai_proj'); } paintChip(); if (typeof showToast === 'function') showToast('اتوقف المشروع'); } });
+    }
+    if (vis && chip.getAttribute('data-n') !== n) { chip.innerHTML = '📁 مشروع شغال: <b></b> <span class="x" title="إيقاف المشروع">✕</span>'; chip.querySelector('b').textContent = n; chip.setAttribute('data-n', n); }
+    chip.classList.toggle('on', vis);
+  }
+  setInterval(paintChip, 1500);
+
+  // تعديل الرسالة: شريط ظاهر بحركة + وميض على خانة الكتابة
+  var _edit = window.editAIUserMessage;
+  if (typeof _edit === 'function') window.editAIUserMessage = function () {
+    var r = _edit.apply(this, arguments);
+    try {
+      var row = document.querySelector('.ai-chat-input-row'), old = document.getElementById('aiEditBar'); if (old) old.remove();
+      if (row && row.parentNode && typeof aiRequestInProgress !== 'undefined') {
+        var bar = document.createElement('div'); bar.id = 'aiEditBar';
+        bar.innerHTML = '<span>✏️</span><span class="t">بتعدّل رسالتك: عدّل واضغط إرسال. الرسايل اللي بعدها هتتبدّل بالرد الجديد.</span><span class="x" title="إخفاء">✕</span>';
+        bar.querySelector('.x').addEventListener('click', function () { bar.remove(); });
+        row.parentNode.insertBefore(bar, row);
+        row.classList.add('ai-edit-flash'); setTimeout(function () { row.classList.remove('ai-edit-flash'); }, 2400);
+        var m = document.getElementById('aiChatMessages');
+        if (m) { var mo = new MutationObserver(function (ms) { ms.forEach(function (x) { x.addedNodes.forEach(function (n) { if (n.classList && n.classList.contains('ai-msg-user')) { bar.remove(); mo.disconnect(); } }); }); }); mo.observe(m, { childList: true }); }
+      }
+    } catch (e) { }
+    return r;
+  };
+
+  // نشاط الأدوات الحي: بيتسجّل اللي بيتنفّذ فعلًا (مش بس طلب المساعد)
+  var _ex = window.executeAIFunctionCall;
+  var SKIP = /^(show_card|rename_chat|stop_speaking|voice_mic_mute|end_voice_call|start_voice_call|request_tools|get_current_datetime|calculate|undo_manage|copy_to_clipboard|text_stats|date_math|unit_convert|random_pick|project_switch)$/;
+  function guardShort(name, args, res) {
+    try {
+      if (!res || typeof res !== 'object' || res.status === 'error') return res;
+      args = args || {}; var len = 0, what = '';
+      if (name === 'file_write' && /\.(html?|md|txt)$/i.test(String(args.name || ''))) { len = String(args.content || '').length; what = 'الملف'; }
+      else if (name === 'html_to_pdf' && typeof args.html === 'string') { len = args.html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').length; what = 'الـ PDF'; }
+      else if (name === 'build_document') { len = JSON.stringify(args.sections || []).length; what = 'المستند'; }
+      if (what && len > 0 && len < 2500) return Object.assign({}, res, { warning_short_document: what + ' قصير جدًا (' + len + ' حرف). لو المستخدم طلب بحث أو تقرير كامل فده مش كفاية: استخدم deep_research لو لسه، واكتب المحتوى كامل ومفصّل (1500 كلمة على الأقل بعناوين وفقرات وجداول وصور ومصادر) وأعد إنشاء الملف، ولا تقول إنه خلص قبل كده.' });
+    } catch (e) { }
+    return res;
+  }
+  if (typeof _ex === 'function') window.executeAIFunctionCall = async function (name) {
+    var A = window.massrAct;
+    if (!A || SKIP.test(name)) { var r0 = await _ex.apply(this, arguments); return guardShort(name, arguments[1], r0); }
+    var h = null; try { h = A.toolStart(name, arguments[1]); } catch (e) { }
+    try { var res = await _ex.apply(this, arguments); try { A.toolEnd(h, res); } catch (e) { } return guardShort(name, arguments[1], res); }
+    catch (e) { try { A.toolEnd(h, { status: 'error', message: String((e && e.message) || e) }); } catch (x) { } throw e; }
+  };
+})();
 /* AIX-RICH-END */
+/* اسكت: بيوقّف صوت الرد الحالي فورًا والميكروفون فاضل شغال (غير الكتم اللي بيمنعه يسمعك) */
+function aiLiveHush() {
+  if (typeof aiLiveCallActive === 'undefined' || !aiLiveCallActive) return false;
+  window.__aiLiveHush = true; window.__aiHushAt = Date.now();
+  clearTimeout(window.__aiHushT); window.__aiHushT = setTimeout(function () { window.__aiLiveHush = false; }, 9000);
+  try { stopAILivePlayback(); } catch (e) { }
+  try { setAIVoiceCallState('listening', 'أنا ساكت وسامعك 🎧', 'اتكلم لما تحب'); } catch (e) { }
+  try { navigator.vibrate && navigator.vibrate(15); } catch (e) { }
+  return true;
+}
+(function () {
+  var _h = window.handleAILiveServerMessage;
+  if (typeof _h === 'function') window.handleAILiveServerMessage = function (msg) {
+    var r = _h.apply(this, arguments);
+    try { var c = msg && msg.serverContent; if (window.__aiLiveHush && c && (c.interrupted || c.turnComplete) && Date.now() - (window.__aiHushAt || 0) > 300) window.__aiLiveHush = false; } catch (e) { }
+    return r;
+  };
+  // زر النزول لآخر الرسائل
+  var jb = null;
+  function ensureJump() {
+    if (jb) return jb;
+    jb = document.createElement('button'); jb.id = 'aiJumpLatest'; jb.type = 'button'; jb.setAttribute('aria-label', 'النزول لآخر الرسائل'); jb.textContent = '↓';
+    jb.addEventListener('click', function () { var m = document.getElementById('aiChatMessages'); if (m) m.scrollTo({ top: m.scrollHeight, behavior: 'smooth' }); });
+    document.body.appendChild(jb); return jb;
+  }
+  function checkJump() {
+    var m = document.getElementById('aiChatMessages'); if (!m) return;
+    var far = m.scrollHeight - m.scrollTop - m.clientHeight > 320 && m.offsetParent !== null;
+    var jbb = ensureJump(), row = document.querySelector('.ai-chat-input-row');
+    if (row) jbb.style.bottom = Math.round(window.innerHeight - row.getBoundingClientRect().top + 12) + 'px';
+    jbb.classList.toggle('on', !!far);
+  }
+  document.addEventListener('scroll', function (e) { if (e.target && e.target.id === 'aiChatMessages') checkJump(); }, true);
+  // اختصارات: Esc يوقّف الكلام أو توليد الرد
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+    try {
+      if (typeof aiLiveCallActive !== 'undefined' && aiLiveCallActive) { if (aiLiveCallState === 'speaking') aiLiveHush(); return; }
+      var sb = document.getElementById('aiStopBtn'); if (sb && sb.offsetParent !== null) stopAIResponse();
+    } catch (x) { }
+  });
+})();
+/* الخطوة 4: أول ما تخرج من قسم المدرب والمكالمة شغالة، الأورب يبقى دايرة عايمة؛ ولما ترجع للمدرب تتفتح المكالمة تاني */
+(function(){
+  const _s=window.switchTab; if(typeof _s!=='function')return;
+  let autoMin=false;
+  window.switchTab=function(t){
+    const r=_s.apply(this,arguments);
+    try{
+      if(!aiLiveCallActive){autoMin=false;return r}
+      const onAI=(t==='ai-assistant');
+      if(!onAI&&!aiLiveCallMinimized){autoMin=true;minimizeAIVoiceCall()}
+      else if(onAI&&autoMin&&aiLiveCallMinimized){autoMin=false;restoreAIVoiceCall()}
+    }catch(e){}
+    return r;
+  };
+})();
 
 </script>
 </body>
