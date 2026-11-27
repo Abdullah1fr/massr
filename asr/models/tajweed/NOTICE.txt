@@ -1,0 +1,4 @@
+Model: HisnLabs/tajweed-v2 (https://huggingface.co/Hisnlabs/tajweed-v2), Apache License 2.0, Copyright HisnLabs.
+CHANGED: onnx/model-int8.onnx (sha256 79cca1a2fc7ef81e325a3071a5f26cfec69203ef2c63177549065cdc1022c373): the int8 weights and zero points of the two ConvInteger nodes
+were rewritten as uint8 (+128) so that onnxruntime-web can run them; outputs are identical. Then split in two parts.
+model.onnx.part1+part2 sha256 78706833ee00dda52fd86f8c8e49060cb1ead5e7ddf9d621e531c8b20c0d69fb

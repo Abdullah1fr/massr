@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>تجربة نموذج التجويد</title>
+<style>
+body{font-family:sans-serif;background:#0f1412;color:#eee;margin:0;padding:16px;line-height:1.7}
+button,.f{font-size:18px;padding:12px 16px;border:0;border-radius:10px;background:#1f7a55;color:#fff;margin:4px 0;display:inline-block}
+button:disabled{opacity:.4}
+#heard{font-size:30px;line-height:2.2;background:#18211d;border-radius:12px;padding:12px;min-height:80px;word-break:break-all}
+#log{direction:ltr;text-align:left;font-size:12px;white-space:pre-wrap;word-break:break-all;background:#000;padding:8px;border-radius:8px}
+</style>
+<h3>تجربة نموذج التجويد (أوفلاين)</h3>
+<div id="st">اضغط «تحميل النموذج»</div>
+<button id="load">تحميل النموذج</button>
+<button id="mic" disabled>🎙️ ابدأ القراءة</button>
+<label class="f">ملف صوت <input id="file" type="file" accept="audio/*" disabled></label>
+<p>اللي النموذج سامعه (كتابة صوتية: المد حروفه بتتكرر):</p>
+<div id="heard"></div>
+<p id="num"></p>
+<button id="copy">انسخ السجل</button>
+<div id="log"></div>
+<script>
+const $ = id => document.getElementById(id), SR = 16000, MAX = 29 * SR;
+const log = { ua: navigator.userAgent, cores: navigator.hardwareConcurrency, runs: [] };
+const show = () => $('log').textContent = JSON.stringify(log);
+let worker, seq = 0, wait = new Map(), rec = null;
+function ask(msg, transfer) {
+  return new Promise((res, rej) => { const id = ++seq; wait.set(id, { res, rej }); worker.postMessage({ ...msg, id }, transfer || []); });
+}
+$('load').onclick = async () => {
+  $('load').disabled = true; $('st').textContent = 'بحمّل…';
+  worker = new Worker('tajweed-worker.js', { type: 'module' });
+  worker.onmessage = e => {
+    const m = e.data; if (m.type === 'progress') return void ($('st').textContent = 'بحمّل… ' + m.pct + '%');
+    const w = wait.get(m.id); wait.delete(m.id); if (w) m.type === 'error' ? w.rej(new Error(m.message)) : w.res(m);
+  };
+  worker.onerror = e => { $('st').textContent = 'خطأ: ' + (e.message || 'الـ worker ماشتغلش'); $('load').disabled = false; };
+  try {
+    const r = await ask({ type: 'load' }); log.loadMs = r.ms; $('st').textContent = 'جاهز (' + (r.ms / 1000).toFixed(1) + ' ثانية)';
+    $('mic').disabled = $('file').disabled = false; show();
+  } catch (e) { $('st').textContent = 'خطأ: ' + e.message; log.error = e.message; $('load').disabled = false; show(); }
+};
+async function run(audio, kind) {
+  const sec = +(audio.length / SR).toFixed(2), t = performance.now();
+  const r = await ask({ type: 'run', audio }, [audio.buffer]);
+  const ms = Math.round(performance.now() - t);
+  $('heard').textContent = r.script;
+  $('num').textContent = `صوت ${sec} ث | mel ${r.melMs} | نموذج ${r.inferMs} | الإجمالي ${ms} مللي ثانية`;
+  const row = { kind, sec, melMs: r.melMs, inferMs: r.inferMs, ms };
+  if (kind !== 'live') { row.script = r.script; row.minProb = +Math.min(1, ...r.probs).toFixed(2); }
+  log.runs.push(row); show();
+}
+const fail = e => { $('st').textContent = 'خطأ: ' + e.message; log.error = e.message; show(); };
+$('file').onchange = async () => {
+  const f = $('file').files[0]; if (!f) return;
+  try {
+    const ctx = new OfflineAudioContext(1, 1, SR), b = await ctx.decodeAudioData(await f.arrayBuffer());
+    if (b.length > MAX) $('st').textContent = 'الملف أطول من 29 ثانية، هحلل أول 29 بس';
+    await run(b.getChannelData(0).slice(0, MAX), 'file');
+  } catch (e) { fail(e); }
+};
+function snapshot(r) {                                 // كل اللي اتسجل لحد دلوقتي بمعدل 16k
+  const all = new Float32Array(r.n); let k = 0; for (const c of r.chunks) { all.set(c, k); k += c.length; }
+  const ratio = r.ctx.sampleRate / SR; if (ratio === 1) return all.slice(0, MAX);
+  const out = new Float32Array(Math.min(MAX, Math.floor(all.length / ratio)));
+  for (let i = 0; i < out.length; i++) { const p = i * ratio, a = p | 0, b = Math.min(a + 1, all.length - 1); out[i] = all[a] + (all[b] - all[a]) * (p - a); }
+  return out;
+}
+async function start() {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: true } });
+  let ctx; try { ctx = new AudioContext({ sampleRate: SR }); } catch (e) { ctx = new AudioContext(); }
+  const r = rec = { stream, ctx, chunks: [], n: 0, on: true };
+  const src = ctx.createMediaStreamSource(stream), node = ctx.createScriptProcessor(2048, 1, 1);
+  node.onaudioprocess = e => { if (!r.on) return; const c = e.inputBuffer.getChannelData(0).slice(); r.chunks.push(c); r.n += c.length; };
+  src.connect(node); node.connect(ctx.destination); r.node = node; await ctx.resume();
+  $('mic').textContent = '⏹️ وقّف'; $('st').textContent = 'بسمعك…';
+  let done = 0;
+  r.loop = (async () => {                             // إعادة تحليل الصوت المتراكم: طلب واحد في المرة
+    while (r.on) {
+      const sec = r.n / r.ctx.sampleRate;
+      if (sec >= 29) { stop(); break; }
+      if (sec - done >= 0.35) { done = sec; await run(snapshot(r), 'live'); } else await new Promise(s => setTimeout(s, 50));
+    }
+  })().catch(fail);
+}
+async function stop() {
+  const r = rec; if (!r) return; rec = null; r.on = false; $('mic').disabled = true;
+  r.node.disconnect(); r.stream.getTracks().forEach(t => t.stop());
+  try { await new Promise(s => setTimeout(s, 0)); await r.loop; if (r.n) await run(snapshot(r), 'final'); $('st').textContent = 'خلصنا'; } catch (e) { fail(e); }
+  r.ctx.close(); $('mic').textContent = '🎙️ ابدأ القراءة'; $('mic').disabled = false;
+}
+$('mic').onclick = () => rec ? stop() : start().catch(fail);
+$('copy').onclick = () => navigator.clipboard.writeText(JSON.stringify(log)).then(() => $('copy').textContent = 'اتنسخ ✓');
+</script>
+</html>
