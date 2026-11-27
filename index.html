@@ -3710,6 +3710,71 @@ window.__isDesk=function(){return d.classList.contains('dev-desktop')};})();</sc
         .quran-header-toggle-btn .qhtb-next-label { display:none; white-space:nowrap; font-size:0.85rem; font-weight:800; color:#17110a; opacity:0; transform:translateX(8px); transition: opacity 0.25s ease 0.12s, transform 0.25s ease 0.12s; }
         .quran-header-toggle-btn.qhtb-next-mode .qhtb-next-label { display:inline-block; opacity:1; transform:translateX(0); }
         [data-theme="light"] .quran-header-toggle-btn.qhtb-next-mode .qhtb-next-label { color:#fff; }
+        /* ===== أدوات القراءة: الزرار السداسي بيفتح قايمة (آخر السورة / تمرير تلقائي / احفظ مكاني) ===== */
+        .quran-header-toggle-btn .qhtb-chev { transform-origin:50px 52px; transform:rotate(90deg); transition: transform 0.5s cubic-bezier(.3,1.6,.5,1); }
+        .quran-header-toggle-btn.qfab-open .qhtb-chev { transform:rotate(270deg); }
+        .quran-header-toggle-btn.qfab-running { animation:qfabPulse 1.8s ease-out infinite; border-radius:50%; overflow:visible; }
+        @keyframes qfabPulse { 0% { box-shadow:0 0 0 0 rgba(198,160,74,.65); } 100% { box-shadow:0 0 0 14px rgba(198,160,74,0); } }
+        .qfab-backdrop { position:fixed; inset:0; z-index:15; background:rgba(5,10,12,.38); opacity:0; visibility:hidden; transition:opacity .25s ease, visibility .25s; }
+        .qfab-backdrop.open { opacity:1; visibility:visible; }
+        /* صف الأدوات: بيخرج من الزرار السداسي بالعرض، والأزرار بتلف وتنط واحد ورا التاني */
+        .qfab-menu { position:fixed; left:76px; bottom:14px; z-index:17; direction:ltr; visibility:hidden; pointer-events:none; transition:visibility 0s linear .35s, bottom .25s ease; }
+        .qfab-menu.open { visibility:visible; pointer-events:auto; transition:visibility 0s, bottom .25s ease; }
+        .qfab-dock { display:flex; align-items:flex-start; gap:2px; background:var(--card-bg); border:1px solid #c6a04a; border-radius:34px; padding:6px 7px 5px; box-shadow:0 10px 30px rgba(0,0,0,.38); clip-path:inset(-30px 105% -30px -30px); transition:clip-path .35s cubic-bezier(.6,0,.4,1); }
+        .qfab-menu.open .qfab-dock { clip-path:inset(-30px -30px -30px -30px); transition:clip-path .32s cubic-bezier(.2,.8,.2,1); }
+        .qfab-item { width:56px; display:flex; flex-direction:column; align-items:center; gap:3px; background:none; border:0; padding:0; cursor:pointer; font-family:inherit; color:var(--text-primary); opacity:0; transform:translateX(-46px) rotate(-160deg) scale(.2); transition:opacity .18s ease, transform .3s ease; -webkit-tap-highlight-color:transparent; }
+        .qfab-menu.open .qfab-item { opacity:1; transform:none; transition:opacity .25s ease, transform .55s cubic-bezier(.25,1.7,.45,1); }
+        .qfab-menu.open .qfab-item:nth-child(1) { transition-delay:.04s; }
+        .qfab-menu.open .qfab-item:nth-child(2) { transition-delay:.10s; }
+        .qfab-menu.open .qfab-item:nth-child(3) { transition-delay:.16s; }
+        .qfab-menu.open .qfab-item:nth-child(4) { transition-delay:.22s; }
+        .qfab-ic { width:44px; height:44px; border-radius:50%; flex-shrink:0; display:flex; align-items:center; justify-content:center; background:#1c4a3d; border:2px solid #c6a04a; color:#faf3e2; transition:transform .18s cubic-bezier(.3,1.8,.5,1), background .25s ease; }
+        .qfab-item:active .qfab-ic { transform:scale(.82); }
+        .qfab-item.on .qfab-ic { background:#c6a04a; color:#17110a; }
+        .qfab-item.rec .qfab-ic { background:#b3362f; border-color:#ffd9a0; animation:qtRec 1.2s ease-out infinite; }
+        .qfab-ic svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:2.2; stroke-linecap:round; stroke-linejoin:round; }
+        .qfab-txt { direction:rtl; font-size:.6rem; font-weight:800; white-space:nowrap; line-height:1.4; }
+        @media (max-width:360px) { .qfab-menu { left:72px; } .qfab-item { width:50px; } }
+        @keyframes qtRec { 0% { box-shadow:0 0 0 0 rgba(224,72,60,.7); } 100% { box-shadow:0 0 0 12px rgba(224,72,60,0); } }
+        .qfab-speed { position:absolute; bottom:76px; left:-62px; direction:rtl; width:min(300px, calc(100vw - 28px)); background:var(--card-bg); color:var(--text-primary); border:1px solid var(--card-border); border-radius:18px; padding:12px; box-shadow:0 14px 40px rgba(0,0,0,.4); display:none; animation:qfabRise .32s cubic-bezier(.3,1.4,.5,1); }
+        @keyframes qfabRise { from { opacity:0; transform:translateY(20px) scale(.85); } to { opacity:1; transform:none; } }
+        .qfab-menu.speed .qfab-dock { display:none; }
+        .qfab-menu.speed .qfab-speed { display:block; }
+        .qfab-speed-head { display:flex; align-items:center; justify-content:space-between; gap:8px; font-weight:900; font-size:.86rem; margin-bottom:10px; }
+        .qfab-speed-head button { border:0; background:var(--input-bg); color:var(--text-primary); border-radius:8px; width:30px; height:30px; cursor:pointer; font-size:.9rem; }
+        .qfab-speed button[data-sp] { font-family:inherit; border:1px solid var(--card-border); background:var(--input-bg); color:var(--text-primary); border-radius:10px; cursor:pointer; font-weight:800; padding:9px 4px; font-size:.8rem; }
+        .qfab-speed button[data-sp].on { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent) inset; }
+        .qfab-speed .qfab-me { width:100%; margin-bottom:8px; padding:11px 8px; }
+        .qfab-chips { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+        .qfab-note { font-size:.66rem; color:var(--text-secondary); line-height:1.8; margin-top:9px; text-align:center; }
+        .qfab-pill { position:fixed; left:78px; bottom:28px; z-index:16; display:none; align-items:center; gap:4px; direction:ltr; background:var(--card-bg); color:var(--text-primary); border:1px solid #c6a04a; border-radius:30px; padding:4px; box-shadow:0 8px 24px rgba(0,0,0,.35); transition:bottom .25s ease; }
+        .qfab-pill.show { display:flex; animation:qfabRise .32s cubic-bezier(.3,1.4,.5,1); }
+        .qfab-pill button { font-family:inherit; border:0; background:transparent; color:inherit; min-width:36px; height:36px; border-radius:20px; cursor:pointer; font-size:1rem; font-weight:900; display:flex; align-items:center; justify-content:center; }
+        .qfab-pill button:active { background:var(--input-bg); }
+        .qfab-pill .qfab-pill-label { direction:rtl; font-size:.76rem; padding:0 8px; white-space:nowrap; }
+        html.qtl-open .qfab-menu { bottom:calc(var(--qtl-h, 0px) + 8px); }
+        html.qtl-open .qfab-pill { bottom:calc(var(--qtl-h, 0px) + 22px); }
+        .qfab-menu.open ~ .qfab-pill { display:none; }
+        /* ===== شريط التسميع ===== */
+        .qtest-bar { max-width:calc(100vw - 90px); }
+        .qtest-bar .qtest-dot { width:12px; height:12px; margin:0 8px; border-radius:50%; background:#d4453c; flex-shrink:0; animation:qtRec 1.2s ease-out infinite; }
+        .qtest-bar.paused .qtest-dot { background:var(--text-secondary); animation:none; }
+        .qtest-bar .qtest-status { direction:rtl; width:104px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:.7rem; font-weight:800; text-align:right; }
+        /* ===== إخفاء نص الآيات + التسميع ===== */
+        #quranAyahsWrap.qhide .qw:not(.qw-show) { visibility:hidden; position:relative; }
+        #quranAyahsWrap.qhide .qw:not(.qw-show) * { visibility:hidden !important; }
+        #quranAyahsWrap.qhide .qw:not(.qw-show)::before { content:''; visibility:visible; position:absolute; left:6%; right:6%; top:60%; height:3px; border-radius:3px; background:var(--text-secondary); opacity:.25; }
+        #quranAyahsWrap.qhide .qw.qw-next:not(.qw-show)::before { background:var(--accent); opacity:1; animation:qwBlink 1s ease-in-out infinite; }
+        @keyframes qwBlink { 50% { opacity:.25; } }
+        .quran-ayah-text .qw { font:inherit; letter-spacing:inherit; } /* لازم تفضل بخط المصحف المختار */
+        .qw.qw-new { animation:qwIn .6s ease; }
+        @keyframes qwIn { from { opacity:0; text-shadow:0 0 14px var(--accent); } to { opacity:1; } }
+        #quranAyahsWrap .qw.qw-miss { background:rgba(220,60,50,.24); border-radius:6px; }
+        #quranAyahsWrap .qw.qw-hint { background:rgba(230,170,40,.28); border-radius:6px; }
+        #quranAyahsWrap.qhide .quran-ayah-card:not(.qh-full) .tw-lbl-ov,
+        #quranAyahsWrap.qhide .quran-ayah-card:not(.qh-full) .quran-ayah-tafsir,
+        #quranAyahsWrap.qhide .quran-ayah-card:not(.qh-full) .quran-ayah-translation { visibility:hidden; }
+        @media (prefers-reduced-motion:reduce) { .qfab-item, .qfab-dock, .qfab-speed, .qfab-pill.show, .quran-header-toggle-btn .qhtb-chev, .qfab-menu.open .qfab-item { transition:none; animation:none; } .quran-header-toggle-btn.qfab-running, .qfab-item.rec .qfab-ic, .qtest-dot, .qw.qw-new, .qw.qw-next::before { animation:none !important; } }
         .quran-bismillah { text-align:center; font-size:1.3rem; font-weight:700; color:var(--accent-gold); font-family:'KFGQPC HAFS Uthmanic Script', 'Amiri Quran', 'Traditional Arabic', serif; margin-bottom:16px; padding:14px; background:var(--card-bg); border:1px solid var(--card-border); border-radius: var(--radius-md); }
         /* البسملة كجزء من كارت الآية الأولى نفسه (مش كارت منفصل) — بلون مميز مختلف عن ألوان التجويد */
         .quran-ayah-bismillah-inline { text-align:center; font-size:1.25rem; font-weight:700; color:var(--accent-gold); font-family:'KFGQPC HAFS Uthmanic Script', 'Amiri Quran', 'Traditional Arabic', serif; margin-bottom:14px; padding-bottom:14px; border-bottom:1px dashed var(--card-border); }
@@ -4616,6 +4681,8 @@ html.dev-desktop .qtp-pop{ width:340px; font-size:.9rem; }
 /* زرار السداسي العايم: يقعد قريب من عمود القراءة بدل ما يضيع في آخر الشمال على الشاشات العريضة */
 html.dev-desktop .quran-header-toggle-btn{ left:max(18px, calc((100vw - var(--rail-w) - 1200px) / 2 - 10px)); }
 html.dev-desktop .quran-header-toggle-btn.qhtb-next-mode{ max-width:360px; }
+html.dev-desktop .qfab-menu{ left:calc(max(18px, calc((100vw - var(--rail-w) - 1200px) / 2 - 10px)) + 62px); }
+html.dev-desktop .qfab-pill{ left:calc(max(18px, calc((100vw - var(--rail-w) - 1200px) / 2 - 10px)) + 64px); }
 /* صفوف قايمة الإعدادات/المختارات جوه الشيتات */
 html.dev-desktop .qds-nav-row{ padding:14px 4px; }
 html.dev-desktop .qds-nav-label{ font-size:.95rem; }
@@ -4626,6 +4693,8 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
 @media (max-width:760px){
   html.dev-desktop .quran-tajweed-legend{ font-size:.7rem; padding:8px 8px; gap:4px 8px; }
   html.dev-desktop .quran-header-toggle-btn{ left:14px; }
+  html.dev-desktop .qfab-menu{ left:76px; }
+  html.dev-desktop .qfab-pill{ left:78px; }
 }
 </style>
 <style id="aixCss">
@@ -5602,15 +5671,65 @@ html.dev-desktop .quran-list-tab{ font-size:.95rem; padding:12px 6px; }
 
             <!-- عرض القراءة -->
             <div id="quranReadingView" style="display:none;">
-                <button class="quran-header-toggle-btn" id="quranHeaderToggleBtn" onclick="quranHeaderToggleBtnClick()" title="إظهار الشريط العلوي">
+                <button class="quran-header-toggle-btn" id="quranHeaderToggleBtn" onclick="quranHeaderToggleBtnClick(event)" title="أدوات القراءة" aria-label="أدوات القراءة" aria-expanded="false">
                     <svg viewBox="0 0 100 100">
                         <path d="M50,0 L88,24 L88,70 L50,98 L12,70 L12,24 Z" fill="#c6a04a" stroke-linejoin="round"/>
                         <path d="M50,8 L81,26 L81,68 L50,90 L19,68 L19,26 Z" fill="#faf3e2" stroke-linejoin="round"/>
+                        <g class="qhtb-chev">
                         <path d="M38,54 L50,38 L62,54" fill="none" stroke="#1c4a3d" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
                         <path d="M38,66 L50,50 L62,66" fill="none" stroke="#1c4a3d" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+                        </g>
                     </svg>
                     <span class="qhtb-next-label" id="quranHeaderToggleBtnLabel"></span>
                 </button>
+                <div class="qfab-backdrop" id="qfabBackdrop" onclick="quranFabClose()"></div>
+                <div class="qfab-menu" id="qfabMenu">
+                    <div class="qfab-dock">
+                        <button class="qfab-item" onclick="quranFabGoEnd()" title="آخر السورة">
+                            <span class="qfab-ic"><svg viewBox="0 0 24 24"><path d="M6 5l6 6 6-6"/><path d="M6 11l6 6 6-6"/><path d="M6 21h12"/></svg></span>
+                            <span class="qfab-txt">آخر السورة</span>
+                        </button>
+                        <button class="qfab-item" id="qfabSpeedBtn" onclick="quranFabSpeedOpen()" title="تمرير تلقائي">
+                            <span class="qfab-ic"><svg viewBox="0 0 24 24"><path d="M4 18a9 9 0 1 1 16 0"/><path d="M12 14l4-5"/><circle cx="12" cy="14.5" r="1.2"/></svg></span>
+                            <span class="qfab-txt">تمرير</span>
+                        </button>
+                        <button class="qfab-item" id="qfabHideBtn" onclick="quranHideToggle()" title="إخفاء / إظهار نص الآيات">
+                            <span class="qfab-ic"><svg viewBox="0 0 24 24"><path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.8"/><path class="qfab-slash" d="M4 4l16 16"/></svg></span>
+                            <span class="qfab-txt" id="qfabHideTxt">إخفاء</span>
+                        </button>
+                        <button class="qfab-item" id="qfabMicBtn" onclick="quranTestToggle()" title="تسميع بالميكروفون">
+                            <span class="qfab-ic"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3"/></svg></span>
+                            <span class="qfab-txt" id="qfabMicTxt">تسميع</span>
+                        </button>
+                    </div>
+                    <div class="qfab-speed">
+                        <div class="qfab-speed-head"><span>سرعة التمرير</span><button onclick="quranFabClose()" aria-label="إغلاق">✕</button></div>
+                        <button class="qfab-me" data-sp="me" onclick="quranAutoPick('me')">📏 سرعة قراءتي <span id="qfabMeVal"></span></button>
+                        <div class="qfab-chips">
+                            <button data-sp="0.5" onclick="quranAutoPick('0.5')">×½</button>
+                            <button data-sp="0.75" onclick="quranAutoPick('0.75')">×¾</button>
+                            <button data-sp="1" onclick="quranAutoPick('1')">×1 عادية</button>
+                            <button data-sp="1.25" onclick="quranAutoPick('1.25')">×1¼</button>
+                            <button data-sp="1.5" onclick="quranAutoPick('1.5')">×1½</button>
+                            <button data-sp="2" onclick="quranAutoPick('2')">×2</button>
+                        </div>
+                        <div class="qfab-note" id="qfabLeft"></div>
+                    </div>
+                </div>
+                <div class="qfab-pill" id="qfabPill">
+                    <button id="qfabPlay" onclick="quranAutoTogglePause()" aria-label="إيقاف مؤقت">⏸</button>
+                    <button onclick="quranAutoStep(-1)" aria-label="أبطأ">−</button>
+                    <button class="qfab-pill-label" id="qfabPillLabel" onclick="quranFabSpeedOpen()"></button>
+                    <button onclick="quranAutoStep(1)" aria-label="أسرع">+</button>
+                    <button onclick="quranAutoStop()" aria-label="إنهاء التمرير">✕</button>
+                </div>
+                <div class="qfab-pill qtest-bar" id="qtestBar">
+                    <span class="qtest-dot"></span>
+                    <span class="qtest-status" id="qtestStatus" aria-live="polite"></span>
+                    <button id="qtestPlay" onclick="quranTestPause()" aria-label="إيقاف الميكروفون مؤقتًا">⏸</button>
+                    <button onclick="quranTestHint()" title="اكشف الكلمة الجاية" aria-label="اكشف الكلمة الجاية">💡</button>
+                    <button onclick="quranTestStop(true)" aria-label="إنهاء التسميع">✕</button>
+                </div>
                 <div class="quran-reading-header qrh-collapsible" id="quranReadingHeader">
                     <button class="icon-btn" onclick="quranBackToList()" style="font-size:1.1rem;">➜</button>
                     <div class="quran-reading-title">
@@ -13269,6 +13388,7 @@ function restoreTimerState() {
         const now = Date.now(), dt = Math.min(0.6, (now - RPR.last) / 1000); RPR.last = now;
         if (!RPR.on) return;      // العين لازم تتشغّل بإيد المستخدم الأول — من غير كده مفيش أي حساب للورد
         const w = RPR.wrap;
+        if (quranHideOn) return;      // النص مخفي = مفيش قراءة تتحسب
         if (document.hidden || !w || !w.isConnected || w.offsetParent === null || !quranCurrentSurah) return;
         if (now - RPR.act > 75000 || dt <= 0) return;      // سايب الشاشة من غير أي لمس أو تمرير
         const sr = quranCurrentSurah.number, L = rpQLoad(), tk = getDateKey(new Date()), spd = rpSpeedVal(); if (!spd) return;      // من غير قياس السرعة التتبع مش بيشتغل
@@ -30042,6 +30162,7 @@ function endAIVoiceCall() {
         // كل الكروت بتتحط فاضية بطول تقديري حسب طول الآية (رخيص جدًا)، وبعدين بنبني القريب بس
         wrap.innerHTML = ayahs.map(a => `<div class="quran-ayah-row qv-ph" data-n="${a.numberInSurah}" data-m="0" style="height:${quranVEstimate(a)}px"></div>`).join('');
         quranVSetup(wrap);
+        quranHideRefresh();
         // أول فتح: نبني أول كروت فورًا (أو اللي حوالين الآية المطلوبة) عشان مفيش لحظة فاضية
         const focusN = jumpToAyahInSurah || (ayahs[0] && ayahs[0].numberInSurah) || 1;
         quranVMountAround(focusN, jumpToAyahInSurah ? 2 : 5);
@@ -30975,7 +31096,7 @@ function endAIVoiceCall() {
     function quranApplyIzharAcrossWords(prev, cur) {
         if (!quranIzharEnabled) return;
         if (!prev || !cur || !prev.length || !cur.length) return;
-        const firstCh = cur[0].text[0];
+        const firstCh = /^\u0627\u0653/.test(cur[0].text) ? '\u0622' : cur[0].text[0]; // آ المركّبة = همزة (مِنْ ءَامَنَ)
         const L = prev.length - 1;
         const last = prev[L].text;
         let idxs = null;
@@ -31067,6 +31188,11 @@ function endAIVoiceCall() {
         if (QURAN_HAMZA_START_RE.test(c.text)) return true;
         return /^\u0640/.test(c.text) && /\u0654/.test(c.text); // تطويلة + همزة (ٱلْـَٔاخِرَةِ)
     }
+    // همزة قطع في أول الكلمة اللي بعدها (مد منفصل). «ءَا» بتتكتب آ مركّبة (ا + مدّة U+0653) بعد quranMaddifyHamza
+    // (عَلَىٰٓ ءَاذَانِهِمْ، رَبَّنَآ ءَاتِنَا) فلازم تتحسب همزة هي كمان. دي لأول الكلمة بس، مش لحروف جوه الكلمة
+    function quranWordStartsWithHamza(c) {
+        return quranIsHamzaCluster(c) || (!!c && /^\u0627\u0653/.test(c.text || ''));
+    }
     function quranMaddClassFromText(clusters, i, nextWord) {
         const c = clusters[i];
         const t = c.text;
@@ -31085,7 +31211,7 @@ function endAIVoiceCall() {
         if (hasSilah && base === '\u0647') {
             if (!nw) return 'tw-madd-n';
             if (/^\u0671/.test(nw.text)) return null;
-            return quranIsHamzaCluster(nw) ? 'tw-madd-p' : 'tw-madd-n';
+            return quranWordStartsWithHamza(nw) ? 'tw-madd-p' : 'tw-madd-n';
         }
         // فواتح السور: حرف (مش ا/و/ي) عليه مدّة بس من غير خنجرية
         if (hasWave && !hasDagger && base !== '\u0622' && !/[\u0627\u0648\u064A\u0649\u0621\u0623\u0625\u0624\u0626]/.test(base)) return 'tw-madd-m'; // الهمزة اللي عليها مدّة (ٱلۡأٓخِرَةُ) مش من فواتح السور: دي ألف المد بعد الهمزة، فبتكمّل على الحساب العادي تحت
@@ -31100,7 +31226,7 @@ function endAIVoiceCall() {
         }
         // آخر الكلمة
         if (plain && nw && /^\u0671/.test(nw.text)) return null; // حرف المد بيتحذف وصلًا قبل همزة الوصل لالتقاء الساكنين (أَمَّا ٱلسَّائِلَ، وَعَمِلُوا ٱلصَّٰلِحَٰتِ): الواو بعد ما الألف الساكتة بتتشال بتبقى آخر الكلمة فبتتحذف برضه
-        return (nw && quranIsHamzaCluster(nw)) ? 'tw-madd-p' : 'tw-madd-n';
+        return quranWordStartsWithHamza(nw) ? 'tw-madd-p' : 'tw-madd-n';
     }
     function quranRecomputeMaddClasses(parts) {
         if (!quranMaddEnabled) return;
@@ -31194,7 +31320,7 @@ function endAIVoiceCall() {
         if (last.maddSilah && cur && cur.length && /^\u0671/.test(cur[0].text)) return; // الصلة قبل همزة الوصل بتسقط
         // حرف المد العادي قبل همزة الوصل (ٱ) بيتحذف في الوصل (أَمَّا ٱلسَّائِلَ) فمابيتلوّنش
         if (last.maddPlain && cur && cur.length && /^\u0671/.test(cur[0].text)) return;
-        const hamzaNext = cur && cur.length && QURAN_HAMZA_START_RE.test(cur[0].text);
+        const hamzaNext = cur && cur.length && quranWordStartsWithHamza(cur[0]);
         quranSetFallbackMadd(last, hamzaNext ? 'tw-madd-p' : 'tw-madd-n');
     }
     function quranFinalizeMaddPending(clusters) {
@@ -31391,6 +31517,7 @@ function endAIVoiceCall() {
         try { quranVTeardown(); } catch (e) {}
         quranStopAudio();
         quranTeardownReadingHeaderToggle();
+        quranHideOn = false; qHide.surah = 0; qHide.shown.clear(); qHide.marks.clear(); qHide.next = null;
         document.getElementById('quranReadingView').style.display = 'none';
         document.getElementById('quranListView').style.display = 'block';
         document.getElementById('quranTajweedLegend').classList.remove('open');
@@ -31409,23 +31536,639 @@ function endAIVoiceCall() {
     let quranAtSurahEnd = false; // هل إحنا واصلين لآخر السورة دلوقتي وليه الزرار متحول
     const QURAN_END_REACHED_MARGIN = 24; // px مسافة تسامح من نهاية الصفحة عشان نعتبرها "خلصت السورة"
 
-    function quranToggleReadingHeader() {
-        const header = document.getElementById('quranReadingHeader');
-        if (!header) return;
-        if (header.classList.contains('qrh-visible')) {
-            quranHideReadingHeader();
+    // لما نضغط على الزرار: لو إحنا في وضع "آخر السورة" ينقلنا للسورة التالية، وإلا يفتح/يقفل أدوات القراءة
+    // (الشريط العلوي بيظهر لوحده لما تشد لتحت، فمبقاش محتاج زرار)
+    function quranHeaderToggleBtnClick(e) {
+        // في آخر السورة: الكلام بينقل للسورة التالية، والشكل السداسي نفسه لسه بيفتح الأدوات
+        const onIcon = !!(e && e.target && e.target.closest && e.target.closest('svg'));
+        if (quranAtSurahEnd && !onIcon) {
+            quranGoToNextSurahFromEnd();
+        } else if (document.getElementById('qfabMenu').classList.contains('open')) {
+            quranFabClose();
         } else {
-            quranShowReadingHeader();
+            quranFabOpen();
         }
     }
 
-    // لما نضغط على الزرار: لو إحنا في وضع "آخر السورة" ينقلنا للسورة التالية، وإلا يعمل وظيفته الأصلية (إظهار/إخفاء الشريط)
-    function quranHeaderToggleBtnClick() {
-        if (quranAtSurahEnd) {
-            quranGoToNextSurahFromEnd();
-        } else {
-            quranToggleReadingHeader();
+    // ===== إخفاء نص الآيات (زي ترتيل) =====
+    // كل كلمة في الكارت بتتلف في span.qw من غير ما نغيّر رسمها، وبنخفي اللي لسه ما اتكشفتش. الكروت بتتبني وتتشال
+    // مع التمرير، فالحالة محفوظة هنا (رقم الآية → عدد الكلمات المكشوفة) وبتتطبق على أي كارت جديد
+    var quranHideOn = false, quranTest = null;
+    const qHide = { surah: 0, shown: new Map(), marks: new Map(), next: null, fresh: new Set(), mo: null };
+
+    function quranHideWrapWords(box) {
+        let cur = null;
+        const walk = parent => {
+            Array.from(parent.childNodes).forEach(node => {
+                if (node.nodeType === 3) {
+                    const bits = node.data.split(/(\s+)/);
+                    if (bits.length === 1 && cur && node.data) { cur.appendChild(node); return; }
+                    bits.forEach(bit => {
+                        if (!bit) return;
+                        if (/^\s+$/.test(bit)) { parent.insertBefore(document.createTextNode(bit), node); cur = null; return; }
+                        if (!cur) { cur = document.createElement('span'); cur.className = 'qw'; parent.insertBefore(cur, node); }
+                        cur.appendChild(document.createTextNode(bit));
+                    });
+                    node.remove();
+                } else if (node.nodeType === 1) {
+                    if (node.classList.contains('tw-lbl-ov') || node.classList.contains('quran-ayah-end-mark')) { cur = null; return; }
+                    // غلاف فيه أكتر من كلمة: ندخل جواه
+                    if (!node.classList.contains('tw-dual') && /\s/.test(node.textContent)) { cur = null; walk(node); cur = null; return; }
+                    if (!cur) { cur = document.createElement('span'); cur.className = 'qw'; parent.insertBefore(cur, node); }
+                    cur.appendChild(node);
+                }
+            });
+        };
+        walk(box);
+        let wi = -1;
+        box.querySelectorAll('.qw').forEach(w => {
+            const letters = quranTokenHasLetter(w.textContent);
+            if (letters) wi++;
+            w.dataset.wi = Math.max(0, wi); // علامة الوقف اللي لوحدها بتتبع الكلمة اللي قبلها
+        });
+        box.dataset.qw = '1';
+    }
+    function quranHideUnwrap(box) {
+        box.querySelectorAll('.qw').forEach(w => { while (w.firstChild) w.parentNode.insertBefore(w.firstChild, w); w.remove(); });
+        box.normalize();
+        delete box.dataset.qw;
+    }
+    function quranHidePaint(card) {
+        const n = Number(String(card.id).replace('quranAyah-', ''));
+        const shown = qHide.shown.get(n) || 0, marks = qHide.marks.get(n);
+        card.classList.toggle('qh-full', shown === Infinity);
+        card.querySelectorAll('.quran-ayah-text').forEach(box => {
+            if (!box.dataset.qw) {
+                if (!quranHideOn && !marks) return;
+                quranHideWrapWords(box);
+            }
+            box.querySelectorAll('.qw').forEach(w => {
+                const i = Number(w.dataset.wi), key = n + ':' + i;
+                w.classList.toggle('qw-show', i < shown);
+                w.classList.toggle('qw-miss', !!marks && marks.get(i) === 'miss');
+                w.classList.toggle('qw-hint', !!marks && marks.get(i) === 'hint');
+                w.classList.toggle('qw-next', qHide.next === key);
+                if (qHide.fresh.has(key)) w.classList.add('qw-new');
+            });
+        });
+    }
+    function quranHideRefresh() {
+        const wrap = document.getElementById('quranAyahsWrap');
+        if (!wrap) return;
+        // سورة تانية → ننسى اللي اتكشف
+        const sn = quranCurrentSurah ? quranCurrentSurah.number : 0;
+        if (qHide.surah !== sn) { qHide.surah = sn; qHide.shown.clear(); qHide.marks.clear(); qHide.next = null; }
+        wrap.classList.toggle('qhide', quranHideOn);
+        wrap.querySelectorAll('.quran-ayah-card').forEach(quranHidePaint);
+        qHide.fresh.clear();
+        if (!quranHideOn && !qHide.marks.size) {
+            const boxes = wrap.querySelectorAll('.quran-ayah-text[data-qw]');
+            boxes.forEach(quranHideUnwrap);
         }
+        if (!qHide.mo) { // كروت جديدة (تمرير / إعادة رسم) تتخبى قبل ما تبان
+            qHide.mo = new MutationObserver(muts => {
+                if (!quranHideOn && !qHide.marks.size) return;
+                if (quranCurrentSurah && qHide.surah !== quranCurrentSurah.number) { quranHideRefresh(); return; }
+                const cards = new Set();
+                muts.forEach(m => m.addedNodes.forEach(nd => {
+                    if (nd.nodeType !== 1) return;
+                    if (nd.matches('.quran-ayah-card')) cards.add(nd);
+                    else if (nd.matches('.quran-ayah-text')) { const c = nd.closest('.quran-ayah-card'); if (c) cards.add(c); }
+                    else nd.querySelectorAll('.quran-ayah-card').forEach(c => cards.add(c));
+                }));
+                cards.forEach(quranHidePaint);
+            });
+            qHide.mo.observe(wrap, { childList: true, subtree: true });
+        }
+    }
+    function quranHideSet(on) {
+        quranHideOn = !!on;
+        if (quranHideOn) { qHide.shown.clear(); qHide.marks.clear(); }
+        qHide.next = null;
+        quranExitNextSurahMode();
+        quranHideRefresh();
+        quranFabSync();
+        setTimeout(quranCheckSurahEndReached, 60);
+    }
+    function quranHideToggle() {
+        quranFabClose();
+        if (quranTest) { quranTestStop(); quranHideSet(false); return; }
+        const marked = qHide.marks.size > 0;
+        quranHideSet(!quranHideOn);
+        showToast(quranHideOn ? '🙈 الآيات اتخفت — المس الآية عشان تكشفها' : (marked ? 'الآيات ظهرت' : '👁️ الآيات ظهرت'));
+    }
+    function quranHideRevealAyah(n) {
+        if (qHide.shown.get(n) === Infinity) qHide.shown.delete(n);
+        else qHide.shown.set(n, Infinity);
+        const card = document.getElementById('quranAyah-' + n);
+        if (card) quranHidePaint(card);
+    }
+
+    // ===== التسميع: المستخدم بيقرا، والكلمات بتظهر كلمة كلمة =====
+    // بنقارن «هيكل» الكلمة (الحروف من غير تشكيل ولا ألف ولا همزة) عشان رسم المصحف يطابق اللي المتصفح بيكتبه.
+    // ده بيتأكد من الكلمات وترتيبها بس، مش من التشكيل ولا أحكام التجويد
+    function qtSkelForms(word) {
+        const finish = t => t
+            .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u08D0-\u08FF\u0640]/g, '') // التشكيل وعلامات المصحف
+            .replace(/[\u0621-\u0627\u0671]/g, '') // الألف والهمزة بكل أشكالها
+            .replace(/\u06A9/g, '\u0643').replace(/\u06CC/g, '\u064A').replace(/[\u06BE\u06C1]/g, '\u0647') // حروف رسم الإندوباك
+            .replace(/\u0649/g, '\u064A').replace(/\u0629/g, '\u0647')
+            .replace(/[^\u0628-\u064A]/g, '')
+            .replace(/(.)\1+/g, '$1');
+        const w = String(word || '').replace(/\u0640[\u064B-\u0652]*\u0654[\u064B-\u0652]*/g, '');
+        const a = finish(w.replace(/[\u0648\u0649\u064A](?=\u0670)/g, '')); // صلوٰة / هدىٰهم: الواو/الياء كرسي للألف
+        const b = finish(w);
+        return a === b ? [a] : [a, b];
+    }
+    function qtDistance(a, b) {
+        let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+        for (let i = 1; i <= a.length; i++) {
+            const row = [i];
+            for (let j = 1; j <= b.length; j++) row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+            prev = row;
+        }
+        return prev[b.length];
+    }
+    const QT_LETTER_NAMES = { 'ا': 'الف', 'ل': 'لام', 'م': 'ميم', 'ر': 'را', 'ك': 'كاف', 'ه': 'ها', 'ي': 'يا', 'ع': 'عين', 'ص': 'صاد', 'ط': 'طا', 'س': 'سين', 'ح': 'حا', 'ق': 'قاف', 'ن': 'نون' };
+    const QT_OPENERS = ['الم', 'المص', 'الر', 'المر', 'كهيعص', 'طه', 'طسم', 'طس', 'يس', 'ص', 'حم', 'عسق', 'ق', 'ن'];
+    function qtBuildWords(surahNum, ayahs) {
+        const out = [];
+        ayahs.forEach(a => {
+            let text = a.text;
+            if (a.numberInSurah === 1 && surahNum !== 1 && surahNum !== 9) text = quranStripLeadingPlainWords(text, 4);
+            text.split(/\s+/).filter(t => t && quranTokenHasLetter(t)).forEach((raw, wi) => {
+                const forms = qtSkelForms(raw);
+                const item = { ayah: a.numberInSurah, wi: wi, raw: raw, forms: forms, join: 3 };
+                const bare = raw.replace(/[^ء-ي]/g, '');
+                const opener = wi === 0 && QT_OPENERS.indexOf(bare) >= 0 && (a.numberInSurah === 1 || (surahNum === 42 && a.numberInSurah === 2));
+                if (opener) { qtSkelForms(Array.from(bare).map(c => QT_LETTER_NAMES[c] || c).join('')).forEach(f => forms.push(f)); item.join = 8; item.opener = true; }
+                out.push(item);
+            });
+        });
+        return out;
+    }
+    // strict = تطابق مع كلمتين ملزوقين (لازم يبقى أدق)
+    function qtMatch(item, heard, strict) {
+        if (!item) return false;
+        return item.forms.some(f => {
+            if (!f) return true;
+            const h = heard.reduce((x, y) => x.concat(qtSkelForms(y)), []);
+            return h.some(s => {
+                if (s === f) return true;
+                const len = Math.max(f.length, s.length), ok = len >= 7 ? (strict ? 1 : 2) : (len >= (strict ? 5 : 4) ? 1 : 0);
+                return ok > 0 && qtDistance(f, s) <= ok;
+            });
+        });
+    }
+    // بترجّع مكان الكلمة الجاية بعد الكلام المسموع، والكلمات اللي اتنطّت. الكلام الزيادة أو المتكرر بيتجاهل
+    function qtAdvance(words, start, tokens, isFinal) {
+        let p = start, i = 0;
+        const missed = [];
+        const one = (wp, ti) => ti < tokens.length && qtMatch(words[wp], [tokens[ti]], false);
+        while (i < tokens.length && p < words.length) {
+            const w = words[p];
+            if (one(p, i)) { p++; i++; continue; }
+            // كلمة في المصحف = أكتر من كلمة مسموعة (يَٰٓأَيُّهَا / الٓمٓ)
+            let joined = 0;
+            for (let k = 2; k <= w.join && i + k <= tokens.length; k++) {
+                if (!w.opener && one(p + 1, i)) break;
+                if (qtMatch(w, [tokens.slice(i, i + k).join('')], !w.opener)) { joined = k; break; }
+            }
+            if (joined) { p++; i += joined; continue; }
+            // كلمتين في المصحف = كلمة واحدة مسموعة
+            if (words[p + 1]) {
+                const two = { forms: qtSkelForms(w.raw + words[p + 1].raw) };
+                if (two.forms[0].length >= 3 && qtMatch(two, [tokens[i]], true)) { p += 2; i++; continue; }
+            }
+            // نطّ كلمة أو اتنين: لازم تأكيد (الكلمة اللي بعدها كمان، أو كلمة طويلة)، ومن الكلام النهائي بس
+            let skipped = 0;
+            if (isFinal) {
+                for (let k = 1; k <= 2 && p + k < words.length; k++) {
+                    const long = qtSkelForms(tokens[i])[0].length >= 5;
+                    if (one(p + k, i) && (one(p + k + 1, i + 1) || (k === 1 && long))) { skipped = k; break; }
+                }
+            }
+            if (skipped) { for (let k = 0; k < skipped; k++) missed.push(p + k); p += skipped + 1; i++; continue; }
+            i++;
+        }
+        return { p: p, missed: missed };
+    }
+
+    function quranTestEngine() {
+        if (window.AndroidNative && typeof AndroidNative.startVoiceRecognition === 'function') return 'native';
+        return (window.SpeechRecognition || window.webkitSpeechRecognition) ? 'web' : null;
+    }
+    function quranTestStatus(text) {
+        const el = document.getElementById('qtestStatus');
+        if (el) el.textContent = text;
+    }
+    function quranTestSync() {
+        const bar = document.getElementById('qtestBar');
+        if (bar) { bar.classList.toggle('show', !!quranTest); bar.classList.toggle('paused', !!quranTest && quranTest.paused); }
+        const play = document.getElementById('qtestPlay');
+        if (play && quranTest) {
+            play.textContent = quranTest.paused ? '▶' : '⏸';
+            play.setAttribute('aria-label', quranTest.paused ? 'تشغيل الميكروفون' : 'إيقاف الميكروفون مؤقتًا');
+        }
+        quranFabSync();
+    }
+    function quranTestToggle() {
+        quranFabClose();
+        if (quranTest) { quranTestStop(true); return; }
+        if (!quranCurrentSurah) return;
+        const engine = quranTestEngine();
+        if (!engine) { showToast('المتصفح ده مش بيدعم التعرف على الصوت — جرّب Chrome 🎙️'); return; }
+        const surah = quranCurrentSurah.number;
+        const go = () => { if (quranCurrentSurah && quranCurrentSurah.number === surah && !quranTest) quranTestStart(engine); };
+        if (engine === 'native' && typeof AndroidNative.hasMicPermission === 'function' && !AndroidNative.hasMicPermission()) {
+            window.onAndroidMicPermissionResult = granted => { if (granted) go(); else showToast('محتاجين إذن الميكروفون عشان تسمّع 🎙️⚠️'); };
+            AndroidNative.requestMicPermission();
+            return;
+        }
+        go();
+    }
+    function quranTestStart(engine) {
+        // نبدأ من أول آية قدامك على الشاشة (أو أول السورة لو انت فوق)
+        const wrap = document.getElementById('quranAyahsWrap');
+        const row = (wrap && wrap.getBoundingClientRect().top > 0) ? null : quranRowAtLine(0.3);
+        const from = row ? Number(row.dataset.n) : quranCurrentSurah.ayahs[0].numberInSurah;
+        quranAutoStop();
+        if (quranPlayingAyah != null) quranStopAudio();
+        const words = qtBuildWords(quranCurrentSurah.number, quranCurrentSurah.ayahs);
+        const t = quranTest = { surah: quranCurrentSurah.number, engine: engine, words: words, p: 0, floor: 0, paused: false, wasHidden: quranHideOn, ok: 0, miss: 0, hint: 0, errors: 0, rec: null, base: [], timer: 0, watch: 0, sid: 0 };
+        quranHideSet(true);
+        quranTestSync();
+        quranTestJump(from);
+        t.watch = setInterval(() => {
+            const w = document.getElementById('quranAyahsWrap');
+            if (!w || w.offsetParent === null || !quranCurrentSurah || quranCurrentSurah.number !== t.surah || quranPlayingAyah != null) quranTestStop();
+        }, 400);
+        quranTestListen();
+    }
+    function quranTestNextKey() {
+        const w = quranTest && quranTest.words[quranTest.p];
+        qHide.next = w ? w.ayah + ':' + w.wi : null;
+    }
+    // يبدأ (أو يعيد) من آية معينة
+    function quranTestJump(n) {
+        const t = quranTest;
+        if (!t) return;
+        const i = t.words.findIndex(w => w.ayah >= n);
+        if (i < 0) return;
+        t.p = i;
+        t.floor = 0;
+        t.words.forEach(w => { if (w.ayah >= n) { qHide.shown.delete(w.ayah); qHide.marks.delete(w.ayah); } });
+        quranTestNextKey();
+        quranHideRefresh();
+        quranTestStatus('اقرأ من آية ' + quranToArabicNum(t.words[i].ayah));
+        quranTestRestartRec(); // الكلام اللي اتقال قبل النقلة مايتحسبش
+        quranTestFollow();
+    }
+    // يكشف الكلمات لحد مكان معيّن
+    function quranTestMoveTo(p, missed, hinted) {
+        const t = quranTest;
+        if (!t || p <= t.p) return;
+        for (let i = t.p; i < p; i++) {
+            const w = t.words[i];
+            qHide.shown.set(w.ayah, w.wi + 1);
+            const nx = t.words[i + 1];
+            if (!nx || nx.ayah !== w.ayah) qHide.shown.set(w.ayah, Infinity);
+            qHide.fresh.add(w.ayah + ':' + w.wi);
+            const kind = hinted ? 'hint' : (missed.indexOf(i) >= 0 ? 'miss' : null);
+            if (kind) {
+                if (!qHide.marks.has(w.ayah)) qHide.marks.set(w.ayah, new Map());
+                qHide.marks.get(w.ayah).set(w.wi, kind);
+                t[kind]++;
+            } else t.ok++;
+        }
+        const from = t.words[t.p].ayah, to = t.words[p - 1].ayah;
+        t.p = p;
+        quranTestNextKey();
+        quranTestFollow();
+        for (let n = from; n <= to + 1; n++) { const c = document.getElementById('quranAyah-' + n); if (c) quranHidePaint(c); }
+        qHide.fresh.clear();
+        if (p >= t.words.length) quranTestStop(true, true);
+    }
+    // الصفحة بتمشي ورا الكلمة اللي عليها الدور
+    function quranTestFollow() {
+        const t = quranTest, w = t && t.words[t.p];
+        if (!w) return;
+        const card = quranVGetCard(w.ayah);
+        if (!card) return;
+        quranHidePaint(card);
+        const el = card.querySelector('.qw[data-wi="' + w.wi + '"]') || card;
+        const r = el.getBoundingClientRect(), vh = window.innerHeight;
+        if (r.top < vh * 0.12 || r.bottom > vh * 0.62) window.scrollBy({ top: r.top - vh * 0.35, behavior: 'smooth' });
+    }
+    function quranTestHeard(base, text, isFinal) {
+        const t = quranTest;
+        if (!t) return;
+        const tokens = String(text || '').trim().split(/\s+/).filter(Boolean);
+        if (!tokens.length) return;
+        const r = qtAdvance(t.words, Math.max(base, t.floor), tokens, isFinal);
+        t.errors = 0;
+        const moved = r.p > t.p;
+        quranTestStatus(tokens.slice(-3).join(' '));
+        if (moved) quranTestMoveTo(r.p, r.missed, false);
+    }
+    function quranTestListen() {
+        const t = quranTest;
+        if (!t || t.paused || document.hidden) return;
+        clearTimeout(t.timer);
+        const sid = ++t.sid, live = () => quranTest === t && t.sid === sid && !t.paused;
+        const again = delay => { t.timer = setTimeout(() => { if (live()) quranTestListen(); }, delay); };
+        const fail = msg => { quranTestStop(); showToast(msg); };
+        if (t.engine === 'native') {
+            window.onAndroidVoiceStart = function () {};
+            window.onAndroidVoiceResult = text => { if (live()) quranTestHeard(t.p, text, true); };
+            window.onAndroidVoiceError = code => { if (live() && code !== 'no-speech' && code !== 'aborted' && ++t.errors > 4) fail('تعذّر التعرف على الصوت ⚠️'); };
+            window.onAndroidVoiceEnd = () => { if (live()) again(200); };
+            try { AndroidNative.startVoiceRecognition(); } catch (e) { fail('تعذّر تشغيل الميكروفون ⚠️'); }
+            return;
+        }
+        const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const rec = t.rec = new Ctor();
+        rec.lang = 'ar-SA';
+        rec.continuous = true;
+        rec.interimResults = true;
+        rec.maxAlternatives = 1;
+        const base = [], done = [];
+        rec.onresult = ev => {
+            for (let i = 0; i < ev.results.length && live(); i++) {
+                if (done[i]) continue;
+                const res = ev.results[i];
+                let text = ((res[0] && res[0].transcript) || '').trim();
+                // كروم أندرويد ساعات بيرجّع النتيجة تراكمية (فيها اللي قبلها)
+                const prev = i ? ((ev.results[i - 1][0] && ev.results[i - 1][0].transcript) || '').trim() : '';
+                if (prev && text.indexOf(prev + ' ') === 0) text = text.slice(prev.length + 1);
+                if (base[i] === undefined) base[i] = t.p;
+                if (res.isFinal) done[i] = true;
+                quranTestHeard(base[i], text, !!res.isFinal);
+            }
+        };
+        rec.onerror = ev => {
+            if (!live()) return;
+            const e = ev && ev.error;
+            if (e === 'no-speech' || e === 'aborted') return;
+            if (e === 'not-allowed' || e === 'service-not-allowed') { fail('محتاجين إذن الميكروفون 🎙️⚠️'); return; }
+            if (e === 'audio-capture') { fail('مفيش ميكروفون متاح ⚠️'); return; }
+            if (++t.errors > 4) fail(e === 'network' ? 'التعرف على الصوت محتاج نت ⚠️' : 'تعذّر التعرف على الصوت ⚠️');
+        };
+        // المتصفح بيقفل لوحده بعد سكوت — بنشغّله تاني
+        rec.onend = () => { if (live()) again(t.errors ? 1200 : 250); };
+        try { rec.start(); } catch (e) { if (++t.errors > 4) fail('تعذّر تشغيل الميكروفون ⚠️'); else again(600); }
+    }
+    function quranTestMicOff() {
+        const t = quranTest;
+        if (!t) return;
+        t.sid++;
+        clearTimeout(t.timer);
+        if (t.rec) { const r = t.rec; t.rec = null; try { r.abort(); } catch (e) {} }
+        else if (t.engine === 'native') { try { AndroidNative.stopVoiceRecognition(); } catch (e) {} }
+    }
+    function quranTestRestartRec() {
+        const t = quranTest;
+        if (!t || (!t.rec && t.engine === 'web')) return;
+        quranTestMicOff();
+        t.timer = setTimeout(() => { if (quranTest === t) quranTestListen(); }, 300);
+    }
+    function quranTestPause() {
+        const t = quranTest;
+        if (!t) return;
+        if (!t.paused) { quranTestMicOff(); t.paused = true; quranTestStatus('الميكروفون واقف'); }
+        else { t.paused = false; t.errors = 0; quranTestStatus('بسمعك…'); quranTestListen(); }
+        quranTestSync();
+    }
+    function quranTestHint() {
+        const t = quranTest;
+        if (!t || t.p >= t.words.length) return;
+        quranTestMoveTo(t.p + 1, [], true);
+        if (quranTest === t) t.floor = t.p; // الكلمة المكشوفة خلاص، المقارنة تبدأ من بعدها
+    }
+    function quranTestStop(showResult, finished) {
+        const t = quranTest;
+        if (!t) return;
+        quranTestMicOff();
+        clearInterval(t.watch);
+        quranTest = null;
+        const marks = new Map(qHide.marks);
+        // لو خلّص السورة بنسيب الإخفاء زي ما كان؛ والكلمات اللي فاتت بتفضل متعلّمة
+        quranHideOn = t.wasHidden;
+        qHide.next = null;
+        if (!quranHideOn) { qHide.shown.clear(); qHide.marks = marks; }
+        quranHideRefresh();
+        quranTestSync();
+        if (showResult && (t.ok || t.miss || t.hint)) {
+            const n = quranToArabicNum;
+            showToast((finished ? '🌟 ما شاء الله، خلصت السورة — ' : 'نتيجة التسميع — ') + 'صح ' + n(t.ok) + ' · تلميح ' + n(t.hint) + ' · فاتتك ' + n(t.miss));
+        }
+        setTimeout(quranCheckSurahEndReached, 60);
+    }
+    document.addEventListener('visibilitychange', () => {
+        if (!quranTest || quranTest.paused) return;
+        if (document.hidden) quranTestMicOff(); else quranTestListen();
+    });
+
+    // ===== أدوات القراءة =====
+    const QURAN_AUTO_STEPS = ['0.5', '0.75', '1', '1.25', '1.5', '2']; // مضاعفات السرعة العادية (RP_SPEEDS.mid كلمة/ثانية)
+    let quranAutoSpeed = '1';
+    try { const v = localStorage.getItem('quranAutoScrollSpeed'); if (v === 'me' || QURAN_AUTO_STEPS.indexOf(v) >= 0) quranAutoSpeed = v; else if (rpCalAvg()) quranAutoSpeed = 'me'; } catch (e) {}
+    let quranAuto = null; // حالة التمرير التلقائي وهو شغال
+
+    function quranAutoSpeedName(k) {
+        if (k === 'me') return 'سرعتي';
+        return '×' + ({ '0.5': '½', '0.75': '¾', '1': '1', '1.25': '1¼', '1.5': '1½', '2': '2' })[k];
+    }
+    // «سرعتي» المحفوظة من قبل كده لو القياس اتمسح بترجع للعادية
+    function quranAutoEffectiveSpeed() { return (quranAutoSpeed === 'me' && !rpCalAvg()) ? '1' : quranAutoSpeed; }
+    // وقت قراءة الآية بالثواني: «سرعتي» بنفس حساب التقارير (حروف + مدود)، والعادية بالكلمات
+    function quranAutoAyahSec(n) {
+        const a = QV.byNum.get(n);
+        if (!a) return 4;
+        const k = quranAutoEffectiveSpeed();
+        const sec = k === 'me' ? rpEff(a.text) / rpCalAvg() : rpWords(a.text) / (RP_SPEEDS.mid[1] * Number(k));
+        return Math.max(1.2, sec);
+    }
+    // صف الآية اللي عند ارتفاع معيّن من الشاشة (نسبة من طولها)
+    function quranRowAtLine(ratio) {
+        const line = window.innerHeight * ratio;
+        let best = null, bd = Infinity;
+        QV.rowEl.forEach(row => {
+            const r = row.getBoundingClientRect();
+            const d = line < r.top ? r.top - line : (line > r.bottom ? line - r.bottom : 0);
+            if (d < bd) { bd = d; best = row; }
+        });
+        return best;
+    }
+    function quranFabTimeLeft() {
+        const row = quranRowAtLine(0.35);
+        if (!row) return '';
+        let sec = 0;
+        const from = Number(row.dataset.n);
+        QV.byNum.forEach((a, n) => { if (n >= from) sec += quranAutoAyahSec(n); });
+        const min = Math.round(sec / 60);
+        return min < 1 ? 'أقل من دقيقة' : 'حوالي ' + quranToArabicNum(min) + ' دقيقة';
+    }
+
+    function quranFabSync() {
+        const q = id => document.getElementById(id);
+        if (!q('qfabHideBtn')) return;
+        q('qfabSpeedBtn').classList.toggle('on', !!quranAuto);
+        q('qfabHideBtn').classList.toggle('on', quranHideOn);
+        q('qfabHideTxt').textContent = quranHideOn ? 'إظهار' : 'إخفاء';
+        q('qfabHideBtn').querySelector('.qfab-slash').style.display = quranHideOn ? 'none' : '';
+        q('qfabMicBtn').classList.toggle('rec', !!quranTest);
+        q('qfabMicTxt').textContent = quranTest ? 'إيقاف' : 'تسميع';
+    }
+    function quranFabOpen() {
+        const menu = document.getElementById('qfabMenu'), btn = document.getElementById('quranHeaderToggleBtn');
+        if (quranAtSurahEnd) quranExitNextSurahMode();
+        quranFabSync();
+        menu.classList.remove('speed');
+        menu.classList.add('open');
+        document.getElementById('qfabBackdrop').classList.add('open');
+        btn.classList.add('qfab-open');
+        btn.setAttribute('aria-expanded', 'true');
+    }
+    function quranFabClose() {
+        const menu = document.getElementById('qfabMenu'), btn = document.getElementById('quranHeaderToggleBtn');
+        const wasOpen = !!menu && menu.classList.contains('open');
+        if (menu) menu.classList.remove('open', 'speed');
+        const bd = document.getElementById('qfabBackdrop');
+        if (bd) bd.classList.remove('open');
+        if (btn) { btn.classList.remove('qfab-open'); btn.setAttribute('aria-expanded', 'false'); }
+        if (wasOpen) setTimeout(quranCheckSurahEndReached, 60);
+    }
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') quranFabClose(); });
+
+    function quranFabSpeedOpen() {
+        if (!document.getElementById('qfabMenu').classList.contains('open')) quranFabOpen();
+        const menu = document.getElementById('qfabMenu'), cur = quranAutoEffectiveSpeed(), cal = rpCalAvg();
+        menu.querySelectorAll('button[data-sp]').forEach(b => b.classList.toggle('on', b.dataset.sp === cur));
+        const w = cal ? parseFloat(localStorage.getItem('rp_read_calw')) || 0 : 0;
+        document.getElementById('qfabMeVal').textContent = cal ? (w ? '· ' + w.toFixed(2) + ' كلمة/ث' : '') : '· احسبها الأول';
+        document.getElementById('qfabLeft').textContent = 'باقي على آخر السورة: ' + quranFabTimeLeft() + ' — المس الشاشة يقف، شيل صباعك يكمّل';
+        menu.classList.add('speed');
+    }
+
+    function quranFabGoEnd() {
+        quranFabClose();
+        quranAutoStop();
+        if (!quranCurrentSurah || !quranCurrentSurah.ayahs.length) return;
+        const surah = quranCurrentSurah.number;
+        const lastN = quranCurrentSurah.ayahs[quranCurrentSurah.ayahs.length - 1].numberInSurah;
+        quranVMountAround(lastN, 3);
+        // الكروت اللي بتتبني في السكة طولها الحقيقي بيختلف عن التقدير، فبنصحّح كذا مرة لحد ما نوصل للآخر فعلًا
+        let tries = 0;
+        const go = () => {
+            if (!quranCurrentSurah || quranCurrentSurah.number !== surah) return;
+            window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' });
+            if (++tries < 5) setTimeout(go, 120); else quranCheckSurahEndReached();
+        };
+        go();
+    }
+
+    function quranAutoPick(k) {
+        if (k === 'me' && !rpCalAvg()) { quranFabClose(); quranAutoStop(); rpCalOpen(); return; }
+        quranAutoSpeed = k;
+        try { localStorage.setItem('quranAutoScrollSpeed', k); } catch (e) {}
+        quranFabClose();
+        if (quranAuto) { quranAuto.paused = false; quranAutoSync(); } else quranAutoStart();
+    }
+    function quranAutoStep(dir) {
+        const cur = quranAutoEffectiveSpeed();
+        let i;
+        if (cur === 'me') i = QURAN_AUTO_STEPS.indexOf('1') + dir; // من «سرعتي» بنتحرك على المضاعفات العادية
+        else i = QURAN_AUTO_STEPS.indexOf(cur) + dir;
+        quranAutoSpeed = QURAN_AUTO_STEPS[Math.max(0, Math.min(QURAN_AUTO_STEPS.length - 1, i))];
+        try { localStorage.setItem('quranAutoScrollSpeed', quranAutoSpeed); } catch (e) {}
+        quranAutoSync();
+    }
+    function quranAutoSync() {
+        const pill = document.getElementById('qfabPill'), btn = document.getElementById('quranHeaderToggleBtn');
+        if (pill) pill.classList.toggle('show', !!quranAuto);
+        if (btn) btn.classList.toggle('qfab-running', !!quranAuto && !quranAuto.paused);
+        if (!quranAuto) return;
+        const wait = Math.ceil((quranAuto.startAt - performance.now()) / 1000);
+        document.getElementById('qfabPillLabel').textContent = quranAuto.paused ? 'واقف' : (wait > 0 ? 'يبدأ بعد ' + quranToArabicNum(wait) : quranAutoSpeedName(quranAutoEffectiveSpeed()));
+        const play = document.getElementById('qfabPlay');
+        play.textContent = quranAuto.paused ? '▶' : '⏸';
+        play.setAttribute('aria-label', quranAuto.paused ? 'تكملة التمرير' : 'إيقاف مؤقت');
+    }
+    function quranAutoTogglePause() {
+        if (!quranAuto) return;
+        quranAuto.paused = !quranAuto.paused;
+        quranAuto.startAt = 0; quranAuto.holdUntil = 0;
+        quranAutoSync();
+    }
+    function quranAutoStart() {
+        if (!quranCurrentSurah) return;
+        quranAutoStop();
+        quranTestStop();
+        if (quranPlayingAyah != null) quranStopAudio(); // الصوت بيحرّك الصفحة لوحده فمينفعش الاتنين مع بعض
+        const now = performance.now();
+        const st = quranAuto = { surah: quranCurrentSurah.number, paused: false, startAt: now + 3000, holdUntil: 0, touching: false, last: now, acc: 0, rate: 0, y: window.scrollY, raf: 0 };
+        // لمس الشاشة أو عجلة الماوس بيوقف مؤقتًا عشان تتحرك براحتك
+        const mine = e => e.target && e.target.closest && e.target.closest('#qfabPill, #qfabMenu, #qfabBackdrop, #quranHeaderToggleBtn');
+        st.on = {
+            touchstart: e => { if (!mine(e)) st.touching = true; },
+            touchend: e => { if (!e.touches.length && st.touching) { st.touching = false; st.holdUntil = performance.now() + 900; } },
+            wheel: () => { st.holdUntil = performance.now() + 900; },
+            mousedown: e => { if (!mine(e)) st.holdUntil = performance.now() + 900; }
+        };
+        st.on.touchcancel = st.on.touchend;
+        Object.keys(st.on).forEach(k => window.addEventListener(k, st.on[k], { passive: true }));
+        quranHideReadingHeader();
+        quranAutoSync();
+        quranFabSync();
+        const tick = t => {
+            if (quranAuto !== st) return;
+            const dt = Math.max(0, Math.min(0.1, (t - st.last) / 1000));
+            st.last = t;
+            const wrap = document.getElementById('quranAyahsWrap');
+            // خرج من السورة / فتح غيرها / شغّل صوت → التمرير بيقف خالص
+            if (!wrap || wrap.offsetParent === null || !quranCurrentSurah || quranCurrentSurah.number !== st.surah || quranPlayingAyah != null) { quranAutoStop(); return; }
+            st.raf = requestAnimationFrame(tick);
+            if (st.paused) return;
+            if (st.startAt) {
+                if (t < st.startAt) { quranAutoSync(); return; }
+                st.startAt = 0; quranAutoSync();
+            }
+            const y = window.scrollY;
+            if (st.touching || t < st.holdUntil) {
+                if (y !== st.y) { st.y = y; st.holdUntil = Math.max(st.holdUntil, t + 600); } // لسه بيتحرك بالقصور الذاتي
+                return;
+            }
+            // فيه نافذة أو قايمة مغطية الآيات → استنى لحد ما تتقفل
+            const rect = wrap.getBoundingClientRect();
+            const top = document.elementFromPoint(rect.left + rect.width / 2, window.innerHeight * 0.5);
+            if (document.getElementById('qfabMenu').classList.contains('open')) return;
+            if (top && !top.contains(wrap) && !document.getElementById('quranReadingView').contains(top)) return;
+            const row = quranRowAtLine(0.35);
+            if (!row) return;
+            const target = row.offsetHeight / quranAutoAyahSec(Number(row.dataset.n)); // بيكسل/ثانية: الآية تعدي في وقت قراءتها
+            st.rate = st.rate ? st.rate + (target - st.rate) * Math.min(1, dt * 2) : target;
+            st.acc += st.rate * dt;
+            const px = Math.floor(st.acc);
+            if (px >= 1) { st.acc -= px; window.scrollBy({ top: px, behavior: 'instant' }); }
+            st.y = window.scrollY;
+            try { RPR.act = Date.now(); } catch (e) {} // عشان حساب الورد (لو العين شغالة) مايفتكرش إنك سبت الشاشة
+            if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2) {
+                quranAutoStop();
+                showToast('وصلت لآخر السورة 🌙');
+                quranCheckSurahEndReached();
+            }
+        };
+        st.raf = requestAnimationFrame(tick);
+    }
+    function quranAutoStop() {
+        const st = quranAuto;
+        if (st) {
+            quranAuto = null;
+            cancelAnimationFrame(st.raf);
+            Object.keys(st.on || {}).forEach(k => window.removeEventListener(k, st.on[k]));
+        }
+        quranAutoSync();
     }
 
     // بيتحسب لما نوصل لآخر آية فعليًا (خلصنا سكرول السورة) ويحوّل شكل الزرار بأنيميشن
@@ -31434,7 +32177,10 @@ function endAIVoiceCall() {
         if (!btn || !btn.classList.contains('qhtb-show')) return;
         const scrollBottom = window.scrollY + window.innerHeight;
         const pageHeight = document.documentElement.scrollHeight;
-        const reachedEnd = scrollBottom >= pageHeight - QURAN_END_REACHED_MARGIN;
+        const menu = document.getElementById('qfabMenu');
+        if (menu && menu.classList.contains('open')) return;
+        // وقت الإخفاء/التسميع الزرار بيفضل أدوات (من غير كبسولة السورة التالية)
+        const reachedEnd = !quranHideOn && !quranTest && scrollBottom >= pageHeight - QURAN_END_REACHED_MARGIN;
         if (reachedEnd && !quranAtSurahEnd) {
             quranEnterNextSurahMode();
         } else if (!reachedEnd && quranAtSurahEnd) {
@@ -31458,7 +32204,7 @@ function endAIVoiceCall() {
         const btn = document.getElementById('quranHeaderToggleBtn');
         if (!btn) return;
         btn.classList.remove('qhtb-next-mode');
-        btn.title = 'إظهار الشريط العلوي';
+        btn.title = 'أدوات القراءة';
     }
 
     // تنفيذ الانتقال الفعلي للسورة التالية (أو بداية ختمة جديدة لو إحنا في سورة الناس)
@@ -31527,6 +32273,9 @@ function endAIVoiceCall() {
     function quranTeardownReadingHeaderToggle() {
         const btn = document.getElementById('quranHeaderToggleBtn');
         if (btn) btn.classList.remove('qhtb-show');
+        quranAutoStop();
+        quranTestStop();
+        quranFabClose();
         quranExitNextSurahMode();
         quranHideReadingHeader();
         if (quranHeaderScrollHandler) {
@@ -31556,6 +32305,9 @@ function endAIVoiceCall() {
     // بتتنادى لما تدوسي على كارت الآية نفسه: أول دوسة بتشغّل صوت الآية، ولو دُست على نفس الآية اللي شغّالة
     // دلوقتي تاني بتوقف الصوت خالص (زي ما تكوني دوستي على ✕) — يعني دوسة تشغّل ودوسة تقفل
     function quranCardTap(ayahNumberInSurah) {
+        // في التسميع: الضغط على آية بيبدأ منها. وفي الإخفاء: بيكشف الآية / يخبيها (الصوت من ⋮)
+        if (quranTest) { quranTestJump(ayahNumberInSurah); return; }
+        if (quranHideOn) { quranHideRevealAyah(ayahNumberInSurah); return; }
         if (quranPlayingAyah === ayahNumberInSurah && quranAudioEl && quranCurrentSurah) {
             quranStopAudio();
             const el = document.getElementById(`quranAyah-${ayahNumberInSurah}`);
@@ -34689,7 +35441,7 @@ function endAIVoiceCall() {
             case 'tw-madd-p': {
                 if (/[ۥۦ]/.test(seg)) return 'صلة كبرى';
                 if (nextC && QXL_HAMZA.test(nextC.t)) return 'منفصل';
-                if (!nextC && nextWord && QXL_HAMZA.test(nextWord.charAt(0))) return 'منفصل';
+                if (!nextC && nextWord && (QXL_HAMZA.test(nextWord.charAt(0)) || /^\u0627\u0653/.test(nextWord))) return 'منفصل';
                 if (silentTail) return null;
                 if (isLastWord && lettersAfter <= 1) {
                     if ((base === 'و' || base === 'ي') && prevC && /َ/.test(prevC.m) && !/[ُِ]/.test(first.m)) return 'لين';
@@ -34822,6 +35574,8 @@ function endAIVoiceCall() {
         }
         // الحاجة الملوّنة اللي ضغط عليها بس (حرف ملوّن أو اسمها اللي فوقه) — مش كل اللي في الكلمة
         function pressedItem(textEl, x, y, targetEl) {
+            const hc = textEl.closest('.qhide') && textEl.closest('.quran-ayah-card');
+            if (hc && !hc.classList.contains('qh-full')) return null; // النص مخفي: مفيش بطاقة حكم تكشفه
             const c = collect(textEl);
             let el = null;
             if (targetEl && targetEl.classList && targetEl.classList.contains('tw-lbl-ov') && targetEl._src && targetEl._src.sp) { const k0 = keyOf(targetEl._src.sp, textEl); if (k0) el = k0.el; }
