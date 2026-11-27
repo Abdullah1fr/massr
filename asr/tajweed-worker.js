@@ -5,7 +5,7 @@ import './tajweed-ctc.js';
 
 const BASE = new URL('./', self.location.href).href;
 const MODEL = 'tajweed', LEAD = 6400, MAX = 29 * 16000;   // 0.4 ثانية صمت قبل وبعد (زي تدريب النموذج)
-let model = null, cfg = null, parts = null, loading = null;
+let model = null, cfg = null, parts = null, loading = null, fromCache = false;
 
 env.allowRemoteModels = false;
 env.allowLocalModels = true;
@@ -14,27 +14,44 @@ env.backends.onnx.wasm.wasmPaths = BASE + 'ort/';
 env.backends.onnx.wasm.numThreads = 1;
 env.useBrowserCache = false;
 env.useCustomCache = true;
+
+// كاش-أول: لو الملف في Cache API يرجع منه (من غير نت)، وإلا يجيبه مرة واحدة ويخزّنه
+const CACHE = 'tajweed-model-v1';   // غيّر الرقم لو النموذج اتحدّث
+async function cached(url, make, flag) {
+  let c = null;
+  try { c = await caches.open(CACHE); const hit = await c.match(url); if (hit) { if (flag) fromCache = true; return hit; } } catch (e) { c = null; }
+  const res = await make();
+  if (c) { try { await c.put(url, res.clone()); } catch (e) {} }
+  return res;
+}
+
 env.customCache = {
   async match(key) {
     const url = typeof key === 'string' ? key : key.url;
     const name = parts && Object.keys(parts).find(n => url.endsWith('/' + n));
     if (!name) return undefined;
-    const bufs = [];
-    for (let i = 0; i < parts[name].length; i++) {
-      const r = await fetch(BASE + 'models/' + MODEL + '/onnx/' + parts[name][i]);
-      if (!r.ok) throw new Error('جزء ناقص: ' + parts[name][i]);
-      bufs.push(await r.arrayBuffer());
-      self.postMessage({ type: 'progress', pct: Math.round((i + 1) / parts[name].length * 100) });
-    }
-    const blob = new Blob(bufs);
-    return new Response(blob, { status: 200, headers: { 'Content-Length': String(blob.size) } });
+    return cached(BASE + 'models/' + MODEL + '/onnx/' + name, async () => {
+      const bufs = [];
+      for (let i = 0; i < parts[name].length; i++) {
+        const r = await fetch(BASE + 'models/' + MODEL + '/onnx/' + parts[name][i]);
+        if (!r.ok) throw new Error('جزء ناقص: ' + parts[name][i]);
+        bufs.push(await r.arrayBuffer());
+        self.postMessage({ type: 'progress', pct: Math.round((i + 1) / parts[name].length * 100) });
+      }
+      const blob = new Blob(bufs);
+      return new Response(blob, { status: 200, headers: { 'Content-Length': String(blob.size) } });
+    }, true);
   },
   async put() {}
 };
 
 function load() {
   if (!loading) loading = (async () => {
-    const get = async p => { const r = await fetch(BASE + 'models/' + MODEL + '/' + p); if (!r.ok) throw new Error('ملف ناقص: ' + p); return r.json(); };
+    try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch (e) {}   // علشان الموبايل ما يمسحش النموذج
+    const get = async p => {
+      const r = await cached(BASE + 'models/' + MODEL + '/' + p, async () => { const x = await fetch(BASE + 'models/' + MODEL + '/' + p); if (!x.ok) throw new Error('ملف ناقص: ' + p); return x; });
+      return r.json();
+    };
     cfg = await get('config.json'); parts = await get('onnx/parts.json');
     model = await AutoModel.from_pretrained(MODEL, { device: 'wasm', dtype: 'fp32' }); // الملف نفسه int8؛ fp32 هنا اسم الملف بس: model.onnx
   })().catch(e => { loading = null; throw e; });
@@ -64,7 +81,7 @@ self.onmessage = async ev => {
   try {
     const t = performance.now();
     await load();
-    if (m.type === 'load') self.postMessage({ type: 'ready', id: m.id, ms: Math.round(performance.now() - t) });
+    if (m.type === 'load') self.postMessage({ type: 'ready', id: m.id, ms: Math.round(performance.now() - t), cached: fromCache });
     else if (m.type === 'run') self.postMessage({ type: 'heard', id: m.id, ...(await hear(m.audio, m.riwaya || 'hafs')) });
   } catch (e) {
     self.postMessage({ type: 'error', id: m.id, message: String((e && e.message) || e) });

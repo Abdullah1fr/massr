@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>تتبع القراءة كلمة بكلمة (2)</title>
+<style>
+body{font-family:sans-serif;background:#0f1412;color:#eee;margin:0;padding:16px;line-height:1.7}
+button,select,input{font-size:18px;padding:10px 14px;border:0;border-radius:10px;background:#1f7a55;color:#fff;margin:4px 0}
+input{width:80px;background:#26332d;text-align:center}
+button:disabled{opacity:.4}
+#text{font-family:'Amiri','Traditional Arabic',serif;font-size:30px;line-height:2.4;background:#18211d;border-radius:12px;padding:12px;max-height:55vh;overflow:auto}
+.w{padding:0 3px;border-radius:6px;display:inline-block;transition:background .12s}
+.w.done{color:#7fd6a8}
+.w.cur{background:#2d6cdf;color:#fff}
+#state{font-size:20px;margin:8px 0;min-height:30px}
+#log{direction:ltr;text-align:left;font-size:12px;white-space:pre-wrap;word-break:break-all;background:#000;padding:8px;border-radius:8px;max-height:20vh;overflow:auto}
+small{color:#9ab}
+</style>
+<h3>تتبع القراءة كلمة بكلمة (تجربة 2)</h3>
+<div id="st">اضغط «تحميل»</div>
+<div>
+  <label>رقم السورة <input id="sur" type="number" min="1" max="114" value="52"></label>
+  <label>النافذة <select id="win"><option value="3" selected>3 ث</option><option value="4">4 ث</option><option value="6">6 ث</option></select></label>
+</div>
+<button id="load">تحميل النموذج والمرجع</button>
+<button id="mic" disabled>🎙️ ابدأ القراءة</button>
+<button id="reset" disabled>↺ من الأول</button>
+<div id="state"></div>
+<div id="text"></div>
+<p id="num"></p>
+<button id="copy">انسخ السجل</button>
+<div id="log"></div>
+<p><small>نص المصحف ومواضع الوقف: Tanzil (Uthmani)، رخصة CC BY 3.0. النموذج: HisnLabs/tajweed-v2 (Apache-2.0). تجربة للتدريب فقط، مش حكم ولا تقييم.</small></p>
+<script>
+const Core = (() => {
+  function buildSurah(REFS, n) {
+    let ref = ''; const words = [];
+    for (let a = 1; ; a++) {
+      const v = REFS.ayat[n + ':' + a]; if (!v) break;
+      v.s.forEach(([x, y], i) => words.push({ a: ref.length + x, b: ref.length + y, ay: a, t: v.w[i] }));
+      ref += v.p;
+    }
+    const cw = new Int32Array(ref.length).fill(-1);
+    words.forEach((w, i) => cw.fill(i, w.a, w.b));
+    let last = 0; for (let i = 0; i < cw.length; i++) { if (cw[i] < 0) cw[i] = last; else last = cw[i]; }
+    return { ref, words, cw };
+  }
+  // محاذاة: اللي سمعه كله (heard) على جزء من المرجع [a,b) بدايةً ونهايةً حرّتين
+  function align(heard, ref, a, b, pref) {
+    const H = heard.length, R = b - a;
+    let pc = new Int32Array(R + 1), ps = new Int32Array(R + 1), cc = new Int32Array(R + 1), cs = new Int32Array(R + 1);
+    for (let j = 0; j <= R; j++) ps[j] = j;
+    for (let i = 1; i <= H; i++) {
+      cc[0] = i; cs[0] = 0; const h = heard.charCodeAt(i - 1);
+      for (let j = 1; j <= R; j++) {
+        let best = pc[j - 1] + (h === ref.charCodeAt(a + j - 1) ? 0 : 1), st = ps[j - 1];
+        const d = pc[j] + 1; if (d < best) { best = d; st = ps[j]; }
+        const ins = cc[j - 1] + 1; if (ins < best) { best = ins; st = cs[j - 1]; }
+        cc[j] = best; cs[j] = st;
+      }
+      [pc, cc] = [cc, pc]; [ps, cs] = [cs, ps];
+    }
+    let bj = 1, bc = 1e9, bd = 1e9;
+    for (let j = 1; j <= R; j++) { const d = Math.abs(a + j - pref); if (pc[j] < bc || (pc[j] === bc && d < bd)) { bc = pc[j]; bj = j; bd = d; } }
+    return { cost: bc, start: a + ps[bj], end: a + bj };
+  }
+  // أحسن مطابقة لآخر جزء من الكلام: الكل، أو آخر 65%، أو آخر 40% (للإعادة جوه النافذة ولقطع أول النافذة)
+  function best(heard, s, a, b, pref) {
+    const H = heard.length; let pick = null;
+    for (const f of [1, 0.65, 0.4]) {
+      const len = f === 1 ? H : Math.round(H * f);
+      if (f !== 1 && len < 8) continue;
+      const r = align(heard.slice(H - len), s.ref, a, b, pref);
+      const F = s.cw[r.start], L = s.cw[r.end - 1];
+      const c = { q: 1 - r.cost / len, F, L, n: L - F + 1, len };
+      if (!pick || c.q > pick.q + 0.08) pick = c;
+    }
+    return pick;
+  }
+  class Tracker {
+    constructor(s, Q, QG) { this.s = s; this.Q = Q || 0.58; this.QG = QG || 0.7; this.ptr = -1; this.pend = null; this.pendAge = 0; this.lost = 0; }
+    step(heard) {
+      const s = this.s, H = heard.length;
+      if (H < 8) return { ev: 'silence', ptr: this.ptr };
+      if (this.pend !== null && ++this.pendAge > 6) this.pend = null;
+      const first = this.ptr < 0;
+      const a = first ? 0 : s.words[Math.max(0, this.ptr - 30)].a;
+      const b = first ? s.ref.length : s.words[Math.min(s.words.length - 1, this.ptr + 90)].b;
+      const pref = first ? 0 : s.words[this.ptr].b;
+      let c = best(heard, s, a, b, pref), scope = 'local';
+      const okG = x => x.q >= this.QG && (x.n >= 3 || (x.n >= 2 && x.q >= 0.72));
+      const bad = x => ({ q: x.q, F: x.F, L: x.L, n: x.n, ev: this.lost >= 3 ? 'lost' : 'unclear', ptr: this.ptr });
+      if (first) {
+        if (!okG(c)) { this.lost++; return { ...bad(c), ptr: -1 }; }
+      } else if (c.q < 0.8) {
+        // مش متأكد من المكان القريب: دوّر في السورة كلها، وخد المكان البعيد بس لو أحسن بوضوح
+        const g = best(heard, s, 0, s.ref.length, pref);
+        if (okG(g) && g.q > c.q + 0.1 && Math.abs(g.L - this.ptr) > 6) { c = g; scope = 'global'; }
+        else if (c.q < this.Q) { this.lost++; return bad(c); }
+      }
+      const { q, F, L, n } = c, base = { q, F, L, n };
+      let ev = 'forward', confirm = false;
+      if (this.ptr >= 0) {
+        if (scope === 'global' && Math.abs(L - this.ptr) > 6) { ev = 'relocate'; confirm = true; }
+        else if (L < this.ptr - 1) { if (n < 3 && !(n >= 2 && q >= 0.85)) return { ...base, ev: 'ignored', ptr: this.ptr }; ev = 'back'; confirm = true; }
+        else if (L > this.ptr + 6) { ev = 'jump'; confirm = true; }
+      }
+      if (confirm && !(this.pend !== null && Math.abs(this.pend - L) <= 1)) { this.pend = L; return { ...base, ev: 'pending-' + ev, ptr: this.ptr }; }
+      this.ptr = (ev === 'forward' && this.ptr >= 0) ? Math.max(this.ptr, L) : L;
+      this.pend = null; this.pendAge = 0; this.lost = 0; return { ...base, ev, ptr: this.ptr };
+    }
+  }
+  return { buildSurah, align, Tracker };
+})();
+</script>
+<script>
+const $ = id => document.getElementById(id), SR = 16000, CAP_SEC = 300;
+const log = { v: 'track2', ua: navigator.userAgent, cores: navigator.hardwareConcurrency, passes: [], events: [] };
+const show = () => { const l = { ...log, passes: log.passes.slice(-60) }; $('log').textContent = JSON.stringify(l); };
+let worker, seq = 0, wait = new Map(), rec = null, REFS = null, surah = null, trk = null, t0 = 0;
+const LABEL = { forward: 'ماشي ✅', back: 'رجعت وبتعيد 🔁', jump: 'انتقلت لمكان تاني ⤴️', relocate: 'لقيت مكانك من جديد 📍', unclear: '…', lost: 'مش لاقي مكانك ❓', ignored: '…', silence: 'سكوت', 'pending-back': 'بتعيد؟ بتأكد…', 'pending-jump': 'انتقال؟ بتأكد…', 'pending-relocate': 'بدوّر على مكانك…' };
+function ask(msg, transfer) { return new Promise((res, rej) => { const id = ++seq; wait.set(id, { res, rej }); worker.postMessage({ ...msg, id }, transfer || []); }); }
+async function loadRefs() {
+  const buf = await (await fetch('models/tajweed/refs_hafs.json.gz')).arrayBuffer(), u = new Uint8Array(buf);
+  const gz = u[0] === 0x1f && u[1] === 0x8b;
+  const text = gz ? await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text() : new TextDecoder().decode(u);
+  REFS = JSON.parse(text);
+}
+function render() {
+  surah = Core.buildSurah(REFS, +$('sur').value); trk = new Core.Tracker(surah);
+  if (!surah.words.length) { $('text').textContent = 'رقم سورة غلط'; return; }
+  $('text').innerHTML = surah.words.map((w, i) => `<span class="w" id="w${i}">${w.t}</span>`).join(' ');
+  $('state').textContent = '';
+}
+let shown = -1;
+function mark(ptr) {
+  if (ptr === shown) return;
+  for (let i = 0; i < surah.words.length; i++) { const e = $('w' + i); const c = i < ptr ? 'w done' : i === ptr ? 'w cur' : 'w'; if (e.className !== c) e.className = c; }
+  shown = ptr; const e = $('w' + ptr); if (e) e.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+$('load').onclick = async () => {
+  $('load').disabled = true; $('st').textContent = 'بحمّل…';
+  worker = new Worker('tajweed-worker.js', { type: 'module' });
+  worker.onmessage = e => {
+    const m = e.data; if (m.type === 'progress') return void ($('st').textContent = 'بحمّل النموذج (أول مرة بس)… ' + m.pct + '%');
+    const w = wait.get(m.id); wait.delete(m.id); if (w) m.type === 'error' ? w.rej(new Error(m.message)) : w.res(m);
+  };
+  worker.onerror = e => { $('st').textContent = 'خطأ: ' + (e.message || 'الـ worker ماشتغلش'); $('load').disabled = false; };
+  try {
+    const r = await ask({ type: 'load' }); log.loadMs = r.ms; log.cached = !!r.cached;
+    $('st').textContent = 'بحمّل المرجع…'; await loadRefs(); render();
+    $('st').textContent = 'جاهز ✓ ' + (r.cached ? 'النموذج طالع من المخزّن' : 'النموذج اتحمّل واتخزّن للمرات الجاية') + ' (' + (r.ms / 1000).toFixed(1) + ' ث)';
+    $('mic').disabled = $('reset').disabled = false; show();
+  } catch (e) { $('st').textContent = 'خطأ: ' + e.message; log.error = e.message; $('load').disabled = false; show(); }
+};
+$('sur').onchange = () => { if (REFS && !rec) { render(); shown = -1; } };
+$('reset').onclick = () => { if (REFS && !rec) { render(); shown = -1; } };
+function tail(r, sec) {
+  const rate = r.ctx.sampleRate, need = Math.min(r.n, Math.ceil(sec * rate));
+  const all = new Float32Array(need); let k = need;
+  for (let i = r.chunks.length - 1; i >= 0 && k > 0; i--) { const c = r.chunks[i], take = Math.min(c.length, k); all.set(c.subarray(c.length - take), k - take); k -= take; }
+  const ratio = rate / SR; if (ratio === 1) return all;
+  const out = new Float32Array(Math.floor(all.length / ratio));
+  for (let i = 0; i < out.length; i++) { const p = i * ratio, a = p | 0, b = Math.min(a + 1, all.length - 1); out[i] = all[a] + (all[b] - all[a]) * (p - a); }
+  return out;
+}
+async function pass(audio, win) {
+  const t = performance.now(), r = await ask({ type: 'run', audio }, [audio.buffer]), ms = Math.round(performance.now() - t);
+  const res = trk.step(r.script);
+  $('state').textContent = LABEL[res.ev] || res.ev;
+  if (res.ptr >= 0) mark(res.ptr);
+  $('num').textContent = `تحليل ${ms} مللي ثانية | تطابق ${res.q === undefined ? '-' : Math.round(res.q * 100) + '%'}`;
+  log.passes.push({ t: Math.round(performance.now() - t0), win, ms, ev: res.ev, ptr: res.ptr, q: res.q === undefined ? null : +res.q.toFixed(2), n: res.n, heard: r.script.length, h: r.script.slice(-40) });
+  if (!['forward', 'silence', 'unclear'].includes(res.ev)) log.events.push({ t: Math.round(performance.now() - t0), ev: res.ev, ptr: res.ptr });
+  show();
+}
+const fail = e => { $('st').textContent = 'خطأ: ' + e.message; log.error = e.message; show(); };
+async function start() {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: true } });
+  let ctx; try { ctx = new AudioContext({ sampleRate: SR }); } catch (e) { ctx = new AudioContext(); }
+  const win = +$('win').value, r = rec = { stream, ctx, chunks: [], n: 0, on: true };
+  const src = ctx.createMediaStreamSource(stream), node = ctx.createScriptProcessor(2048, 1, 1);
+  node.onaudioprocess = e => { if (!r.on) return; const c = e.inputBuffer.getChannelData(0).slice(); r.chunks.push(c); r.n += c.length; if (r.chunks.length > 600) { r.chunks.splice(0, 200); r.n = r.chunks.reduce((s, x) => s + x.length, 0); } };
+  src.connect(node); node.connect(ctx.destination); r.node = node; await ctx.resume();
+  $('mic').textContent = '⏹️ وقّف'; $('st').textContent = 'بسمعك… (نافذة ' + win + ' ث)'; $('sur').disabled = $('reset').disabled = true; t0 = performance.now();
+  let done = 0;
+  r.loop = (async () => {
+    while (r.on) {
+      const sec = r.n / r.ctx.sampleRate;
+      if (performance.now() - t0 > CAP_SEC * 1000) { stop(); break; }
+      if (sec >= 0.5 && sec - done >= 0.35) { done = sec; await pass(tail(r, win), win); } else await new Promise(s => setTimeout(s, 50));
+    }
+  })().catch(fail);
+}
+async function stop() {
+  const r = rec; if (!r) return; rec = null; r.on = false; $('mic').disabled = true;
+  r.node.disconnect(); r.stream.getTracks().forEach(t => t.stop());
+  try { await new Promise(s => setTimeout(s, 0)); await r.loop; $('st').textContent = 'خلصنا'; } catch (e) { fail(e); }
+  r.ctx.close(); $('mic').textContent = '🎙️ ابدأ القراءة'; $('mic').disabled = false; $('sur').disabled = $('reset').disabled = false;
+}
+$('mic').onclick = () => rec ? stop() : start().catch(fail);
+$('copy').onclick = () => navigator.clipboard.writeText(JSON.stringify({ ...log, passes: log.passes.slice(-150) })).then(() => $('copy').textContent = 'اتنسخ ✓');
+</script>
+</html>
