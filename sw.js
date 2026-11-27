@@ -4,8 +4,9 @@
    - طلبات الذكاء الاصطناعي ويوتيوب وفايربيز والسيرفرات التانية مابنلمسهاش، ما عدا مكتبات Firebase نفسها (ملفات JS ثابتة النسخة في الرابط) فبتتخزّن عشان الحساب يفتح أوفلاين.
    - إشعارات وهو مقفول: Web Push (سيرفر صغير بيصحّي الـ worker) + الجدول متخزّن في IndexedDB.
    لو رفعت نسخة جديدة وعايزها فورًا: غيّر رقم VERSION. */
-const VERSION = 'v73';
+const VERSION = 'v75';
 const CACHE = 'prod-platform-' + VERSION;
+const ASR_CACHE = 'asr-models-v1';
 const CORE = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 const LIBS = ['./jsQR.min.js', './qrcode.min.js'];
 const CDN_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com', 'cdnjs.cloudflare.com'];
@@ -29,6 +30,19 @@ self.addEventListener('fetch', e => {
   const sameOrigin = url.origin === self.location.origin;
   const fbLib = url.hostname === 'www.gstatic.com' && url.pathname.indexOf('/firebasejs/') === 0;
   if (!sameOrigin && !fbLib && !CDN_HOSTS.includes(url.hostname)) return;
+  /* التعرف على الصوت أوفلاين: ملفات النموذج والمكتبات (مجلد asr/) بتتخزّن أول مرة وبعدها من الجهاز.
+     اسم الكاش ثابت (مش مربوط بـ VERSION) عشان ١٢٠ ميجا ماتتحمّلش تاني مع كل تحديث للتطبيق. */
+  if (sameOrigin && /\/asr\//.test(url.pathname)) {
+    e.respondWith((async () => {
+      const cache = await caches.open(ASR_CACHE);
+      const hit = await cache.match(req, { ignoreSearch: true });
+      if (hit) return hit;
+      const r = await fetch(req);
+      if (r && r.ok && r.status === 200) cache.put(req, r.clone()).catch(() => { });
+      return r;
+    })());
+    return;
+  }
   if (req.mode === 'navigate') {
     e.respondWith((async () => {
       const cache = await caches.open(CACHE);
