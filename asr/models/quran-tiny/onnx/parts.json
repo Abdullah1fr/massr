@@ -1,0 +1,10 @@
+{
+    "decoder_model_merged_quantized.onnx":  [
+                                                "decoder_model_merged_quantized.onnx.part1",
+                                                "decoder_model_merged_quantized.onnx.part2",
+                                                "decoder_model_merged_quantized.onnx.part3",
+                                                "decoder_model_merged_quantized.onnx.part4",
+                                                "decoder_model_merged_quantized.onnx.part5",
+                                                "decoder_model_merged_quantized.onnx.part6"
+                                            ]
+}
