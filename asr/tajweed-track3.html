@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>تتبع القراءة كلمة بكلمة (3)</title>
+<style>
+body{font-family:sans-serif;background:#0f1412;color:#eee;margin:0;padding:16px;line-height:1.7}
+button,select,input{font-size:18px;padding:10px 14px;border:0;border-radius:10px;background:#1f7a55;color:#fff;margin:4px 0}
+input{width:80px;background:#26332d;text-align:center}
+button:disabled{opacity:.4}
+#text{font-family:'Amiri','Traditional Arabic',serif;font-size:30px;line-height:2.4;background:#18211d;border-radius:12px;padding:12px;max-height:55vh;overflow:auto}
+.w{padding:0 3px;border-radius:6px;display:inline-block;transition:background .12s}
+.w.done{color:#7fd6a8}
+.w.cur{background:#2d6cdf;color:#fff}
+#state{font-size:20px;margin:8px 0;min-height:30px}
+#log{direction:ltr;text-align:left;font-size:12px;white-space:pre-wrap;word-break:break-all;background:#000;padding:8px;border-radius:8px;max-height:20vh;overflow:auto}
+small{color:#9ab}
+</style>
+<h3>تتبع القراءة كلمة بكلمة (تجربة 3)</h3>
+<div id="st">اضغط «تحميل»</div>
+<div>
+  <label>رقم السورة <input id="sur" type="number" min="1" max="114" value="52"></label>
+  <label>النافذة <select id="win"><option value="2">2 ث</option><option value="3" selected>3 ث</option><option value="4">4 ث</option><option value="6">6 ث</option></select></label>
+</div>
+<button id="load">تحميل النموذج والمرجع</button>
+<button id="mic" disabled>🎙️ ابدأ القراءة</button>
+<button id="reset" disabled>↺ من الأول</button>
+<div id="state"></div>
+<div id="text"></div>
+<p id="num"></p>
+<button id="copy">انسخ السجل</button>
+<div id="log"></div>
+<p><small>نص المصحف ومواضع الوقف: Tanzil (Uthmani)، رخصة CC BY 3.0. النموذج: HisnLabs/tajweed-v2 (Apache-2.0). تجربة للتدريب فقط، مش حكم ولا تقييم.</small></p>
+<script src="tajweed-core.js?v=1"></script>
+<script>
+const $ = id => document.getElementById(id), SR = 16000, CAP_SEC = 300;
+const log = { v: 'track3', ua: navigator.userAgent, cores: navigator.hardwareConcurrency, passes: [], events: [] };
+const show = () => { const l = { ...log, passes: log.passes.slice(-60) }; $('log').textContent = JSON.stringify(l); };
+const Core = TajweedCore; let curSur = 52, qw = null, qReady = false, qBusy = false, qId = 0, qReq = null;
+let worker, seq = 0, wait = new Map(), rec = null, REFS = null, surah = null, trk = null, t0 = 0;
+const LABEL = { forward: 'ماشي ✅', back: 'رجعت وبتعيد 🔁', jump: 'انتقلت لمكان تاني ⤴️', relocate: 'لقيت مكانك من جديد 📍', unclear: '…', lost: 'مش لاقي مكانك ❓', ignored: '…', silence: 'سكوت', 'pending-back': 'بتعيد؟ بتأكد…', 'pending-jump': 'انتقال؟ بتأكد…', 'pending-relocate': 'بدوّر على مكانك…', 'pending-switch': 'دوّرت في القرآن… بتأكد…', switch: 'انتقلت لسورة تانية 📍' };
+function ask(msg, transfer) { return new Promise((res, rej) => { const id = ++seq; wait.set(id, { res, rej }); worker.postMessage({ ...msg, id }, transfer || []); }); }
+async function loadRefs() {
+  const buf = await (await fetch('models/tajweed/refs_hafs.json.gz')).arrayBuffer(), u = new Uint8Array(buf);
+  const gz = u[0] === 0x1f && u[1] === 0x8b;
+  const text = gz ? await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text() : new TextDecoder().decode(u);
+  REFS = JSON.parse(text);
+}
+function drawText() {
+  if (!surah.words.length) { $('text').textContent = 'رقم سورة غلط'; return; }
+  $('text').innerHTML = surah.words.map((w, i) => `<span class="w" id="w${i}">${w.t}</span>`).join(' ');
+}
+function render() {
+  curSur = +$('sur').value; surah = Core.buildSurah(REFS, curSur); trk = new Core.Tracker(surah);
+  drawText(); $('state').textContent = '';
+}
+// انتقال لسورة تانية: بنفتح السورة الجديدة والعلامة على الآية اللي لقيناها
+function doSwitch(n, ptr) {
+  curSur = n; $('sur').value = n; surah = Core.buildSurah(REFS, n); trk.switchTo(surah, ptr); drawText(); shown = -1; mark(ptr);
+}
+function startQ() {
+  qw = new Worker('qsearch-worker.js');
+  qw.onmessage = e => { const m = e.data; if (m.type === 'ready') { qReady = true; return; } qBusy = false; if (m.type === 'found' && rec && qReq && qReq.id === m.id) onFound(m, qReq); };
+  qw.onerror = () => { qBusy = false; };
+  qw.postMessage({ type: 'init' });
+}
+function onFound(m, req) {
+  if (req.sur !== curSur) return;
+  const o = trk.offer(m, req.lq); if (!o) return;
+  log.passes.push({ t: Math.round(performance.now() - t0), q: +m.q.toFixed(2), sur: m.surah, ay: m.ay, n: m.n, ms: m.ms, ev: o.ev, quran: 1 });
+  if (o.ev === 'pending-switch') { $('state').textContent = LABEL[o.ev]; return; }
+  doSwitch(o.surah, o.ptr);
+  $('state').textContent = 'انتقلت لسورة ' + o.surah + ' آية ' + o.ay + ' 📍';
+  log.events.push({ t: Math.round(performance.now() - t0), ev: 'switch', sur: o.surah, ay: o.ay }); show();
+}
+let shown = -1;
+function mark(ptr) {
+  if (ptr === shown) return;
+  for (let i = 0; i < surah.words.length; i++) { const e = $('w' + i); const c = i < ptr ? 'w done' : i === ptr ? 'w cur' : 'w'; if (e.className !== c) e.className = c; }
+  shown = ptr; const e = $('w' + ptr); if (e) e.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+$('load').onclick = async () => {
+  $('load').disabled = true; $('st').textContent = 'بحمّل…';
+  worker = new Worker('tajweed-worker.js', { type: 'module' });
+  worker.onmessage = e => {
+    const m = e.data; if (m.type === 'progress') return void ($('st').textContent = 'بحمّل النموذج (أول مرة بس)… ' + m.pct + '%');
+    const w = wait.get(m.id); wait.delete(m.id); if (w) m.type === 'error' ? w.rej(new Error(m.message)) : w.res(m);
+  };
+  worker.onerror = e => { $('st').textContent = 'خطأ: ' + (e.message || 'الـ worker ماشتغلش'); $('load').disabled = false; };
+  try {
+    const r = await ask({ type: 'load' }); log.loadMs = r.ms; log.cached = !!r.cached;
+    $('st').textContent = 'بحمّل المرجع…'; await loadRefs(); render(); startQ();
+    $('st').textContent = 'جاهز ✓ ' + (r.cached ? 'النموذج طالع من المخزّن' : 'النموذج اتحمّل واتخزّن للمرات الجاية') + ' (' + (r.ms / 1000).toFixed(1) + ' ث)';
+    $('mic').disabled = $('reset').disabled = false; show();
+  } catch (e) { $('st').textContent = 'خطأ: ' + e.message; log.error = e.message; $('load').disabled = false; show(); }
+};
+$('sur').onchange = () => { if (REFS && !rec) { render(); shown = -1; } };
+$('reset').onclick = () => { if (REFS && !rec) { render(); shown = -1; } };
+function tail(r, sec) {
+  const rate = r.ctx.sampleRate, need = Math.min(r.n, Math.ceil(sec * rate));
+  const all = new Float32Array(need); let k = need;
+  for (let i = r.chunks.length - 1; i >= 0 && k > 0; i--) { const c = r.chunks[i], take = Math.min(c.length, k); all.set(c.subarray(c.length - take), k - take); k -= take; }
+  const ratio = rate / SR; if (ratio === 1) return all;
+  const out = new Float32Array(Math.floor(all.length / ratio));
+  for (let i = 0; i < out.length; i++) { const p = i * ratio, a = p | 0, b = Math.min(a + 1, all.length - 1); out[i] = all[a] + (all[b] - all[a]) * (p - a); }
+  return out;
+}
+async function pass(audio, win) {
+  const t = performance.now(), r = await ask({ type: 'run', audio }, [audio.buffer]), ms = Math.round(performance.now() - t);
+  const res = trk.step(r.script), lq = res.q === undefined ? 0 : res.q;
+  if (qReady && !qBusy && res.ev !== 'silence' && r.script.length >= 12 && lq < 0.85) { qBusy = true; qReq = { id: ++qId, lq, sur: curSur }; qw.postMessage({ type: 'search', id: qReq.id, heard: r.script, skip: curSur }); }
+  $('state').textContent = LABEL[res.ev] || res.ev;
+  if (res.ptr >= 0) mark(res.ptr);
+  $('num').textContent = `تحليل ${ms} مللي ثانية | تطابق ${res.q === undefined ? '-' : Math.round(res.q * 100) + '%'}`;
+  log.passes.push({ t: Math.round(performance.now() - t0), win, ms, ev: res.ev, ptr: res.ptr, q: res.q === undefined ? null : +res.q.toFixed(2), n: res.n, heard: r.script.length, h: r.script.slice(-40) });
+  if (!['forward', 'silence', 'unclear'].includes(res.ev)) log.events.push({ t: Math.round(performance.now() - t0), ev: res.ev, ptr: res.ptr });
+  show();
+}
+const fail = e => { $('st').textContent = 'خطأ: ' + e.message; log.error = e.message; show(); };
+async function start() {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: true } });
+  let ctx; try { ctx = new AudioContext({ sampleRate: SR }); } catch (e) { ctx = new AudioContext(); }
+  const win = +$('win').value, r = rec = { stream, ctx, chunks: [], n: 0, on: true };
+  const src = ctx.createMediaStreamSource(stream), node = ctx.createScriptProcessor(2048, 1, 1);
+  node.onaudioprocess = e => { if (!r.on) return; const c = e.inputBuffer.getChannelData(0).slice(); r.chunks.push(c); r.n += c.length; if (r.chunks.length > 600) { r.chunks.splice(0, 200); r.n = r.chunks.reduce((s, x) => s + x.length, 0); } };
+  src.connect(node); node.connect(ctx.destination); r.node = node; await ctx.resume();
+  $('mic').textContent = '⏹️ وقّف'; $('st').textContent = 'بسمعك… (نافذة ' + win + ' ث)'; $('sur').disabled = $('reset').disabled = true; t0 = performance.now();
+  let done = 0;
+  r.loop = (async () => {
+    while (r.on) {
+      const sec = r.n / r.ctx.sampleRate;
+      if (performance.now() - t0 > CAP_SEC * 1000) { stop(); break; }
+      if (sec >= 0.5 && sec - done >= 0.35) { done = sec; await pass(tail(r, win), win); } else await new Promise(s => setTimeout(s, 50));
+    }
+  })().catch(fail);
+}
+async function stop() {
+  const r = rec; if (!r) return; rec = null; r.on = false; $('mic').disabled = true;
+  r.node.disconnect(); r.stream.getTracks().forEach(t => t.stop());
+  try { await new Promise(s => setTimeout(s, 0)); await r.loop; $('st').textContent = 'خلصنا'; } catch (e) { fail(e); }
+  r.ctx.close(); $('mic').textContent = '🎙️ ابدأ القراءة'; $('mic').disabled = false; $('sur').disabled = $('reset').disabled = false;
+}
+$('mic').onclick = () => rec ? stop() : start().catch(fail);
+$('copy').onclick = () => navigator.clipboard.writeText(JSON.stringify({ ...log, passes: log.passes.slice(-150) })).then(() => $('copy').textContent = 'اتنسخ ✓');
+</script>
+</html>
