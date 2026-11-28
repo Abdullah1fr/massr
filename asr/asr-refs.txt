@@ -1,0 +1,13 @@
+index.html:8180: let aiSpeechRecognition = null;
+index.html:25126: // ملحوظة مهمة: Web Speech API (SpeechRecognition/webkitSpeechRecognition) مش متاحة أصلاً
+index.html:25161: function getAISpeechRecognitionCtor() {
+index.html:25162: return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+index.html:25308: if (e === 'web') return !!getAISpeechRecognitionCtor();
+index.html:25393: const Ctor = getAISpeechRecognitionCtor();
+index.html:31783: if (window.OfflineASR && OfflineASR.supported()) return 'offline';
+index.html:31785: return (window.SpeechRecognition || window.webkitSpeechRecognition) ? 'web' : null;
+index.html:31915: const O = window.OfflineASR;
+index.html:31919: if (window.SpeechRecognition || window.webkitSpeechRecognition || (window.AndroidNative && typeof AndroidNative.startVoiceRecognition === 'function')) {
+index.html:31951: const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
+index.html:31990: if (t.engine === 'offline') { try { OfflineASR.stop(); } catch (e) {} }
+index.html:39403: <script src="asr/offlineasr.js?v=1" onerror="window.__offlineAsrFailed=1"></script>
