@@ -4,6 +4,62 @@
    - بتتحمّل من sw.js في كل فتحة، ومبتغيّرش حاجة في كود التطبيق. */
 (function () {
   'use strict';
+/* ===== التسميع الأونلاين: تعرّف سحابي من المتصفح بدل نموذج Whisper (120 ميجا) =====
+   بيستبدل window.OfflineASR بنفس واجهته (supported/load/start/stop)، فتسميع التطبيق الأصلي بيشتغل زي ما هو من غير تحميل أي نموذج.
+   لو المتصفح مالوش SpeechRecognition بيرجع للنموذج القديم لو لسه موجود. */
+(function () {
+  if (window.__asrShim) return; window.__asrShim = 1;
+  const SRC = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let real = window.OfflineASR, sess = null, base = 0;
+  const shim = {
+    supported() { return !!SRC || !!(real && real.supported && real.supported()); },
+    load(cb) { if (!SRC && real) return real.load(cb); if (cb) try { cb(100, 'cloud'); } catch (e) {} return Promise.resolve(); },
+    isReady() { return SRC ? true : !!(real && real.isReady && real.isReady()); },
+    start(h) {
+      if (!SRC) return real.start(h);
+      shim.stop();
+      const s = sess = { alive: true, h, rec: null, opened: false };
+      return new Promise((res, rej) => {
+        const fire = msg => { if (s.alive && h.onError) try { h.onError(msg); } catch (e) {} };
+        const begin = () => {
+          if (!s.alive) return;
+          const r = s.rec = new SRC(); r.lang = 'ar-SA'; r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
+          r.onstart = () => { if (!s.opened) { s.opened = true; res(true); } };
+          r.onresult = e => {
+            for (let i = e.resultIndex; i < e.results.length; i++) {
+              const t = (e.results[i][0] && e.results[i][0].transcript || '').trim();
+              if (t && s.alive) try { h.onText(base + i, t, !!e.results[i].isFinal); } catch (x) {}
+            }
+          };
+          r.onerror = e => {
+            const c = e && e.error;
+            if (c === 'not-allowed' || c === 'service-not-allowed') { s.alive = false; const m = 'محتاجين إذن الميكروفون 🎙️⚠️'; if (!s.opened) rej(new Error(m)); else if (h.onError) h.onError(m); }
+            else if (c === 'network') { s.alive = false; const m = 'التسميع الأونلاين محتاج نت. اختار أوفلاين من الضغطة المطوّلة على زرار تسميع.'; if (!s.opened) rej(new Error(m)); else if (h.onError) h.onError(m); }
+            else if (c === 'audio-capture') { s.alive = false; const m = 'مفيش ميكروفون متاح ⚠️'; if (!s.opened) rej(new Error(m)); else if (h.onError) h.onError(m); }
+          };
+          r.onend = () => { if (!s.alive) return; base += 1000; setTimeout(begin, 120); };   // المتصفح بيقفل الجلسة بعد سكوت: بنفتحها تاني لوحدنا
+          try { r.start(); } catch (e) { if (!s.opened) { s.alive = false; rej(e); } }
+        };
+        begin();
+      });
+    },
+    stop() { const s = sess; if (!s) { if (!SRC && real && real.stop) real.stop(); return; } sess = null; s.alive = false; try { s.rec && s.rec.abort(); } catch (e) {} },
+    _makeSegmenter: (...a) => real && real._makeSegmenter ? real._makeSegmenter(...a) : null
+  };
+  try {
+    Object.defineProperty(window, 'OfflineASR', { configurable: true, get() { return shim; }, set(v) { real = v; } });
+  } catch (e) { window.OfflineASR = shim; }
+  // تنظيف نسخة Whisper المتخزّنة على الموبايل (120 ميجا) أول ما التعرف السحابي يبقى متاح
+  if (SRC && window.caches) {
+    (async () => {
+      try {
+        const c = await caches.open('asr-models-v1'), ks = await c.keys();
+        await Promise.all(ks.filter(r => /\/asr\/models\/quran-tiny\//.test(r.url)).map(r => c.delete(r)));
+      } catch (e) {}
+    })();
+  }
+})();
+
 /* منتقي أوفلاين/أونلاين: ضغطة مطوّلة تطلّع ميكروفون بلون الوضع التاني فوق الزرار بالظبط، تسحب لفوق وتسيب (أو تدوس عليه) فيتبدّلوا بأنيميشن */
 function makeChooser(getEng, onPick) {
   const COL = { offline: '#1f8a5b', online: '#2d6cdf' }, NM = { offline: 'أوفلاين', online: 'أونلاين' }, oth = e => e === 'offline' ? 'online' : 'offline';
@@ -93,7 +149,7 @@ function makeChooser(getEng, onPick) {
   // ---------- الصفحة فوق التطبيق ----------
   function open(btn) {
     if (wrap) return;
-    const sur = curSurah(btn) || getCfg().sur || 1; setCfg({ sur, engine: 'offline' }); lastBtn = btn;
+    const sur = curSurah(btn) || getCfg().sur || 1; setCfg({ sur }); lastBtn = btn;
     wrap = document.createElement('div'); wrap.id = 'tsmWrap';
     wrap.style.cssText = 'position:fixed;inset:0;z-index:2147483000;background:#fdfbf6;transform:translateY(100%);transition:transform .32s cubic-bezier(.2,.9,.3,1)';
     const f = document.createElement('iframe'); f.src = PAGE + '?embed=1&sur=' + sur; f.allow = 'microphone; screen-wake-lock; autoplay';
