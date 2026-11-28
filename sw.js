@@ -4,18 +4,31 @@
    - طلبات الذكاء الاصطناعي ويوتيوب وفايربيز والسيرفرات التانية مابنلمسهاش، ما عدا مكتبات Firebase نفسها (ملفات JS ثابتة النسخة في الرابط) فبتتخزّن عشان الحساب يفتح أوفلاين.
    - إشعارات وهو مقفول: Web Push (سيرفر صغير بيصحّي الـ worker) + الجدول متخزّن في IndexedDB.
    لو رفعت نسخة جديدة وعايزها فورًا: غيّر رقم VERSION. */
-const VERSION = 'v75';
+const VERSION = 'v76';
 const CACHE = 'prod-platform-' + VERSION;
 const ASR_CACHE = 'asr-models-v1';
 const CORE = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 const LIBS = ['./jsQR.min.js', './qrcode.min.js'];
 const CDN_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com', 'cdnjs.cloudflare.com'];
+/* offline tasmee: small code files are pre-cached at install so the page opens without internet */
+const ASR_CODE = ['asr/tajweed-final5.html', 'asr/tajweed-core5.js', 'asr/tajweed-worker.js', 'asr/qsearch-worker5.js', 'asr/tajweed-mel.js', 'asr/tajweed-ctc.js', 'asr/tasmee-offline.js'];
+const TASMEE_TAG = new TextEncoder().encode('\n<script src="asr/tasmee-offline.js" defer></script>');
+/* appends the tasmee loader to the end of the app page while it streams (index.html itself is not touched) */
+function withTasmee(r) {
+  try {
+    if (!r || !r.body || !r.ok) return r;
+    const h = new Headers(r.headers); h.delete('content-length'); h.delete('content-encoding');
+    const ts = new TransformStream({ flush(c) { c.enqueue(TASMEE_TAG); } });
+    return new Response(r.body.pipeThrough(ts), { status: r.status, statusText: r.statusText, headers: h });
+  } catch (err) { return r; }
+}
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE)
     .then(c => c.addAll(CORE.map(u => new Request(u, { cache: 'reload' })))
       /* مكتبات القراءة/الرسم المحلية: محاولة تخزين من غير ما تفشّل التثبيت لو الملف مش مرفوع */
       .then(() => Promise.all(LIBS.map(u => c.add(new Request(u, { cache: 'reload' })).catch(() => { })))))
+    .then(() => caches.open(ASR_CACHE).then(a => Promise.all(ASR_CODE.map(u => a.add(new Request('./' + u, { cache: 'reload' })).catch(() => { })))))
     .then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {
@@ -36,8 +49,8 @@ self.addEventListener('fetch', e => {
     e.respondWith((async () => {
       const cache = await caches.open(ASR_CACHE);
       const hit = await cache.match(req, { ignoreSearch: true });
-      if (hit) return hit;
-      const r = await fetch(req);
+      if (hit && (/\/asr\/(models|ort)\//.test(url.pathname) || /transformers\.min\.js$/.test(url.pathname))) return hit;
+      let r; try { r = await fetch(req); } catch (err) { if (hit) return hit; throw err; }
       if (r && r.ok && r.status === 200) cache.put(req, r.clone()).catch(() => { });
       return r;
     })());
@@ -48,9 +61,9 @@ self.addEventListener('fetch', e => {
       const cache = await caches.open(CACHE);
       const cached = await cache.match('./index.html');
       const update = fetch('./index.html', { cache: 'no-cache' }).then(r => { if (r && r.ok) cache.put('./index.html', r.clone()); return r; }).catch(() => null);
-      if (cached) { e.waitUntil(update); return cached; }
+      if (cached) { e.waitUntil(update); return withTasmee(cached); }
       const net = await update;
-      return net || new Response('مفيش نت ولسه التطبيق ماتخزّنش على الجهاز', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
+      return net ? withTasmee(net) : new Response('مفيش نت ولسه التطبيق ماتخزّنش على الجهاز', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
     })());
     return;
   }
