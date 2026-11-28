@@ -171,7 +171,7 @@
   // ---------- المتتبّع ----------
   class Tracker {
     constructor(s, opt) { this.opt = Object.assign({ Q: 0.55, QG: 0.7, T: 0.6 }, opt || {}); this.switchTo(s, -1); }
-    switchTo(s, ptr) { this.s = s; this.ptr = ptr; this.pend = null; this.pendAge = 0; this.lost = 0; this.gp = null; this.tick = this.tick || 0; this.V = new Map(); }
+    switchTo(s, ptr) { this.s = s; this.ptr = ptr; this.pend = null; this.pendAge = 0; this.lost = 0; this.gp = null; this.tick = this.tick || 0; this.V = new Map(); this.P = new Set(); }
     setT(T) { this.opt.T = T; }
     // حالة الكلمة: ok / wrong / missing / null (لسه ما اتحكمش)
     status(i) { const v = this.V.get(i); if (!v) return null; return v.best >= this.opt.T ? 'ok' : v.kind; }
@@ -186,6 +186,7 @@
       return ch;
     }
     offer(c, lq) {
+      if (lq >= 0.65) { this.gp = null; return null; }   // لو القراءة لسه مطابقة للسورة الحالية (غلطة كلمة مثلًا) ما ننتقلش
       const ok = c.len >= 18 && c.n >= 4 && ((c.q >= 0.8 && c.margin >= 0.08) || (c.q >= 0.62 && c.margin >= 0.2)) && c.q >= lq + 0.1;
       if (!ok) { this.gp = null; return null; }
       const g = this.gp;
@@ -200,10 +201,10 @@
       let a = 0, b = N, pref = 0;
       if (!first) { a = s.words[Math.max(0, this.ptr - 30)].sa; b = s.words[Math.min(s.words.length - 1, this.ptr + 90)].sb; pref = s.words[this.ptr].sb; }
       let c = best(h, s, a, b, pref), scope = 'local';
-      const okG = x => x.q >= this.opt.QG && (x.n >= 3 || (x.n >= 2 && x.q >= 0.8 && x.len >= 10));
+      const okG = (x, f) => x.q >= this.opt.QG && (x.n >= 3 || (x.n >= 2 && x.q >= 0.8 && x.len >= 10) || (f && x.n >= 1 && x.q >= 0.85 && x.len >= 8));
       const bad = x => ({ q: x.q, F: x.F, L: x.L, n: x.n, ev: this.lost >= 3 ? 'lost' : 'unclear', ptr: this.ptr });
       if (first) {
-        if (!okG(c)) { this.lost++; return { ...bad(c), ptr: -1 }; }
+        if (!okG(c, true)) { this.lost++; return { ...bad(c), ptr: -1 }; }
       } else if (c.q < 0.8) {
         const g = best(h, s, 0, N, pref);
         if (okG(g) && g.q > c.q + 0.1 && Math.abs(g.L - this.ptr) > 6) { c = g; scope = 'global'; }
@@ -219,11 +220,13 @@
       const wasFirst = first;
       this.ptr = (ev === 'forward') ? Math.max(this.ptr, L) : L;
       this.pend = null; this.pendAge = 0; this.lost = 0;
+      for (let i = c.F; i <= c.L; i++) this.P.add(i);
       const changed = this.record(judge(s, c));
+      for (let i = c.F; i <= c.L; i++) if (!changed.includes(i)) changed.push(i);
       return { ...base, ev: wasFirst ? 'forward' : ev, ptr: this.ptr, changed };
     }
   }
-  const Core = { skel, buildSurah, buildAll, align, scan, trace, best, judge, searchAll, Stream, Tracker };
+  const Core = { VERSION: 6, skel, buildSurah, buildAll, align, scan, trace, best, judge, searchAll, Stream, Tracker };
   root.TajweedCore4 = Core;
   if (typeof module !== 'undefined') module.exports = Core;
 })(typeof self !== 'undefined' ? self : globalThis);

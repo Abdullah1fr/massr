@@ -1,5 +1,5 @@
 // بحث في القرآن كله (thread لوحده): بياخد هيكل اللي النموذج سمعه ويقول هو في أنهي سورة وآية.
-importScripts('tajweed-core4.js?v=4');
+importScripts('tajweed-core4.js?v=6');
 let ALL = null;
 async function init() {
   const buf = await (await fetch('models/tajweed/refs_hafs.json.gz')).arrayBuffer(), u = new Uint8Array(buf);

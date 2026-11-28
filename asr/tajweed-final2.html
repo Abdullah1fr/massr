@@ -150,7 +150,7 @@ async function loadRefs() {
 function clsOf(i) {
   const st = trk.status(i), test = cfg.mode === 'test'; let c = 'w', show = false;
   if (i === disp) c += ' cur';
-  if (st === 'wrong') { c += ' bad'; show = true; } else if (st === 'missing') { c += ' miss'; show = true; } else if (st === 'ok') { c += ' ok'; show = true; } else if (trk.P.has(i) && i < trk.ptr) { c += " pass"; show = true; }
+  if (st === 'wrong') { c += ' bad'; show = true; } else if (st === 'missing') { c += ' miss'; show = true; } else if (st === 'ok') { c += ' ok'; show = true; } else if (trk.P && trk.P.has(i) && i < trk.ptr) { c += " pass"; show = true; }
   if (test && hinted.has(i)) { c += ' hint'; show = true; }
   if (test && show) c += ' rv';
   return c;
@@ -371,6 +371,7 @@ let micDown = false, pressT = null, long = false;
 }
 // ---------- التحميل ----------
 $('go').onclick = async () => {
+  if (!Core.VERSION || Core.VERSION < 6) { $('lmsg').textContent = 'ملف tajweed-core4.js على الموقع قديم. انسخ النسخة الأحدث من Downloads (اسمها ممكن يبقى فيه (1)) وارفعها تاني.'; return; }
   $('go').disabled = true; $('lmsg').textContent = 'بحمّل…';
   worker = new Worker('tajweed-worker.js', { type: 'module' });
   worker.onmessage = e => {
