@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#fdf5e0">
+<title>التسميع (أوفلاين) 3</title>
+<style>
+:root{--bg:#fdfbf6;--card:#fdf5e0;--bd:#b9c0c9;--gold:#c9a24a;--gold2:#8a5a00;--green:#1d4a3a;--ink:#8a5a00;--blue:#2d6cdf;--ok:#1f8a5b;--bad:#d4443f;--miss:#e08a1e;--mut:#6b7280;
+--quran:'Amiri Quran','Amiri','Scheherazade New','Traditional Arabic','Noto Naskh Arabic',serif;--ui:system-ui,-apple-system,'Segoe UI',Roboto,'Noto Sans Arabic',sans-serif}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:#222;font-family:var(--ui)}
+body{padding:env(safe-area-inset-top) 10px calc(110px + env(safe-area-inset-bottom))}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+#head{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:8px;margin:8px 0 10px;padding:10px 14px;background:var(--card);border:1px solid var(--bd);border-radius:22px}
+#head .t{flex:1;text-align:center;min-width:0}
+#surName{font-size:20px;font-weight:700}#sub{font-size:13px;color:var(--mut)}
+.ic{width:40px;height:40px;border-radius:12px;font-size:21px;display:grid;place-items:center}
+.ic[hidden]{display:none}
+#state{min-height:26px;font-size:14px;color:var(--gold2);text-align:center}
+.ayc{display:flex;align-items:flex-start;gap:8px;margin:0 0 14px;scroll-margin:120px}
+.card{flex:1;min-width:0;background:var(--card);border:1px solid var(--bd);border-radius:22px;padding:18px 18px 22px;font-family:var(--quran);font-size:29px;line-height:2.15;color:var(--ink);text-align:justify;transition:border-color .2s,box-shadow .2s}
+.ayc.curA .card{border-color:var(--blue);box-shadow:0 0 0 3px rgba(45,108,223,.15)}
+.medal{flex:none;width:62px;height:62px;border-radius:50%;margin-top:4px;background:radial-gradient(circle,var(--card) 56%,var(--gold) 58% 65%,var(--green) 67%);display:grid;place-items:center;font:700 19px var(--ui);color:var(--green)}
+.w{display:inline;padding:0 3px;border-radius:8px;transition:background .15s,color .15s}
+.w.pass{color:#6a7d4f}.w.ok{color:var(--ok)}
+.w.bad{color:var(--bad);text-decoration:underline wavy var(--bad);text-underline-offset:7px}
+.w.miss{color:var(--miss);text-decoration:underline dotted var(--miss);text-underline-offset:7px}
+.w.cur{background:var(--blue);color:#fff;text-decoration:none}
+/* وضع الاختبار: كل الكروت قد بعضها وفاضية، والكلمات بتتكتب لما تتقال */
+.test .card{height:158px;overflow:hidden;display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.9}
+.test .txt{max-height:100%;overflow:hidden}
+/* وضع التدريب: شرطة لكل كلمة (طولها على قد الكلمة)، والكلمة بتظهر لما تتقال أو بزرار العين */
+.train .w:not(.rv){display:inline-block;font-size:0;width:calc(var(--n,3)*9px + 14px);height:6px;margin:0 7px;padding:0;background:#d8cfb4;border-radius:4px;vertical-align:middle}
+.train .w.cur:not(.rv){background:var(--blue)}
+.train.showall .w:not(.rv){display:inline;font-size:inherit;width:auto;height:auto;margin:0;padding:0 3px;background:none;border-radius:8px;vertical-align:baseline}
+#peek.off{opacity:.45}
+.test .w{display:none}.test .w.rv{display:inline}
+.test .w.cur.rv{background:none;color:var(--blue)}
+.test .w.bad.rv,.test .w.miss.rv{display:inline-block;font-size:0;color:transparent;width:2.3em;height:.5em;margin:0 6px;background:var(--bad);border-radius:6px;vertical-align:middle;text-decoration:none;cursor:pointer}
+.test .w.hint.rv{display:inline;font-size:inherit;width:auto;height:auto;margin:0;background:none;color:var(--gold2);text-decoration:underline dotted var(--gold2);cursor:default}
+#hint{width:40px;height:40px;border-radius:50%;background:#f1e6c4;font-size:19px;flex:none}#hint[hidden]{display:none}
+#pill{position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));z-index:4;display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--card);border:1.5px solid var(--gold);border-radius:34px;box-shadow:0 8px 26px rgba(80,60,10,.18)}
+.mw{display:flex;flex-direction:column;align-items:center;gap:2px;flex:none}
+#mic{width:54px;height:54px;border-radius:50%;background:var(--gold);display:grid;place-items:center;font-size:25px;touch-action:none;user-select:none;-webkit-user-select:none;transition:background .2s,transform .15s}
+#mic:active{transform:scale(.94)}
+#mic.rec{background:var(--bad);animation:rec 1.2s ease-in-out infinite}
+@keyframes rec{50%{box-shadow:0 0 0 9px rgba(212,68,63,.22)}}
+#engLab{font-size:11px;font-weight:700;color:var(--gold2)}
+#pstate{flex:1;min-width:0;font-size:14px;color:#333;line-height:1.5}
+#pnum{display:block;font-size:11px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.seg{display:flex;background:#f1e6c4;border-radius:14px;padding:3px;flex:none}
+.seg button{padding:7px 11px;border-radius:11px;font-size:13px;color:var(--gold2)}
+.seg button.on{background:var(--gold2);color:#fff;font-weight:700}
+#fin{width:40px;height:40px;border-radius:50%;background:var(--green);color:#fff;font-size:18px;flex:none}
+#fin[hidden]{display:none}
+/* عجلة اختيار أوفلاين/أونلاين: صغيرة فوق الميكروفون، بتتلف بصباعك وبتختفي أول ما تسيب */
+#wheel{position:fixed;z-index:9;width:150px;height:150px;margin:-75px 0 0 -75px;border-radius:50%;background:rgba(253,245,224,.97);border:2px solid var(--gold);box-shadow:0 0 0 7px rgba(201,162,74,.22),0 12px 30px rgba(0,0,0,.28);opacity:0;pointer-events:none;transform:scale(.5);transition:opacity .16s,transform .22s cubic-bezier(.2,1.2,.4,1);touch-action:none}
+#wheel.on{opacity:1;transform:scale(1)}
+#wspin{position:absolute;inset:0;border-radius:50%;will-change:transform}
+#wspin::before{content:"";position:absolute;left:14%;right:14%;top:50%;height:2px;background:repeating-linear-gradient(90deg,var(--gold) 0 6px,transparent 6px 12px);opacity:.6}
+.nd{position:absolute;left:50%;width:54px;height:54px;margin-left:-27px;will-change:transform}
+.nd.t{top:6px}.nd.b{bottom:6px}
+.nd i{position:relative;display:grid;place-items:center;width:54px;height:54px;border-radius:50%;background:var(--gold);font-style:normal;font-size:25px}
+.nd i small{position:absolute;right:-5px;bottom:-5px;width:22px;height:22px;border-radius:50%;background:#fff;display:grid;place-items:center;font-size:13px;box-shadow:0 1px 4px rgba(0,0,0,.25)}
+#wheel.snap #wspin,#wheel.snap .nd{transition:transform .38s cubic-bezier(.2,1.25,.4,1)}
+#wlab{position:absolute;left:50%;bottom:calc(100% + 14px);transform:translateX(-50%);white-space:nowrap;background:#2b2b2b;color:#fff;font-size:13px;padding:6px 12px;border-radius:12px}
+/* شاشات */
+#load{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;z-index:9}
+#load h1{margin:0;font-size:24px;color:var(--green)}#load p{margin:0;color:var(--mut);max-width:32ch;line-height:1.7}
+#go{padding:14px 28px;border-radius:16px;background:var(--gold);font-size:18px;font-weight:700}
+#bar{width:min(260px,70vw);height:6px;background:#eee3c0;border-radius:3px;overflow:hidden}#bar i{display:block;height:100%;width:0;background:var(--gold2);transition:width .2s}
+.sheet{position:fixed;left:0;right:0;bottom:0;max-height:86vh;overflow:auto;background:var(--card);border-top:1px solid var(--bd);border-radius:22px 22px 0 0;padding:16px 16px calc(20px + env(safe-area-inset-bottom));transform:translateY(105%);transition:transform .34s cubic-bezier(.2,.9,.3,1);z-index:7}
+.sheet.open{transform:none}.sheet h2{margin:0 0 12px;font-size:18px;color:var(--green)}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid #eadfba}.row label{font-size:15px}
+select,input[type=number]{font:inherit;background:#fff;border:1px solid var(--bd);border-radius:10px;padding:8px 10px;max-width:58%}input[type=number]{width:76px;text-align:center}
+.sw{width:50px;height:28px;border-radius:14px;background:#cfc8b0;position:relative;transition:.2s;flex:none}
+.sw::after{content:"";position:absolute;top:3px;right:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:.2s}.sw.on{background:var(--ok)}.sw.on::after{right:25px}
+.act{padding:11px 14px;border-radius:12px;background:var(--gold);font-weight:700;width:100%;margin-top:10px}.act.alt{background:#efe3bb}
+#scrim{position:fixed;inset:0;background:rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:.3s;z-index:6}#scrim.show{opacity:1;pointer-events:auto}
+.big{font-size:44px;font-weight:700;line-height:1.1;color:var(--green)}
+.rep{display:flex;gap:10px;margin:10px 0 14px}.rep div{flex:1;background:#fff;border-radius:14px;padding:12px;text-align:center;font-size:13px;color:var(--mut)}.rep b{display:block;font-size:26px;color:#222}
+.li{padding:8px 0;border-bottom:1px solid #eadfba;font:21px var(--quran)}.li small{font:13px var(--ui);color:var(--mut);margin-inline-start:8px}
+#toast{position:fixed;left:50%;bottom:130px;transform:translate(-50%,20px);background:#2b2b2b;color:#fff;padding:10px 16px;border-radius:12px;font-size:14px;opacity:0;pointer-events:none;transition:.3s;z-index:10;max-width:86vw;text-align:center}#toast.show{opacity:1;transform:translate(-50%,0)}
+small.src{display:block;color:var(--mut);font-size:11px;line-height:1.6;padding:6px 8px;text-align:center}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div id="load">
+  <h1>التسميع بدون نت</h1>
+  <p id="lmsg">النموذج بيتحمّل مرة واحدة (حوالي 23 ميجا) وبعدها بيفتح من الموبايل.</p>
+  <div id="bar"><i></i></div>
+  <button id="go">تجهيز التسميع</button>
+</div>
+<div id="head">
+  <button class="ic" id="gear" aria-label="الإعدادات">⚙️</button>
+  <button class="ic" id="peek" aria-label="إظهار/إخفاء الكلمات (في التدريب)">👁</button>
+  <div class="t"><div id="surName">—</div><div id="sub">اضغط «تجهيز التسميع»</div></div>
+  <button class="ic" id="again" aria-label="من الأول">↺</button>
+</div>
+<div id="state"></div>
+<div id="list"></div>
+<small class="src">نص المصحف ومواضع الوقف: Tanzil (Uthmani)، رخصة CC BY 3.0. النموذج: HisnLabs/tajweed-v2. تجربة للتدريب، مش حكم تجويد.</small>
+
+<div id="pill">
+  <div class="mw"><button id="mic" aria-label="تسميع (اضغط مطوّلًا لاختيار أوفلاين/أونلاين)">🎙️</button><span id="engLab">أوفلاين</span></div>
+  <div id="pstate"><span id="ptxt">جاهز</span><span id="pnum"></span></div>
+  <div class="seg"><button id="mTrain" class="on">تدريب</button><button id="mTest">اختبار</button></div>
+  <button id="hint" hidden aria-label="تلميح">💡</button><button id="fin" hidden aria-label="خلصت">✔</button>
+</div>
+
+<div id="wheel" aria-hidden="true"><div id="wlab"></div><div id="wspin"><div class="nd t" id="ndT"><i>🎙️<small></small></i></div><div class="nd b" id="ndB"><i>🎙️<small></small></i></div></div></div>
+
+<div id="scrim"></div>
+<div class="sheet" id="set">
+  <h2>الإعدادات</h2>
+  <div class="row"><label for="sSur">السورة</label><select id="sSur"></select></div>
+  <div class="row" id="rngRow"><label>آيات الاختبار (من / إلى، 0 للآخر)</label><span><input type="number" id="sFa" min="1" value="1"> <input type="number" id="sTa" min="0" value="0"></span></div>
+  <div class="row"><label for="sStrict">حساسية الأخطاء</label><select id="sStrict"><option value="lenient">متساهل</option><option value="normal" selected>عادي</option><option value="strict">صارم</option></select></div>
+  <div class="row"><label for="sWin">أقصى نافذة تحليل</label><select id="sWin"><option value="3">3 ث (أسرع)</option><option value="4" selected>4 ث</option><option value="6">6 ث (أدق)</option></select></div>
+  <div class="row"><label>ما تتقدمش لحد ما تصحّح الغلط</label><button class="sw" id="sHold" aria-label="ما تتقدمش"></button></div>
+  <div class="row"><label>تبديل السورة تلقائي</label><button class="sw on" id="sAuto" aria-label="تبديل تلقائي"></button></div>
+  <button class="act alt" id="copy">نسخ السجل</button>
+  <button class="act" id="setClose">تمام</button>
+</div>
+<div class="sheet" id="rep"><h2>تقرير الاختبار</h2><div id="repBody"></div><button class="act" id="repClose">إغلاق</button></div>
+<div id="toast"></div>
+
+<script src="tajweed-core5.js?v=7"></script>
+<script>
+const $ = id => document.getElementById(id), Core = TajweedCore5, SR = 16000;
+const NAMES = 'الفاتحة،البقرة،آل عمران،النساء،المائدة،الأنعام،الأعراف،الأنفال،التوبة،يونس،هود،يوسف،الرعد،إبراهيم،الحجر،النحل،الإسراء،الكهف،مريم،طه،الأنبياء،الحج،المؤمنون،النور،الفرقان،الشعراء،النمل،القصص،العنكبوت،الروم،لقمان،السجدة،الأحزاب،سبأ،فاطر،يس،الصافات،ص،الزمر،غافر،فصلت،الشورى،الزخرف،الدخان،الجاثية،الأحقاف،محمد،الفتح،الحجرات،ق،الذاريات،الطور،النجم،القمر،الرحمن،الواقعة،الحديد،المجادلة،الحشر،الممتحنة،الصف،الجمعة،المنافقون،التغابن،الطلاق،التحريم،الملك،القلم،الحاقة،المعارج،نوح،الجن،المزمل،المدثر،القيامة،الإنسان،المرسلات،النبأ،النازعات،عبس،التكوير،الانفطار،المطففين،الانشقاق،البروج،الطارق،الأعلى،الغاشية،الفجر،البلد،الشمس،الليل،الضحى،الشرح،التين،العلق،القدر،البينة،الزلزلة،العاديات،القارعة،التكاثر،العصر،الهمزة،الفيل،قريش،الماعون،الكوثر،الكافرون،النصر،المسد،الإخلاص،الفلق،الناس'.split('،');
+const TH = { lenient: 0.45, normal: 0.6, strict: 0.8 };
+const ar = n => String(n).replace(/\d/g, d => '٠١٢٣٤٥٦٧٨٩'[d]);
+const LABEL = { forward: 'ماشي ✅', back: 'رجعت وبتعيد 🔁', jump: 'انتقلت لمكان تاني ⤴️', relocate: 'لقيت مكانك 📍', unclear: '…', lost: 'مش لاقي مكانك ❓', ignored: '…', silence: '', 'pending-first': 'بدوّر على مكانك…', 'pending-back': 'بتعيد؟ بتأكد…', 'pending-jump': 'انتقال؟ بتأكد…', 'pending-relocate': 'بدوّر على مكانك…', 'pending-switch': 'لقيت سورة تانية؟ بتأكد…' };
+function lab(res) {
+  const ay = res.want ? ar(res.want) : '', m = { next: 'آية جديدة ✅', 'ignored-ahead': 'مستني آية ' + ay + ' — الكلام ده بعدها', 'ignored-mid': 'ابدأ آية ' + ay + ' من أولها', 'ignored-before': 'مستني آية ' + ay, 'ignored-out': 'برّه آيات الاختبار' };
+  return m[res.ev] !== undefined ? m[res.ev] : (LABEL[res.ev] !== undefined ? LABEL[res.ev] : res.ev);
+}
+const DEF = { show: false, sur: 1, win: 4, strict: 'normal', hold: false, auto: true, engine: 'offline', mode: 'train', fa: 1, ta: 0 };
+let cfg = { ...DEF };
+try { Object.assign(cfg, JSON.parse(localStorage.getItem('tasmeeCfg3') || '{}')); } catch (e) {}
+const save = () => { try { localStorage.setItem('tasmeeCfg3', JSON.stringify(cfg)); } catch (e) {} };
+const log = { v: 'final3', ua: navigator.userAgent, cores: navigator.hardwareConcurrency, passes: [], events: [], searches: [] };
+let worker, qw = null, qReady = false, qBusy = false, qId = 0, qReq = null, seq = 0; const wait = new Map();
+let REFS = null, surah = null, trk = null, stream = null, rec = null, t0 = 0, curSur = 1, disp = -1, lo = 0, hi = 0, feedFirst = true, ready = false, curA = -1, wlock = null;
+const dirty = new Set(); let hinted = new Set();
+function toast(m) { const t = $('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(toast.k); toast.k = setTimeout(() => t.classList.remove('show'), 2600); }
+function ask(msg, transfer) { return new Promise((res, rej) => { const id = ++seq; wait.set(id, { res, rej }); worker.postMessage({ ...msg, id }, transfer || []); }); }
+async function loadRefs() {
+  const buf = await (await fetch('models/tajweed/refs_hafs.json.gz')).arrayBuffer(), u = new Uint8Array(buf);
+  const gz = u[0] === 0x1f && u[1] === 0x8b;
+  const text = gz ? await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text() : new TextDecoder().decode(u);
+  REFS = JSON.parse(text);
+}
+// ---------- الرسم: كارت لكل آية زي التطبيق ----------
+function clsOf(i) {
+  const st = trk.status(i), test = cfg.mode === 'test'; let c = 'w', show = false;
+  if (i === disp) c += ' cur';
+  if (st === 'wrong') { c += ' bad'; show = true; } else if (st === 'missing') { c += ' miss'; show = true; } else if (st === 'ok') { c += ' ok'; show = true; } else if (trk.P && trk.P.has(i) && i < trk.ptr) { c += " pass"; show = true; }
+  if (test && hinted.has(i)) { c += ' hint'; show = true; }
+  if (show) c += ' rv';
+  return c;
+}
+function refresh(i) { const e = $('w' + i); if (!e) return; const c = clsOf(i); if (e.className !== c) { e.className = c; dirty.add(surah.words[i].ay); } }
+function refreshRange(a, b) { a = Math.max(lo, a); b = Math.min(hi, b); for (let i = a; i <= b; i++) refresh(i); }
+function fitDirty() {
+  if (cfg.mode !== 'test') { dirty.clear(); return; }
+  dirty.forEach(a => { const c = $('a' + a); if (!c) return; const card = c.querySelector('.card'), tx = c.querySelector('.txt'); let fs = 29; tx.style.fontSize = fs + 'px'; while (tx.scrollHeight > card.clientHeight - 34 && fs > 13) { fs -= 2; tx.style.fontSize = fs + 'px'; } });
+  dirty.clear();
+}
+function dispPtr(ptr) {
+  if (!cfg.hold || ptr < 0) return ptr;
+  for (let i = Math.max(lo, ptr - 60); i < ptr; i++) { const st = trk.status(i); if (st === 'wrong' || st === 'missing') return i; }
+  return ptr;
+}
+function build() {
+  const W = surah.words, test = cfg.mode === 'test', nAy = W.length ? W[W.length - 1].ay : 0;
+  let a0 = 1, a1 = nAy;
+  if (test) { a0 = Math.max(1, +cfg.fa || 1); a1 = +cfg.ta > 0 ? Math.min(nAy, +cfg.ta) : nAy; if (a0 > a1) a0 = a1; }
+  lo = W.findIndex(w => w.ay >= a0); hi = -1; W.forEach((w, i) => { if (w.ay <= a1) hi = i; }); if (lo < 0) { lo = 0; hi = -1; }
+  let h = '', cur = 0;
+  for (let i = lo; i <= hi; i++) {
+    const w = W[i];
+    if (w.ay !== cur) { if (cur) h += '</div></div><div class="medal">' + ar(cur) + '</div></section>'; cur = w.ay; h += `<section class="ayc" id="a${cur}"><div class="card"><div class="txt">`; }
+    h += `<span class="w" id="w${i}" style="--n:${Math.max(1, w.sb - w.sa)}">${w.t}</span> `;
+  }
+  if (cur) h += '</div></div><div class="medal">' + ar(cur) + '</div></section>';
+  const L = $('list'); L.className = test ? 'test' : 'train' + (cfg.show ? ' showall' : ''); $('peek').classList.toggle('off', !cfg.show); L.innerHTML = h || '<p>رقم سورة غلط</p>';
+  $('sub').textContent = nAy + ' آية' + (test ? ' · اختبار' : ''); $('peek').hidden = test; $('fin').hidden = $('hint').hidden = !test; $('rngRow').style.display = test ? '' : 'none';
+  $('mTrain').classList.toggle('on', !test); $('mTest').classList.toggle('on', test); curA = -1;
+  if (trk) { trk.setMode(cfg.mode); trk.setRange(lo, hi); refreshRange(lo, hi); dirty.clear(); if (test) { for (let a = a0; a <= a1; a++) dirty.add(a); fitDirty(); } markCard(); }
+}
+function markCard() {
+  const a = disp >= 0 && surah.words[disp] ? surah.words[disp].ay : -1; if (a === curA) return;
+  const o = $('a' + curA); if (o) o.classList.remove('curA'); const n = $('a' + a); if (n) n.classList.add('curA'); curA = a;
+}
+function render() {
+  curSur = cfg.sur; surah = Core.buildSurah(REFS, curSur);
+  trk = new Core.Tracker(surah, { T: TH[cfg.strict], mode: cfg.mode }); stream = new Core.Stream(); feedFirst = true; disp = -1; qBusy = false; hinted = new Set();
+  $('surName').textContent = 'سورة ' + NAMES[curSur - 1]; build(); window.scrollTo(0, 0);
+  $('state').textContent = ''; $('pnum').textContent = '';
+}
+function onMove(res) {
+  const nd = dispPtr(res.ptr), od = disp; disp = nd;
+  if (res.changed) res.changed.forEach(refresh);
+  if (od !== nd) { const a = od < 0 ? lo : Math.min(od, nd), b = Math.max(od, nd); if (b - a > 400) refreshRange(lo, hi); else refreshRange(a - 1, b + 1); markCard();
+    const test = cfg.mode === 'test', e = test ? ($('a' + surah.words[nd].ay)) : $('w' + nd); if (e && nd >= lo && nd <= hi) e.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+  fitDirty();
+}
+// ---------- البحث في القرآن كله ----------
+function startQ() {
+  if (qw) return;
+  qw = new Worker('qsearch-worker5.js');
+  qw.onmessage = e => { const m = e.data; if (m.type === 'ready') { qReady = true; return; } qBusy = false; if (m.type === 'found' && rec && qReq && qReq.id === m.id) onFound(m, qReq); };
+  qw.onerror = () => { qBusy = false; };
+  qw.postMessage({ type: 'init' });
+}
+function onFound(m, req) {
+  if (req.sur !== curSur || !cfg.auto) return;
+  const o = trk.offer(m, req.lq);
+  log.searches.push({ t: Math.round(performance.now() - t0), q: +m.q.toFixed(2), mg: +m.margin.toFixed(2), s: m.surah, ay: m.ay, n: m.n, len: m.len, ms: m.ms, ev: o ? o.ev : null });
+  if (!o) return;
+  if (o.ev === 'pending-switch') { $('ptxt').textContent = LABEL[o.ev]; return; }
+  cfg.sur = o.surah; if (cfg.mode === 'test') { cfg.fa = 1; cfg.ta = 0; $('sFa').value = 1; $('sTa').value = 0; }
+  $('sSur').value = o.surah; const s0 = stream, ff = feedFirst; render(); stream = s0; feedFirst = ff; trk.switchTo(surah, o.ptr); disp = -1; onMove({ ptr: o.ptr });
+  $('ptxt').textContent = 'انتقلت لسورة ' + NAMES[o.surah - 1] + ' آية ' + ar(o.ay) + ' 📍';
+  log.events.push({ t: Math.round(performance.now() - t0), ev: 'switch', sur: o.surah, ay: o.ay });
+}
+// ---------- التسجيل والتحليل (من غير حد زمني) ----------
+function tailAudio(r, sec) {
+  const rate = r.ctx.sampleRate, need = Math.min(r.n, Math.ceil(sec * rate));
+  const all = new Float32Array(need); let k = need;
+  for (let i = r.chunks.length - 1; i >= 0 && k > 0; i--) { const c = r.chunks[i], take = Math.min(c.length, k); all.set(c.subarray(c.length - take), k - take); k -= take; }
+  const ratio = rate / SR; if (ratio === 1) return all;
+  const out = new Float32Array(Math.floor(all.length / ratio));
+  for (let i = 0; i < out.length; i++) { const p = i * ratio, a = p | 0, b = Math.min(a + 1, all.length - 1); out[i] = all[a] + (all[b] - all[a]) * (p - a); }
+  return out;
+}
+async function pass(r, sec, prevEnd) {
+  const win = Math.min(+cfg.win, Math.max(2, sec - prevEnd + 1.8)), audio = tailAudio(r, win), len = audio.length / SR, ws = sec - len;
+  const t = performance.now(), m = await ask({ type: 'run', audio }, [audio.buffer]), ms = Math.round(performance.now() - t);
+  if (!rec) return;
+  stream.feed(m.script, m.times, ws, feedFirst); feedFirst = false;
+  const h = Core.skel(stream.tail(6, sec)), res = trk.step(h), silent = sec - stream.lastT();
+  if (res.consume) stream.consume(sec, 1.0);
+  const out = res.ptr >= 0 && (res.ptr < lo || res.ptr > hi);
+  if (res.ptr >= 0 && !out) onMove(res);
+  const lq = res.q === undefined ? 0 : res.q;
+  if (cfg.auto && qReady && !qBusy && res.ev !== 'silence' && h.length >= 18 && lq < 0.8) { qBusy = true; qReq = { id: ++qId, lq, sur: curSur }; qw.postMessage({ type: 'search', id: qReq.id, heard: h, skip: curSur }); }
+  $('ptxt').textContent = out ? 'برّه آيات الاختبار' : (silent > 1.5 && res.ev === 'silence') ? 'سامعك…' : lab(res);
+  $('pnum').textContent = `${ms} ms · ${len.toFixed(1)} ث · ${res.q === undefined ? '-' : Math.round(res.q * 100) + '%'}`;
+  log.passes.push({ t: Math.round(performance.now() - t0), ms, win: +len.toFixed(1), ev: res.ev, ptr: res.ptr, q: res.q === undefined ? null : +res.q.toFixed(2), n: res.n, h: h.slice(-40), raw: m.script.slice(-40) });
+  if (log.passes.length > 400) log.passes.splice(0, 100);
+  if (cfg.mode === 'test' && res.ptr >= hi && hi >= 0 && silent > 2.5) stop(true);
+}
+const fail = e => { $('ptxt').textContent = 'خطأ: ' + e.message; log.error = e.message; };
+async function start() {
+  if (!ready) return toast('جهّز التسميع الأول');
+  if (cfg.engine === 'online') return toast('الأونلاين بيتوصّل بالتطبيق نفسه في الخطوة الجاية. اختار «أوفلاين» للتجربة.');
+  const stream0 = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: true } });
+  let ctx; try { ctx = new AudioContext({ sampleRate: SR }); } catch (e) { ctx = new AudioContext(); }
+  const r = rec = { stream: stream0, ctx, chunks: [], n: 0, total: 0, on: true };
+  const src = ctx.createMediaStreamSource(stream0), node = ctx.createScriptProcessor(2048, 1, 1);
+  node.onaudioprocess = e => { if (!r.on) return; const c = e.inputBuffer.getChannelData(0).slice(); r.chunks.push(c); r.n += c.length; r.total += c.length; const keep = 40 * r.ctx.sampleRate; while (r.n > keep && r.chunks.length > 1) r.n -= r.chunks.shift().length; };
+  src.connect(node); node.connect(ctx.destination); r.node = node; await ctx.resume();
+  try { if (navigator.wakeLock) wlock = await navigator.wakeLock.request('screen'); } catch (e) {}
+  $('mic').classList.add('rec'); $('ptxt').textContent = 'سامعك…'; t0 = performance.now();
+  let done = 0, prevEnd = 0;
+  r.loop = (async () => {
+    while (r.on) {
+      const sec = r.total / r.ctx.sampleRate;   // عدّاد مطلق ما بينقصش أبدًا
+      if (sec >= 0.6 && sec - done >= 0.3) { done = sec; const pe = prevEnd; prevEnd = sec; await pass(r, sec, pe); } else await new Promise(s => setTimeout(s, 40));
+    }
+  })().catch(fail);
+}
+async function stop(report) {
+  const r = rec; if (!r) return; rec = null; r.on = false;
+  r.node.disconnect(); r.stream.getTracks().forEach(t => t.stop());
+  try { if (wlock) wlock.release(); } catch (e) {} wlock = null;
+  try { await r.loop; } catch (e) { fail(e); }
+  r.ctx.close(); $('mic').classList.remove('rec'); $('ptxt').textContent = 'جاهز';
+  if (cfg.mode === 'test' && report !== false) showReport();
+}
+// ---------- تقرير الاختبار ----------
+function showReport() {
+  if (!trk || cfg.mode !== 'test') return;
+  const W = surah.words, last = Math.min(hi, Math.max(trk.ptr, lo)); let good = 0, mist = 0, hints = 0, unsure = 0; const bad = [];
+  for (let i = lo; i <= last; i++) {
+    const st = trk.status(i), v = trk.V.get(i), h = hinted.has(i);
+    if (h) hints++;
+    if (v && v.first < trk.opt.T) mist++;
+    if (st === 'wrong' || st === 'missing') bad.push(i);
+    else if (st === 'ok') { if (!h && v.first >= trk.opt.T) good++; } else if (!h) { unsure++; good++; }
+  }
+  const read = Math.max(1, last - lo + 1), pct = Math.round(good / read * 100), left = hi - last;
+  const li = i => { const v = trk.V.get(i); return `<div class="li">${W[i].t}<small>${v && v.skip ? 'آية اتخطّيتها' : 'غلط أو ناقصة'} · آية ${ar(W[i].ay)}</small></div>`; };
+  $('repBody').innerHTML = `<div class="big">${pct}%</div><div style="color:var(--mut);font-size:13px">صح من أول مرة وبدون تلميح، من ${read} كلمة اتقرأت (سورة ${NAMES[curSur - 1]})</div>
+  <div class="rep"><div><b>${good}</b>صح</div><div><b>${mist}</b>أخطاء</div><div><b>${hints}</b>تلميحات</div></div>
+  ${unsure ? `<p style="color:var(--mut);font-size:13px">${unsure} كلمة قصيرة أو مش مؤكدة اتحسبت صح.</p>` : ''}
+  ${left > 0 ? `<p style="color:var(--mut);font-size:13px">فاضل ${left} كلمة ما اتقرتش.</p>` : ''}
+  ${bad.length ? '<p style="font-size:13px;color:var(--mut)">لسه غلط أو ناقصة:</p>' : ''}${bad.map(li).join('')}`;
+  openSheet('rep');
+}
+// ---------- واجهة ----------
+function openSheet(id) { $(id).classList.add('open'); $('scrim').classList.add('show'); }
+function closeSheets() { document.querySelectorAll('.sheet').forEach(s => s.classList.remove('open')); $('scrim').classList.remove('show'); }
+$('scrim').onclick = closeSheets; $('setClose').onclick = $('repClose').onclick = closeSheets;
+$('gear').onclick = () => openSheet('set');
+function applyUI() {
+  $('engLab').textContent = cfg.engine === 'online' ? 'أونلاين' : 'أوفلاين';
+  $('sHold').classList.toggle('on', !!cfg.hold); $('sAuto').classList.toggle('on', !!cfg.auto);
+  $('sSur').value = cfg.sur; $('sFa').value = cfg.fa; $('sTa').value = cfg.ta; $('sStrict').value = cfg.strict; $('sWin').value = cfg.win;
+  $('mTrain').classList.toggle('on', cfg.mode !== 'test'); $('mTest').classList.toggle('on', cfg.mode === 'test');
+}
+// التبديل بين تدريب واختبار شغّال حتى والميكروفون مفتوح (من غير ما يضيع التتبع)
+function setMode(m) { if (cfg.mode === m) return; cfg.mode = m; save(); applyUI(); if (REFS) { if (cfg.sur !== curSur) render(); else build(); } }
+$('mTrain').onclick = () => setMode('train'); $('mTest').onclick = () => setMode('test');
+$('sSur').innerHTML = NAMES.map((n, i) => `<option value="${i + 1}">${ar(i + 1)}. ${n}</option>`).join('');
+$('sSur').onchange = () => { cfg.sur = +$('sSur').value; cfg.fa = 1; cfg.ta = 0; save(); applyUI(); if (REFS) render(); };
+$('sFa').onchange = $('sTa').onchange = () => { cfg.fa = +$('sFa').value || 1; cfg.ta = +$('sTa').value || 0; save(); if (REFS) build(); };
+$('sStrict').onchange = () => { cfg.strict = $('sStrict').value; save(); if (trk) { trk.setT(TH[cfg.strict]); refreshRange(lo, hi); fitDirty(); } };
+$('sWin').onchange = () => { cfg.win = +$('sWin').value; save(); };
+$('sHold').onclick = () => { cfg.hold = !cfg.hold; save(); applyUI(); };
+$('sAuto').onclick = () => { cfg.auto = !cfg.auto; save(); applyUI(); };
+$('again').onclick = () => { if (REFS) render(); };
+$('peek').onclick = () => { if (cfg.mode === 'test') return; cfg.show = !cfg.show; save(); $('list').classList.toggle('showall', cfg.show); $('peek').classList.toggle('off', !cfg.show); };
+function hintWord(i) {
+  if (!trk || cfg.mode !== 'test' || i < lo || i > hi || hinted.has(i)) return;
+  hinted.add(i); refresh(i); fitDirty(); toast('تلميح اتحسب 💡');
+}
+function nextHint() {
+  for (let i = Math.max(lo, disp - 60); i < disp; i++) { const st = trk.status(i); if ((st === 'wrong' || st === 'missing') && !hinted.has(i)) return i; }
+  let i = trk.ptr < 0 ? lo : trk.ptr + 1; while (i <= hi && hinted.has(i)) i++; return i <= hi ? i : -1;
+}
+$('hint').onclick = () => { const i = nextHint(); if (i >= 0) hintWord(i); };
+$('list').addEventListener('click', e => { const el = e.target.closest && e.target.closest('.w.bad.rv,.w.miss.rv'); if (el && cfg.mode === 'test') hintWord(+el.id.slice(1)); });
+$('fin').onclick = () => { if (rec) stop(true); else showReport(); };
+$('copy').onclick = () => {
+  const v = []; if (trk) trk.V.forEach((x, i) => v.push([i, +x.best.toFixed(2), +x.first.toFixed(2), x.kind, x.n]));
+  navigator.clipboard.writeText(JSON.stringify({ ...log, cfg, verdicts: v.slice(-250), passes: log.passes.slice(-160) })).then(() => toast('اتنسخ ✓'), () => toast('مقدرتش أنسخ'));
+};
+// ---------- عجلة أوفلاين/أونلاين: ضغطة مطوّلة على الميكروفون، ولفّ بصباعك، وسيب ----------
+const WH = { open: false, rot: 0, last: 90, moved: 0, cx: 0, cy: 0, cross: false };
+const ENG = { offline: 'أوفلاين', online: 'أونلاين' }, ICO = { offline: '📴', online: '🌐' }, other = e => e === 'offline' ? 'online' : 'offline';
+let micDown = false, pressT = null, long = false;
+function wSel() { return Math.abs(Math.round(WH.rot / 180)) % 2 === 1 ? other(cfg.engine) : cfg.engine; }
+function wApply() { $('wspin').style.transform = `rotate(${WH.rot}deg)`; const inv = `rotate(${-WH.rot}deg)`; $('ndT').style.transform = $('ndB').style.transform = inv; $('wlab').textContent = 'هيشتغل: ' + ENG[wSel()]; }
+function openWheel() {
+  const r = $('mic').getBoundingClientRect(), w = $('wheel');
+  WH.open = true; WH.rot = 0; WH.last = 90; WH.moved = 0; WH.cross = false; WH.cx = Math.min(Math.max(r.left + r.width / 2, 84), innerWidth - 84); WH.cy = r.top + r.height / 2 - 42;
+  w.style.left = WH.cx + 'px'; w.style.top = WH.cy + 'px'; w.classList.remove('snap');
+  $('ndB').querySelector('small').textContent = ICO[cfg.engine]; $('ndT').querySelector('small').textContent = ICO[other(cfg.engine)];
+  wApply(); w.classList.add('on'); if (navigator.vibrate) try { navigator.vibrate(15); } catch (e) {}
+}
+function wSettle() {
+  if (!WH.open) return; micDown = false;
+  const k = Math.round(WH.rot / 180), w = $('wheel'); WH.rot = k * 180; w.classList.add('snap'); wApply();
+  const eng = wSel();
+  setTimeout(() => {
+    if (eng !== cfg.engine) { cfg.engine = eng; save(); applyUI(); toast(eng === 'offline' ? 'أوفلاين: من غير نت 📴' : 'أونلاين 🌐'); }
+    w.classList.remove('on'); WH.open = false;
+  }, 440);
+}
+window.addEventListener('pointermove', e => {
+  if (!WH.open || !micDown) return;
+  const dx = e.clientX - WH.cx, dy = e.clientY - WH.cy;
+  if (Math.hypot(dx, dy) < 20) { WH.cross = true; return; }
+  const a = Math.atan2(dy, dx) * 180 / Math.PI; let d = a - WH.last;
+  if (d > 180) d -= 360; if (d < -180) d += 360;
+  if (WH.cross && Math.abs(d) > 110) d = 180;   // عدّى من نص الدايرة: يعني قلب كامل
+  WH.last = a; WH.cross = false; WH.rot += d; WH.moved += Math.abs(d); wApply();
+});
+window.addEventListener('pointerup', () => { if (WH.open && micDown) wSettle(); });
+{
+  const mic = $('mic');
+  mic.addEventListener('pointerdown', e => { if (rec) return; try { mic.setPointerCapture(e.pointerId); } catch (x) {} long = false; micDown = false; clearTimeout(pressT); pressT = setTimeout(() => { long = true; micDown = true; openWheel(); }, 380); });
+  mic.addEventListener('pointerup', () => { clearTimeout(pressT); if (long) { long = false; wSettle(); return; } if (rec) stop(true); else start().catch(fail); });
+  mic.addEventListener('pointercancel', () => { clearTimeout(pressT); if (long) { long = false; wSettle(); } });
+  mic.addEventListener('contextmenu', e => e.preventDefault());
+}
+// ---------- التحميل ----------
+$('go').onclick = async () => {
+  if (!Core.VERSION || Core.VERSION < 7) { $('lmsg').textContent = 'ملف tajweed-core5.js على الموقع قديم. انسخ النسخة الأحدث من Downloads (اسمها ممكن يبقى فيه (1)) وارفعها تاني.'; return; }
+  $('go').disabled = true; $('lmsg').textContent = 'بحمّل…';
+  worker = new Worker('tajweed-worker.js', { type: 'module' });
+  worker.onmessage = e => {
+    const m = e.data; if (m.type === 'progress') { $('bar').firstElementChild.style.width = m.pct + '%'; return void ($('lmsg').textContent = 'بحمّل النموذج (أول مرة بس)… ' + m.pct + '%'); }
+    const w = wait.get(m.id); wait.delete(m.id); if (w) m.type === 'error' ? w.rej(new Error(m.message)) : w.res(m);
+  };
+  worker.onerror = e => { $('lmsg').textContent = 'خطأ: ' + (e.message || 'الـ worker ماشتغلش'); $('go').disabled = false; };
+  try {
+    const r = await ask({ type: 'load' }); log.loadMs = r.ms; log.cached = !!r.cached;
+    $('lmsg').textContent = 'بحمّل المصحف…'; await loadRefs(); applyUI(); render(); startQ(); ready = true;
+    $('load').style.display = 'none'; toast((r.cached ? 'النموذج من المخزّن' : 'النموذج اتحمّل واتخزّن') + ' · ' + (r.ms / 1000).toFixed(1) + ' ث');
+  } catch (e) { $('lmsg').textContent = 'خطأ: ' + e.message; log.error = e.message; $('go').disabled = false; }
+};
+applyUI();
+</script>
+</body>
+</html>
